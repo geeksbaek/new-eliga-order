@@ -2976,6 +2976,15 @@ img {
   overflow: visible;
 }
 
+/* Quick-order button under qty needs a taller card */
+.menu-row.menu-row-with-quick {
+  height: auto;
+  min-height: 96px;
+  align-items: start;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
 .menu-row-thumb-wrap {
   grid-column: 1;
   grid-row: 1;
@@ -3271,6 +3280,127 @@ img {
   width: 96px;
   min-width: 96px;
   height: 56px;
+}
+
+.menu-row-with-quick .menu-row-side {
+  height: auto;
+  min-height: 56px;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.menu-row-with-quick .menu-row-thumb-wrap,
+.menu-row-with-quick .menu-row-main {
+  align-self: center;
+}
+
+.menu-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  width: 96px;
+}
+
+.menu-quick-order-btn {
+  width: 96px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  padding: 0;
+}
+
+.menu-quick-order-btn:disabled {
+  opacity: 0.4;
+}
+
+.menu-quick-order-btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* ICE / HOT pick sheet */
+.temp-pick-panel {
+  padding-bottom: calc(20px + var(--safe-b));
+}
+
+.temp-pick-head {
+  margin-bottom: 14px;
+}
+
+.temp-pick-sub {
+  margin: 6px 0 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.temp-pick-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.temp-pick-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.temp-pick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 88px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--surface);
+  padding: 12px 10px;
+}
+
+.temp-pick-btn-label {
+  font-size: 1.15rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.temp-pick-btn-price {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.temp-pick-btn-ice {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.temp-pick-btn-hot {
+  border-color: rgba(220, 38, 38, 0.3);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.temp-pick-btn:disabled {
+  opacity: 0.45;
+}
+
+.temp-pick-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.quick-order-banner {
+  margin-bottom: 12px;
 }
 
 .menu-row-price {

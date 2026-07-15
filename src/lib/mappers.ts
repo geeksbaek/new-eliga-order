@@ -20,8 +20,10 @@ import type {
   OrderHistoryView,
   OrderLineView,
   PaymentReason,
+  SelectedOption,
   Shop,
 } from './types'
+import type { StashedCartLine } from './quick-order'
 
 function asArray<T>(v: unknown): T[] {
   return Array.isArray(v) ? (v as T[]) : []
@@ -482,6 +484,50 @@ export function mapCart(raw: unknown): Cart {
     shopId: cart.shopId != null ? Number(cart.shopId) : undefined,
     items,
   }
+}
+
+/**
+ * Snapshot cart lines with option menu ids so a cleared cart can be restored
+ * after an abandoned quick-order checkout.
+ */
+export function mapCartRestoreLines(raw: unknown): StashedCartLine[] {
+  const content = contentOf(raw) as Record<string, unknown> | null
+  const cart = content && (content.cart as Record<string, unknown> | null)
+  if (!cart) return []
+
+  return asArray<Record<string, unknown>>(cart.goodsCartItems).map((item) => {
+    const detail = (item.goodsDetail as Record<string, unknown>) || {}
+    const byOption = new Map<number, number[]>()
+
+    for (const opt of asArray<Record<string, unknown>>(item.goodsCartItemOptions)) {
+      const optInfo = (opt.goodsOption as Record<string, unknown>) || {}
+      const optionId = Number(
+        opt.goodsOptionId ?? optInfo.id ?? opt.optionId ?? 0,
+      )
+      if (!optionId) continue
+      const menuIds = byOption.get(optionId) ?? []
+      for (const menu of asArray<Record<string, unknown>>(
+        opt.goodsCartItemOptionMenus,
+      )) {
+        const menuInfo = (menu.goodsOptionMenu as Record<string, unknown>) || {}
+        const menuId = Number(
+          menu.goodsOptionMenuId ?? menuInfo.id ?? menu.menuId ?? 0,
+        )
+        if (menuId) menuIds.push(menuId)
+      }
+      if (menuIds.length) byOption.set(optionId, menuIds)
+    }
+
+    const options: SelectedOption[] = [...byOption.entries()].map(
+      ([optionId, menuIds]) => ({ optionId, menuIds }),
+    )
+
+    return {
+      goodsId: Number(detail.id),
+      qty: Number(item.goodsQty ?? 0) || 1,
+      options,
+    }
+  })
 }
 
 export function mapPaymentReasons(raw: unknown): PaymentReason[] {

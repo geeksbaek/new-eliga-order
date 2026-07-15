@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   composeOrder,
   fetchPaymentReasons,
   placeOrder,
+  restoreStashedCart,
 } from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
 import { PageHeader } from '../components/PageHeader'
@@ -13,6 +14,12 @@ import {
   assertOrderConfirmed,
   pickDefaultPaymentReasonId,
 } from '../lib/order-payload'
+import {
+  assertQuickOrderCartIsolated,
+  clearQuickOrderSession,
+  loadQuickOrderSession,
+  type QuickOrderSession,
+} from '../lib/quick-order'
 import { useShop } from '../hooks/useShop'
 import type { PaymentReason } from '../lib/types'
 
@@ -27,11 +34,22 @@ export function OrderConfirmPage() {
     refreshCart,
     getCafeHours,
     isSelectedCafeOpen,
+    selectShop,
+    setCartLocal,
   } = useShop()
   const navigate = useNavigate()
+  const location = useLocation()
   const hours =
     selectedShopId != null ? getCafeHours(selectedShopId) : null
   const hoursBlockOrder = hours != null && !hours.orderable
+
+  const [quickSession] = useState<QuickOrderSession | null>(() =>
+    loadQuickOrderSession(),
+  )
+  const isQuickOrder =
+    Boolean(
+      (location.state as { quickOrder?: boolean } | null)?.quickOrder,
+    ) || quickSession != null
 
   const [reasons, setReasons] = useState<PaymentReason[]>([])
   const [reasonId, setReasonId] = useState<number | null>(null)
@@ -40,6 +58,84 @@ export function OrderConfirmPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [resultMsg, setResultMsg] = useState<string | null>(null)
+  const [isolationError, setIsolationError] = useState<string | null>(null)
+
+  /** Set true only after a successful placeOrder so we skip stash restore. */
+  const orderedOkRef = useRef(false)
+  const restoringRef = useRef(false)
+
+  // Align selected shop with quick-order session
+  useEffect(() => {
+    if (quickSession?.shopId != null) {
+      selectShop(quickSession.shopId)
+    }
+  }, [quickSession?.shopId, selectShop])
+
+  // Hard isolation check for quick order
+  useEffect(() => {
+    if (!isQuickOrder || !quickSession) {
+      setIsolationError(null)
+      return
+    }
+    if (cartLoading) return
+    if (selectedShopId !== quickSession.shopId) return
+    try {
+      assertQuickOrderCartIsolated(cart, {
+        goodsId: quickSession.expectedGoodsId,
+        qty: quickSession.expectedQty,
+      })
+      setIsolationError(null)
+    } catch (e) {
+      setIsolationError(
+        e instanceof Error
+          ? e.message
+          : '바로 주문 장바구니 격리에 실패했습니다',
+      )
+    }
+  }, [
+    isQuickOrder,
+    quickSession,
+    cart,
+    cartLoading,
+    selectedShopId,
+  ])
+
+  // Restore stashed cart if user leaves without completing order.
+  // Deferred + pathname check avoids React Strict Mode double-mount false restore.
+  useEffect(() => {
+    return () => {
+      if (orderedOkRef.current) return
+      const session = loadQuickOrderSession()
+      if (!session) return
+      window.setTimeout(() => {
+        if (orderedOkRef.current) return
+        if (restoringRef.current) return
+        // Still on confirm (Strict Mode remount) — leave session alone
+        if (window.location.pathname.includes('/order/confirm')) return
+        const latest = loadQuickOrderSession()
+        if (!latest) return
+        restoringRef.current = true
+        void (async () => {
+          try {
+            const restored = await restoreStashedCart(
+              latest.shopId,
+              latest.stashed,
+            )
+            setCartLocal(restored, latest.shopId)
+          } catch {
+            await refreshCart({
+              silent: true,
+              shopId: latest.shopId,
+              force: true,
+            })
+          } finally {
+            clearQuickOrderSession()
+          }
+        })()
+      }, 0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount-only restore
+  }, [])
 
   useEffect(() => {
     if (!canOrder || selectedShopId == null) {
@@ -73,7 +169,10 @@ export function OrderConfirmPage() {
     return (
       <div className="order-confirm">
         <PageHeader
-          back={{ fallbackTo: '/cart', label: '장바구니' }}
+          back={{
+            fallbackTo: isQuickOrder ? '/' : '/cart',
+            label: isQuickOrder ? '홈' : '장바구니',
+          }}
           title="주문 확인"
         />
         <Empty>
@@ -87,7 +186,10 @@ export function OrderConfirmPage() {
     return (
       <div className="order-confirm">
         <PageHeader
-          back={{ fallbackTo: '/cart', label: '장바구니' }}
+          back={{
+            fallbackTo: isQuickOrder ? '/' : '/cart',
+            label: isQuickOrder ? '홈' : '장바구니',
+          }}
           title="주문 확인"
         />
         <div className="cafe-hours-banner is-closed" role="status">
@@ -95,7 +197,9 @@ export function OrderConfirmPage() {
         </div>
         <Empty>
           운영시간에만 주문할 수 있습니다.{' '}
-          <Link to="/cart">장바구니로</Link>
+          <Link to={isQuickOrder ? '/' : '/cart'}>
+            {isQuickOrder ? '홈으로' : '장바구니로'}
+          </Link>
         </Empty>
       </div>
     )
@@ -109,11 +213,17 @@ export function OrderConfirmPage() {
     return (
       <div className="order-confirm">
         <PageHeader
-          back={{ fallbackTo: '/cart', label: '장바구니' }}
+          back={{
+            fallbackTo: isQuickOrder ? '/' : '/cart',
+            label: isQuickOrder ? '홈' : '장바구니',
+          }}
           title="주문 확인"
         />
         <Empty>
-          장바구니가 비어 있습니다. <Link to="/cart">장바구니</Link>
+          장바구니가 비어 있습니다.{' '}
+          <Link to={isQuickOrder ? '/' : '/cart'}>
+            {isQuickOrder ? '홈' : '장바구니'}
+          </Link>
         </Empty>
       </div>
     )
@@ -139,6 +249,23 @@ export function OrderConfirmPage() {
       return
     }
 
+    // Final hard gate: never co-pay stashed / foreign lines
+    if (isQuickOrder && quickSession) {
+      try {
+        assertQuickOrderCartIsolated(cart, {
+          goodsId: quickSession.expectedGoodsId,
+          qty: quickSession.expectedQty,
+        })
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message
+            : '바로 주문 격리 검증에 실패했습니다',
+        )
+        return
+      }
+    }
+
     setBusy(true)
     try {
       const payload = composeOrder({
@@ -156,6 +283,8 @@ export function OrderConfirmPage() {
           ? (res as { content: { id?: number; orderId?: number } }).content.id ??
             (res as { content: { orderId?: number } }).content.orderId
           : null
+      orderedOkRef.current = true
+      clearQuickOrderSession()
       setResultMsg(
         orderId
           ? `주문이 접수되었습니다. 주문번호 ${orderId}`
@@ -172,15 +301,46 @@ export function OrderConfirmPage() {
     }
   }
 
+  const blockSubmit =
+    busy ||
+    !confirmed ||
+    reasonId == null ||
+    hoursBlockOrder ||
+    !isSelectedCafeOpen ||
+    isolationError != null
+
   return (
     <div className="order-confirm">
       <PageHeader
-        back={{ fallbackTo: '/cart', label: '장바구니' }}
-        title="주문 확인"
-        sub="아래 내역과 금액을 확인한 뒤, 체크하고 주문하세요. 확인 없이는 주문이 실행되지 않습니다."
+        back={{
+          fallbackTo: isQuickOrder
+            ? selectedShopId != null
+              ? `/cafe/${selectedShopId}`
+              : '/'
+            : '/cart',
+          label: isQuickOrder ? '메뉴' : '장바구니',
+        }}
+        title={isQuickOrder ? '바로 주문 확인' : '주문 확인'}
+        sub={
+          isQuickOrder
+            ? '이 메뉴 1잔만 결제합니다. 기존 장바구니 항목은 포함되지 않습니다.'
+            : '아래 내역과 금액을 확인한 뒤, 체크하고 주문하세요. 확인 없이는 주문이 실행되지 않습니다.'
+        }
       />
 
-      {error && <ErrorBox>{error}</ErrorBox>}
+      {isQuickOrder && (
+        <div className="info-box quick-order-banner" role="status">
+          바로 주문 · {quickSession?.menuName || cart.items[0]?.name || '1잔'}{' '}
+          만 결제
+          {quickSession && quickSession.stashed.length > 0
+            ? ` · 이전 장바구니 ${quickSession.stashed.length}건은 결제 후가 아니라 취소 시에만 복구`
+            : ''}
+        </div>
+      )}
+
+      {(error || isolationError) && (
+        <ErrorBox>{error || isolationError}</ErrorBox>
+      )}
       {resultMsg && <div className="info-box">{resultMsg}</div>}
 
       <div className="two-col">
@@ -249,31 +409,30 @@ export function OrderConfirmPage() {
               type="checkbox"
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
-              disabled={hoursBlockOrder}
+              disabled={hoursBlockOrder || isolationError != null}
             />
             <span>
               위 주문 내역과 총 금액 <strong>{formatWon(cartTotal)}</strong>을
               확인했으며, 픽업 주문을 진행합니다.
+              {isQuickOrder ? ' (바로 주문 1잔만)' : ''}
             </span>
           </label>
 
           <button
             type="button"
             className="btn btn-primary btn-block"
-            disabled={
-              busy ||
-              !confirmed ||
-              reasonId == null ||
-              hoursBlockOrder ||
-              !isSelectedCafeOpen
-            }
+            disabled={blockSubmit}
             onClick={() => void onSubmit()}
           >
             {hoursBlockOrder
               ? '운영시간 외 · 주문 불가'
-              : busy
-                ? '주문 중…'
-                : '주문하기'}
+              : isolationError
+                ? '바로 주문 검증 실패'
+                : busy
+                  ? '주문 중…'
+                  : isQuickOrder
+                    ? '1잔 주문하기'
+                    : '주문하기'}
           </button>
         </section>
       </div>

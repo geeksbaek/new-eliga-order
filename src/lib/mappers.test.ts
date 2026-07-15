@@ -6,6 +6,7 @@ import {
   mapCafeMenu,
   mapCafeMenuDetail,
   mapCart,
+  mapCartRestoreLines,
   mapPaymentReasons,
   mapShops,
 } from './mappers'
@@ -329,6 +330,43 @@ describe('mappers from skill-shaped API fixtures', () => {
         },
       ],
     })
+  })
+
+  it('maps cart restore lines with option menu ids', () => {
+    const raw = {
+      content: {
+        cart: {
+          id: 1,
+          shopId: 5,
+          goodsCartItems: [
+            {
+              id: 10,
+              goodsQty: 2,
+              goodsDetail: { id: 568, name: { ko: '아메' } },
+              goodsCartItemOptions: [
+                {
+                  goodsOptionId: 40,
+                  goodsOption: { id: 40, name: { ko: '컵' } },
+                  goodsCartItemOptionMenus: [
+                    {
+                      goodsOptionMenuId: 68,
+                      goodsOptionMenu: { id: 68, name: { ko: '일회용컵' } },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }
+    expect(mapCartRestoreLines(raw)).toEqual([
+      {
+        goodsId: 568,
+        qty: 2,
+        options: [{ optionId: 40, menuIds: [68] }],
+      },
+    ])
   })
 
   it('filters inactive payment reasons', () => {

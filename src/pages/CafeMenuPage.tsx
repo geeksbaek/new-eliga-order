@@ -10,8 +10,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   fetchCafeCategories,
   fetchCafeMenu,
+  fetchCafeMenuDetail,
   fetchPopularOrders,
   fetchRecentOrders,
+  prepareIsolatedQuickOrder,
 } from '../api/eliga'
 import { Empty, ErrorBox } from '../components/UiState'
 import { ImagePreview, type PreviewImage } from '../components/ImagePreview'
@@ -19,7 +21,21 @@ import { PageHeader } from '../components/PageHeader'
 import { formatWon } from '../lib/format'
 import { MenuThumb } from '../components/MenuThumb'
 import { CafeHeaderActions } from '../components/CafeHeaderActions'
+import { TempPickSheet } from '../components/TempPickSheet'
 import { IconStar } from '../components/Icons'
+import {
+  defaultCartOptions,
+  hasCompleteSingleDefaults,
+} from '../lib/menu-options'
+import { saveQuickOrderSession } from '../lib/quick-order'
+import {
+  baseMenuTitle,
+  needsTempPick,
+  pickDefaultVariant,
+  tempPickOptions,
+  type TempPickOption,
+} from '../lib/temp-variants'
+import type { GoodsVariant } from '../lib/types'
 import {
   cacheIsFresh,
   cachePeek,
@@ -108,7 +124,16 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
   const isFavView = shopIdParam === FAV_ROUTE || shopIdParam === 'fav'
   const shopId = isFavView ? NaN : Number(shopIdParam)
   const navigate = useNavigate()
-  const { selectShop, shops, cart, cartsByShop, getCafeHours } = useShop()
+  const {
+    selectShop,
+    shops,
+    cart,
+    cartsByShop,
+    getCafeHours,
+    getCart,
+    refreshCart,
+    setCartLocal,
+  } = useShop()
   // Stable key: detail URL must not overwrite list scroll storage
   useScrollRestore({
     enabled: listActive,
@@ -119,6 +144,14 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
         : `/cafe/${shopIdParam ?? ''}`,
   })
   const [actionError, setActionError] = useState<string | null>(null)
+  const [quickBusyKey, setQuickBusyKey] = useState<string | null>(null)
+  const [tempPick, setTempPick] = useState<{
+    shopId: number
+    menuName: string
+    displayId: number
+    options: TempPickOption[]
+    willReplaceCart: boolean
+  } | null>(null)
 
   const { bumpMenuQty } = useCartMutations({
     onError: (err) => {
@@ -706,6 +739,120 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
     }
   }
 
+  const runIsolatedQuickOrder = useCallback(
+    async (
+      shopIdArg: number,
+      displayId: number,
+      menuName: string,
+      variant: GoodsVariant,
+    ) => {
+      if (!hasCompleteSingleDefaults(variant)) {
+        setTempPick(null)
+        setQuickBusyKey(null)
+        navigate(`/cafe/${shopIdArg}/menu?d=${displayId}`)
+        return
+      }
+
+      const busyKey = `${shopIdArg}:${displayId}`
+      setQuickBusyKey(busyKey)
+      setActionError(null)
+      try {
+        selectShop(shopIdArg)
+        const { cart: isolated, stashed } = await prepareIsolatedQuickOrder({
+          shopId: shopIdArg,
+          goodsId: variant.goodsId,
+          options: defaultCartOptions(variant),
+        })
+        setCartLocal(isolated, shopIdArg)
+        saveQuickOrderSession({
+          shopId: shopIdArg,
+          expectedGoodsId: variant.goodsId,
+          expectedQty: 1,
+          stashed,
+          menuName,
+          createdAt: Date.now(),
+        })
+        setTempPick(null)
+        navigate('/order/confirm', {
+          state: { quickOrder: true, shopId: shopIdArg },
+        })
+      } catch (e) {
+        setActionError(
+          e instanceof Error ? e.message : '바로 주문 준비에 실패했습니다',
+        )
+        await refreshCart({ silent: true, shopId: shopIdArg, force: true })
+      } finally {
+        setQuickBusyKey(null)
+      }
+    },
+    [navigate, refreshCart, selectShop, setCartLocal],
+  )
+
+  async function startQuickOrder(item: MenuRow) {
+    if (item.soldOut) return
+    const hours = getCafeHours(item.shopId)
+    if (!hours.orderable) {
+      setActionError(hours.message)
+      return
+    }
+
+    const busyKey = `${item.shopId}:${item.displayId}`
+    setQuickBusyKey(busyKey)
+    setActionError(null)
+    setTempPick(null)
+
+    try {
+      const detail = await fetchCafeMenuDetail(item.displayId)
+      const title =
+        baseMenuTitle(item.name) ||
+        baseMenuTitle(detail.variants[0]?.name ?? item.name)
+
+      if (needsTempPick(detail.variants)) {
+        const options = tempPickOptions(detail.variants)
+        const existing = getCart(item.shopId)
+        setTempPick({
+          shopId: item.shopId,
+          menuName: title,
+          displayId: item.displayId,
+          options,
+          // Any non-empty cart is stashed/cleared before the 1-cup line is added
+          willReplaceCart: existing.items.length > 0,
+        })
+        setQuickBusyKey(null)
+        return
+      }
+
+      const variant = pickDefaultVariant(detail.variants, item.goodsId)
+      if (!variant) {
+        setActionError('주문 가능한 옵션이 없습니다')
+        setQuickBusyKey(null)
+        return
+      }
+
+      await runIsolatedQuickOrder(
+        item.shopId,
+        item.displayId,
+        title,
+        variant,
+      )
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : '메뉴 정보를 불러오지 못했습니다',
+      )
+      setQuickBusyKey(null)
+    }
+  }
+
+  async function onTempPicked(opt: TempPickOption) {
+    if (!tempPick) return
+    await runIsolatedQuickOrder(
+      tempPick.shopId,
+      tempPick.displayId,
+      tempPick.menuName,
+      opt.variant,
+    )
+  }
+
   const headerSub = (() => {
     if (isFavView) {
       return loading && menus.length === 0
@@ -943,6 +1090,8 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
                   const itemHours = getCafeHours(item.shopId)
                   const orderBlocked =
                     item.soldOut || !itemHours.orderable
+                  const quickKey = `${item.shopId}:${item.displayId}`
+                  const quickBusy = quickBusyKey === quickKey
                   const labelU = (item.label || '').toUpperCase()
                   const tagClass =
                     labelU === 'BEST'
@@ -960,7 +1109,7 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
                   return (
                     <div
                       key={`${item.shopId}-${item.displayId}`}
-                      className={`menu-row${item.soldOut ? ' is-soldout' : ''}${!item.soldOut && !itemHours.orderable ? ' is-closed' : ''}${qty > 0 ? ' is-in-cart' : ''}`}
+                      className={`menu-row menu-row-with-quick${item.soldOut ? ' is-soldout' : ''}${!item.soldOut && !itemHours.orderable ? ' is-closed' : ''}${qty > 0 ? ' is-in-cart' : ''}`}
                     >
                       <div className="menu-row-thumb-wrap">
                         <button
@@ -1035,29 +1184,40 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
                           </span>
                         ) : (
                           <div
-                            className="menu-qty"
+                            className="menu-row-actions"
                             onClick={(e) => e.stopPropagation()}
                           >
+                            <div className="menu-qty">
+                              <button
+                                type="button"
+                                className="menu-qty-btn"
+                                aria-label={`${item.name} 수량 감소`}
+                                disabled={qty <= 0 || quickBusy}
+                                onClick={() => bumpQty(item, -1)}
+                              >
+                                −
+                              </button>
+                              <span className="menu-qty-val" aria-live="polite">
+                                {qty}
+                              </span>
+                              <button
+                                type="button"
+                                className="menu-qty-btn menu-qty-btn-plus"
+                                aria-label={`${item.name} 수량 증가`}
+                                disabled={orderBlocked || quickBusy}
+                                onClick={() => bumpQty(item, 1)}
+                              >
+                                +
+                              </button>
+                            </div>
                             <button
                               type="button"
-                              className="menu-qty-btn"
-                              aria-label={`${item.name} 수량 감소`}
-                              disabled={qty <= 0}
-                              onClick={() => bumpQty(item, -1)}
+                              className="menu-quick-order-btn"
+                              disabled={orderBlocked || quickBusy}
+                              aria-label={`${item.name} 바로 주문`}
+                              onClick={() => void startQuickOrder(item)}
                             >
-                              −
-                            </button>
-                            <span className="menu-qty-val" aria-live="polite">
-                              {qty}
-                            </span>
-                            <button
-                              type="button"
-                              className="menu-qty-btn menu-qty-btn-plus"
-                              aria-label={`${item.name} 수량 증가`}
-                              disabled={orderBlocked}
-                              onClick={() => bumpQty(item, 1)}
-                            >
-                              +
+                              {quickBusy ? '준비 중' : '바로 주문'}
                             </button>
                           </div>
                         )}
@@ -1083,6 +1243,18 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
         </div>
 
         <ImagePreview image={preview} onClose={() => setPreview(null)} />
+        <TempPickSheet
+          open={tempPick != null}
+          menuName={tempPick?.menuName ?? ''}
+          options={tempPick?.options ?? []}
+          busy={quickBusyKey != null}
+          willReplaceCart={tempPick?.willReplaceCart ?? false}
+          onPick={(opt) => void onTempPicked(opt)}
+          onClose={() => {
+            if (quickBusyKey != null) return
+            setTempPick(null)
+          }}
+        />
       </div>
   )
 }

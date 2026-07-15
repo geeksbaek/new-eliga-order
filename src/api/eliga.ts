@@ -14,11 +14,16 @@ import {
   mapCafeMenuDetail,
   mapCafeQuickItems,
   mapCart,
+  mapCartRestoreLines,
   mapDiningMenu,
   mapOrderHistory,
   mapPaymentReasons,
   mapShops,
 } from '../lib/mappers'
+import {
+  assertQuickOrderCartIsolated,
+  type StashedCartLine,
+} from '../lib/quick-order'
 import { inflight } from '../lib/inflight'
 import {
   buildCartAddBody,
@@ -157,6 +162,80 @@ export async function deleteCartItems(params: {
 }): Promise<unknown> {
   const body = buildCartDeleteBody(params)
   return apiRequest('/goods/cart/item', { method: 'DELETE', body })
+}
+
+/**
+ * Clear every line in a shop cart (no-op when empty).
+ * Prefer item-delete over DELETE /goods/cart/{id} — item path is what the
+ * production skill uses and is known-good.
+ */
+export async function clearCart(shopId: number): Promise<Cart> {
+  const cart = await fetchCart(shopId)
+  if (cart.cartId != null && cart.items.length > 0) {
+    await deleteCartItems({
+      cartId: cart.cartId,
+      cartItemIds: cart.items.map((i) => i.cartItemId),
+    })
+  }
+  return fetchCart(shopId)
+}
+
+/**
+ * Isolate checkout to a single goods line:
+ * snapshot → clear → add qty 1 → re-fetch and hard-assert isolation.
+ *
+ * There is no cart-less order API; this is the only safe way to guarantee
+ * existing cart lines are never co-paid with a "바로 주문" cup.
+ */
+export async function prepareIsolatedQuickOrder(params: {
+  shopId: number
+  goodsId: number
+  options?: SelectedOption[]
+}): Promise<{ cart: Cart; stashed: StashedCartLine[] }> {
+  const raw = await apiRequest(
+    `/goods/cart?shopId=${params.shopId}&cartType=GENERAL`,
+  )
+  const stashed = mapCartRestoreLines(raw)
+  const before = mapCart(raw)
+
+  if (before.cartId != null && before.items.length > 0) {
+    await deleteCartItems({
+      cartId: before.cartId,
+      cartItemIds: before.items.map((i) => i.cartItemId),
+    })
+  }
+
+  await addToCart({
+    shopId: params.shopId,
+    goodsId: params.goodsId,
+    qty: 1,
+    options: params.options ?? [],
+  })
+
+  const cart = await fetchCart(params.shopId)
+  assertQuickOrderCartIsolated(cart, {
+    goodsId: params.goodsId,
+    qty: 1,
+  })
+  return { cart, stashed }
+}
+
+/** Put previously stashed lines back after an abandoned quick order. */
+export async function restoreStashedCart(
+  shopId: number,
+  stashed: StashedCartLine[],
+): Promise<Cart> {
+  await clearCart(shopId)
+  for (const line of stashed) {
+    if (!line.goodsId || line.qty <= 0) continue
+    await addToCart({
+      shopId,
+      goodsId: line.goodsId,
+      qty: line.qty,
+      options: line.options,
+    })
+  }
+  return fetchCart(shopId)
 }
 
 export async function fetchPaymentReasons(shopId: number): Promise<PaymentReason[]> {
