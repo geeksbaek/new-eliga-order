@@ -21,7 +21,7 @@
 
 | 구분 | 내용 |
 |------|------|
-| 프론트 | React 19, TypeScript 7, Vite 8, React Router 7 |
+| 프론트 | React 19, TypeScript 7 (`tsc`) + 6 API (Vercel/eslint 호환), Vite 8, React Router 7 |
 | 배포 | Vercel (`icn1`), SPA rewrites |
 | API | 엘리가 `base` / `svc` — 동일 출처 프록시 `/api/proxy` |
 | 이미지 | NCloud CDN + 색 샘플용 `/api/cdn` |
