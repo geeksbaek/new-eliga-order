@@ -21,7 +21,7 @@
 
 | 구분 | 내용 |
 |------|------|
-| 프론트 | React 19, TypeScript, Vite 7, React Router 7 |
+| 프론트 | React 19, TypeScript 7, Vite 8, React Router 7 |
 | 배포 | Vercel (`icn1`), SPA rewrites |
 | API | 엘리가 `base` / `svc` — 동일 출처 프록시 `/api/proxy` |
 | 이미지 | NCloud CDN + 색 샘플용 `/api/cdn` |
@@ -65,13 +65,13 @@ GitHub Actions가 **push마다** Vercel에 배포합니다.
 워크플로: [`.github/workflows/deploy-vercel.yml`](.github/workflows/deploy-vercel.yml)  
 순서: `npm test` → `vercel pull` → `vercel build` → `vercel deploy --prebuilt`
 
-저장소 Secrets (이미 설정됨):
+저장소 Secrets:
 
 | Secret | 설명 |
 |--------|------|
-| `VERCEL_TOKEN` | Vercel 계정 토큰 |
-| `VERCEL_ORG_ID` | 팀/ORG ID |
-| `VERCEL_PROJECT_ID` | 프로젝트 ID |
+| `VERCEL_TOKEN` | [Account Tokens](https://vercel.com/account/tokens)에서 만든 **Access Token** (`vcp_…`). CLI 로그인 세션 토큰(`vca_…`)은 만료되므로 쓰지 말 것 |
+| `VERCEL_ORG_ID` | 팀/ORG ID (`.vercel/project.json`의 `orgId`) |
+| `VERCEL_PROJECT_ID` | 프로젝트 ID (`.vercel/project.json`의 `projectId`) |
 
 로컬에서 수동 배포할 때:
 
