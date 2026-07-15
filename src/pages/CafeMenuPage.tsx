@@ -7,9 +7,9 @@ import {
   fetchRecentOrders,
 } from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
-import { formatWon } from '../lib/format'
+import { formatDateTime, formatWon } from '../lib/format'
 import { useShop } from '../hooks/useShop'
-import type { CafeCategory, CafeMenuItem } from '../lib/types'
+import type { CafeCategory, CafeMenuItem, CafeQuickItem } from '../lib/types'
 
 export function CafeMenuPage() {
   const { shopId: shopIdParam } = useParams()
@@ -23,8 +23,9 @@ export function CafeMenuPage() {
   const [menus, setMenus] = useState<CafeMenuItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [recent, setRecent] = useState<unknown>(null)
-  const [popular, setPopular] = useState<unknown>(null)
+  const [recent, setRecent] = useState<CafeQuickItem[]>([])
+  const [popular, setPopular] = useState<CafeQuickItem[]>([])
+  const [quickError, setQuickError] = useState<string | null>(null)
   const [tab, setTab] = useState<'menu' | 'quick'>('menu')
 
   useEffect(() => {
@@ -74,12 +75,25 @@ export function CafeMenuPage() {
 
   useEffect(() => {
     if (!Number.isFinite(shopId)) return
-    fetchRecentOrders(shopId)
-      .then(setRecent)
-      .catch(() => setRecent(null))
-    fetchPopularOrders(shopId)
-      .then(setPopular)
-      .catch(() => setPopular(null))
+    let cancelled = false
+    setQuickError(null)
+    Promise.all([fetchRecentOrders(shopId), fetchPopularOrders(shopId)])
+      .then(([r, p]) => {
+        if (cancelled) return
+        setRecent(r)
+        setPopular(p)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setRecent([])
+        setPopular([])
+        setQuickError(
+          e instanceof Error ? e.message : '최근·인기 메뉴를 불러오지 못했습니다',
+        )
+      })
+    return () => {
+      cancelled = true
+    }
   }, [shopId])
 
   const availableCount = useMemo(
@@ -122,17 +136,38 @@ export function CafeMenuPage() {
 
       {tab === 'quick' && (
         <div className="stack">
+          {quickError && <ErrorBox>{quickError}</ErrorBox>}
           <section className="card card-pad">
             <h2 className="section-title" style={{ marginTop: 0 }}>
               최근 주문
             </h2>
-            <QuickOrders data={recent} />
+            <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
+              이 매장에서 최근에 주문한 메뉴입니다. 탭하면 상세로 이동합니다.
+            </p>
+            <QuickOrders
+              items={recent}
+              empty="최근 주문 메뉴가 없습니다."
+              onPick={(item) =>
+                navigate(`/cafe/${shopId}/menu?d=${item.displayId}`)
+              }
+              mode="recent"
+            />
           </section>
           <section className="card card-pad">
             <h2 className="section-title" style={{ marginTop: 0 }}>
               인기 메뉴
             </h2>
-            <QuickOrders data={popular} />
+            <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
+              이 매장에서 자주 찾는 메뉴입니다.
+            </p>
+            <QuickOrders
+              items={popular}
+              empty="인기 메뉴가 없습니다."
+              onPick={(item) =>
+                navigate(`/cafe/${shopId}/menu?d=${item.displayId}`)
+              }
+              mode="popular"
+            />
           </section>
         </div>
       )}
@@ -218,35 +253,57 @@ export function CafeMenuPage() {
   )
 }
 
-function QuickOrders({ data }: { data: unknown }) {
-  if (data == null) {
-    return <p className="muted">불러올 수 없거나 내역이 없습니다.</p>
-  }
-  const content =
-    data && typeof data === 'object' && 'content' in data
-      ? (data as { content: unknown }).content
-      : data
-  const list = Array.isArray(content) ? content : content ? [content] : []
-  if (!list.length) {
-    return <p className="muted">표시할 항목이 없습니다.</p>
+function QuickOrders({
+  items,
+  empty,
+  onPick,
+  mode,
+}: {
+  items: CafeQuickItem[]
+  empty: string
+  onPick: (item: CafeQuickItem) => void
+  mode: 'recent' | 'popular'
+}) {
+  if (!items.length) {
+    return <p className="muted">{empty}</p>
   }
   return (
-    <ul className="confirm-list">
-      {list.slice(0, 8).map((row, i) => {
-        const r = row as Record<string, unknown>
-        let name = JSON.stringify(r).slice(0, 80)
-        if (typeof r.name === 'string' && r.name) name = r.name
-        else if (r.goodsName != null) name = String(r.goodsName)
-        else if (r.displayName != null) name = String(r.displayName)
-        return (
-          <li key={i}>
-            <span>{name}</span>
-            <span className="muted">
-              {r.orderCount != null ? `${r.orderCount}회` : ''}
-            </span>
-          </li>
-        )
-      })}
-    </ul>
+    <div className="quick-list">
+      {items.map((item) => (
+        <button
+          key={`${mode}-${item.displayId}-${item.goodsId}`}
+          type="button"
+          className={`quick-item${item.soldOut ? ' soldout' : ''}`}
+          disabled={item.soldOut || !item.displayId}
+          onClick={() => onPick(item)}
+        >
+          <div className="quick-thumb">
+            {item.thumbnailUrl ? (
+              <img src={item.thumbnailUrl} alt="" loading="lazy" />
+            ) : (
+              <div className="meal-thumb-empty" aria-hidden>
+                ·
+              </div>
+            )}
+          </div>
+          <div className="quick-body">
+            <p className="quick-name">{item.name || '메뉴'}</p>
+            <p className="muted quick-meta">
+              {mode === 'recent' && item.lastOrderAt
+                ? formatDateTime(item.lastOrderAt)
+                : mode === 'popular' && item.orderCountHint
+                  ? `${item.orderCountHint}잔`
+                  : item.qty > 1
+                    ? `${item.qty}개`
+                    : '바로 담기'}
+              {item.soldOut ? ' · 품절' : ''}
+            </p>
+          </div>
+          <span className="quick-chevron" aria-hidden>
+            ›
+          </span>
+        </button>
+      ))}
+    </div>
   )
 }

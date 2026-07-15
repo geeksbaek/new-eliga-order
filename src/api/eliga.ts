@@ -8,8 +8,10 @@ import {
   mapCafeCategories,
   mapCafeMenu,
   mapCafeMenuDetail,
+  mapCafeQuickItems,
   mapCart,
   mapDiningMenu,
+  mapOrderHistory,
   mapPaymentReasons,
   mapShops,
 } from '../lib/mappers'
@@ -23,9 +25,11 @@ import { todayISODate } from '../lib/format'
 import type {
   CafeCategory,
   CafeMenuItem,
+  CafeQuickItem,
   Cart,
   MenuDetail,
   DiningPeriod,
+  OrderHistoryView,
   OrderPayload,
   PaymentReason,
   SelectedOption,
@@ -136,7 +140,9 @@ export async function fetchOrderStatus(orderId: string | number): Promise<unknow
   return apiRequest(`/goods/order/status/${orderId}`)
 }
 
-export async function fetchOrderHistory(shopId?: number): Promise<unknown> {
+export async function fetchOrderHistory(
+  shopId?: number,
+): Promise<OrderHistoryView[]> {
   // Backend NPEs when searchStartDate is null — always send a range.
   const end = todayISODate()
   const start = new Date()
@@ -146,15 +152,22 @@ export async function fetchOrderHistory(shopId?: number): Promise<unknown> {
     searchEndDate: end,
   })
   if (shopId != null) params.set('shopId', String(shopId))
-  return apiRequest(`/order/history?${params}`)
+  const raw = await apiRequest(`/order/history?${params}`)
+  return mapOrderHistory(raw)
 }
 
-export async function fetchRecentOrders(shopId: number): Promise<unknown> {
-  return apiRequest(`/goods/order/recent/${shopId}`)
+export async function fetchRecentOrders(
+  shopId: number,
+): Promise<CafeQuickItem[]> {
+  const raw = await apiRequest(`/goods/order/recent/${shopId}`)
+  return mapCafeQuickItems(raw)
 }
 
-export async function fetchPopularOrders(shopId: number): Promise<unknown> {
-  return apiRequest(`/goods/order/popular/${shopId}`)
+export async function fetchPopularOrders(
+  shopId: number,
+): Promise<CafeQuickItem[]> {
+  const raw = await apiRequest(`/goods/order/popular/${shopId}`)
+  return mapCafeQuickItems(raw)
 }
 
 export async function fetchCustomerMe(): Promise<unknown> {

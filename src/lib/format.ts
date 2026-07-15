@@ -77,10 +77,42 @@ export function orderStatusLabel(status: string | null | undefined): string {
     case 'WAITING_FOR_PICKUP':
       return '픽업 대기'
     case 'PICKUP_COMPLETE':
+    case 'ORDER_COMPLETE':
       return '완료'
     case 'ORDER_CANCEL':
+    case 'ORDER_CANCELED':
+    case 'ORDER_CANCELLED':
       return '취소'
     default:
       return status || '알 수 없음'
   }
+}
+
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${day} ${hh}:${mm}`
+}
+
+/** CDN path → absolute image URL */
+export function mediaUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  const CDN = 'https://eliga-ordercdn.object.ncloudstorage.com/'
+  return `${CDN}${path.replace(/^\//, '')}`
+}
+
+/** Pull kcal number from free-form nutrition text when calorie field is missing */
+export function parseKcalFromNutrition(nutrition: string | null | undefined): number | null {
+  if (!nutrition) return null
+  const m = nutrition.match(/(\d+(?:\.\d+)?)\s*k?cal/i)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? Math.round(n) : null
 }

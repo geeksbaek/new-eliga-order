@@ -1,16 +1,24 @@
 /**
  * Map raw Eliga API envelopes to skill-shaped view models (fmt.py parity).
  */
-import { calcPlanPrice, localizeName } from './format'
+import {
+  calcPlanPrice,
+  localizeName,
+  mediaUrl,
+  parseKcalFromNutrition,
+} from './format'
 import type {
   CafeCategory,
   CafeMenuItem,
+  CafeQuickItem,
   Cart,
   CartItem,
   DiningPeriod,
   GoodsOption,
   GoodsVariant,
   MenuDetail,
+  OrderHistoryView,
+  OrderLineView,
   PaymentReason,
   Shop,
 } from './types'
@@ -125,18 +133,40 @@ function normalizeLabel(v: unknown): string | null {
   return s
 }
 
+function firstMealImage(meal: Record<string, unknown>): string | null {
+  const files = asArray<Record<string, unknown>>(meal.fileItems)
+  if (!files.length) return null
+  // Prefer non-empty filePath; thumbnail if any
+  const preferred =
+    files.find((f) => f.thumbnailYn && f.filePath) ||
+    files.find((f) => f.filePath) ||
+    files[0]
+  return mediaUrl(
+    (preferred.filePath as string) ||
+      (preferred.sharePath as string) ||
+      null,
+  )
+}
+
 export function mapDiningMenu(raw: unknown): DiningPeriod[] {
   const content = asArray<Record<string, unknown>>(contentOf(raw))
   const result: DiningPeriod[] = []
   for (const day of content) {
     for (const ot of asArray<Record<string, unknown>>(day.mealOperationTimes)) {
       const courses = asArray<Record<string, unknown>>(ot.courses).map((course) => {
-        const menus = asArray<Record<string, unknown>>(course.meals).map((m) => ({
-          name: localizeName(m.name),
-          calorie: (m.calorie as number) ?? null,
-          nutrition: localizeName(m.nutrition),
-          information: localizeName(m.information),
-        }))
+        const menus = asArray<Record<string, unknown>>(course.meals).map((m) => {
+          const nutrition = localizeName(m.nutrition)
+          const calorie =
+            (m.calorie as number) ?? parseKcalFromNutrition(nutrition)
+          return {
+            name: localizeName(m.name),
+            calorie,
+            nutrition,
+            information: localizeName(m.information),
+            imageUrl: firstMealImage(m),
+            soldOut: Boolean(m.soldOutYn || m.stockEmptyYn),
+          }
+        })
         return {
           name: localizeName(course.name),
           price: calcPlanPrice(course.pricePlans as never),
@@ -155,6 +185,70 @@ export function mapDiningMenu(raw: unknown): DiningPeriod[] {
     }
   }
   return result
+}
+
+function mapOrderLine(item: Record<string, unknown>): OrderLineView {
+  const opts: string[] = []
+  for (const opt of asArray<Record<string, unknown>>(item.goodsOrderItemOptions)) {
+    const optName = localizeName(opt.optionName)
+    for (const menu of asArray<Record<string, unknown>>(opt.optionMenus)) {
+      const menuName = localizeName(menu.name)
+      opts.push(optName ? `${optName}: ${menuName}` : menuName)
+    }
+  }
+  const qty = Number(item.goodsQty ?? item.qty ?? 1) || 1
+  const price = Number(
+    item.paidPrice ?? item.salesPrice ?? item.unitPrice ?? 0,
+  )
+  return {
+    name: localizeName(item.name ?? item.displayName ?? item.goodsName),
+    qty,
+    price,
+    options: opts,
+  }
+}
+
+export function mapOrderHistory(raw: unknown): OrderHistoryView[] {
+  const list = asArray<Record<string, unknown>>(contentOf(raw))
+  return list.map((row) => {
+    const goodsItems = asArray<Record<string, unknown>>(row.goodsOrderItems)
+    const mealItems = asArray<Record<string, unknown>>(row.mealOrderItems)
+    const items = [...goodsItems, ...mealItems].map(mapOrderLine)
+    return {
+      orderId: Number(row.orderId ?? row.id ?? 0),
+      orderNo: String(row.orderNo ?? row.orderId ?? ''),
+      shopId: Number(row.shopId ?? 0),
+      shopName: localizeName(row.shopName),
+      shopType: String(row.shopType ?? ''),
+      status: String(row.status ?? row.orderStatus ?? ''),
+      orderedAt: String(row.regAt ?? row.createdAt ?? row.orderDate ?? ''),
+      totalPaid: Number(
+        row.totalPaidPrice ?? row.totalSalesPrice ?? row.totalUnitPrice ?? 0,
+      ),
+      items,
+    }
+  })
+}
+
+export function mapCafeQuickItems(raw: unknown): CafeQuickItem[] {
+  const list = asArray<Record<string, unknown>>(contentOf(raw))
+  return list.map((row) => ({
+    displayId: Number(row.displayId ?? 0),
+    goodsId: Number(row.goodsId ?? 0),
+    name: localizeName(row.name),
+    qty: Number(row.goodsQty ?? 1) || 1,
+    thumbnailUrl: row.thumbnailYn === false ? null : mediaUrl(row.thumbnail as string),
+    soldOut: Boolean(row.stockEmptyYn) || row.isSale === false,
+    onSale: row.isSale !== false,
+    lastOrderAt:
+      row.lastOrderAt != null ? String(row.lastOrderAt) : null,
+    orderCountHint:
+      row.orderCount != null
+        ? Number(row.orderCount)
+        : row.goodsQty != null
+          ? Number(row.goodsQty)
+          : null,
+  }))
 }
 
 export function mapCart(raw: unknown): Cart {

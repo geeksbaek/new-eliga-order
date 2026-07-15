@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchDiningMenu } from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
-import { congestionLabel, formatWon, formatKcal, todayISODate } from '../lib/format'
+import {
+  congestionLabel,
+  formatWon,
+  formatKcal,
+  todayISODate,
+} from '../lib/format'
 import { useShop } from '../hooks/useShop'
 import type { DiningPeriod } from '../lib/types'
 
@@ -99,7 +104,10 @@ export function DiningMenuPage() {
       )}
 
       {periods.map((period) => (
-        <section key={`${period.time}-${period.startTime}`} className="period-block">
+        <section
+          key={`${period.time}-${period.startTime}`}
+          className="period-block"
+        >
           <div className="period-head">
             <h2>{period.time || '운영'}</h2>
             <span>
@@ -112,28 +120,56 @@ export function DiningMenuPage() {
               className={`card course-card${course.soldOut ? ' soldout' : ''}`}
             >
               <div className="course-title">
-                <h3 className={course.soldOut ? 'menu-name' : undefined}>
+                <h3>
                   {course.name}
                   {course.soldOut ? ' (품절)' : ''}
                 </h3>
                 <strong>{formatWon(course.price)}</strong>
               </div>
-              <div className="shop-meta" style={{ marginBottom: 8 }}>
+              <div className="shop-meta" style={{ marginBottom: 10 }}>
                 {course.congestion && (
-                  <span className="badge">{congestionLabel(course.congestion)}</span>
-                )}
-                {course.origin && (
-                  <span className="badge">원산지 {course.origin}</span>
+                  <span className="badge">
+                    {congestionLabel(course.congestion)}
+                  </span>
                 )}
               </div>
-              <ul className="menu-lines">
+
+              <div className="meal-grid">
                 {course.menus.map((m) => (
-                  <li key={m.name}>
-                    <span>{m.name}</span>
-                    <span className="kcal">{formatKcal(m.calorie)}</span>
-                  </li>
+                  <div
+                    key={m.name}
+                    className={`meal-tile${m.soldOut ? ' soldout' : ''}`}
+                  >
+                    <div className="meal-thumb">
+                      {m.imageUrl ? (
+                        <img
+                          src={m.imageUrl}
+                          alt={m.name}
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="meal-thumb-empty" aria-hidden>
+                          이미지 없음
+                        </div>
+                      )}
+                    </div>
+                    <div className="meal-body">
+                      <p className="meal-name">
+                        {m.name}
+                        {m.soldOut ? ' (품절)' : ''}
+                      </p>
+                      {m.calorie != null && (
+                        <p className="kcal">{formatKcal(m.calorie)}</p>
+                      )}
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
+
+              {course.origin && (
+                <p className="origin-note muted">원산지 {course.origin}</p>
+              )}
             </article>
           ))}
         </section>

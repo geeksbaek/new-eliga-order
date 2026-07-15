@@ -6,8 +6,13 @@ import {
   fetchRecentOrders,
 } from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
-import { orderStatusLabel } from '../lib/format'
+import {
+  formatDateTime,
+  formatWon,
+  orderStatusLabel,
+} from '../lib/format'
 import { useShop } from '../hooks/useShop'
+import type { OrderHistoryView } from '../lib/types'
 
 export function OrdersPage() {
   const { selectedShopId, shops, canOrder } = useShop()
@@ -15,8 +20,8 @@ export function OrdersPage() {
   const highlight = params.get('highlight')
 
   const [tab, setTab] = useState<'history' | 'recent' | 'status'>('history')
-  const [history, setHistory] = useState<unknown>(null)
-  const [recent, setRecent] = useState<unknown>(null)
+  const [history, setHistory] = useState<OrderHistoryView[]>([])
+  const [recent, setRecent] = useState<OrderHistoryView[]>([])
   const [statusId, setStatusId] = useState(highlight ?? '')
   const [status, setStatus] = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
@@ -33,15 +38,42 @@ export function OrdersPage() {
     setError(null)
     ;(async () => {
       try {
-        const h = await fetchOrderHistory(cafeShopId)
+        // History is account-wide; shop filter optional
+        const h = await fetchOrderHistory(undefined)
         if (!cancelled) setHistory(h)
         if (cafeShopId != null) {
+          // recent endpoint returns menu shortcuts — map to a compact history-like view below
           const r = await fetchRecentOrders(cafeShopId)
-          if (!cancelled) setRecent(r)
+          if (!cancelled) {
+            setRecent(
+              r.map((item, i) => ({
+                orderId: item.displayId || i,
+                orderNo: item.displayId ? String(item.displayId) : '',
+                shopId: cafeShopId,
+                shopName: shops.find((s) => s.shopId === cafeShopId)?.name ?? '',
+                shopType: 'CAFE',
+                status: item.soldOut ? '품절' : '최근 메뉴',
+                orderedAt: item.lastOrderAt ?? '',
+                totalPaid: 0,
+                items: [
+                  {
+                    name: item.name,
+                    qty: item.qty,
+                    price: 0,
+                    options: [],
+                  },
+                ],
+              })),
+            )
+          }
+        } else if (!cancelled) {
+          setRecent([])
         }
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : '주문 내역을 불러오지 못했습니다')
+          setError(
+            e instanceof Error ? e.message : '주문 내역을 불러오지 못했습니다',
+          )
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -50,7 +82,7 @@ export function OrdersPage() {
     return () => {
       cancelled = true
     }
-  }, [cafeShopId])
+  }, [cafeShopId, shops])
 
   async function loadStatus() {
     if (!statusId.trim()) return
@@ -67,7 +99,7 @@ export function OrdersPage() {
   return (
     <div>
       <h1 className="page-title">주문 내역</h1>
-      <p className="page-sub">최근 주문과 상태를 확인합니다.</p>
+      <p className="page-sub">최근 3개월 주문과 상태를 확인합니다.</p>
 
       <div className="tabs">
         <button
@@ -82,7 +114,7 @@ export function OrdersPage() {
           className={`tab${tab === 'recent' ? ' active' : ''}`}
           onClick={() => setTab('recent')}
         >
-          최근
+          최근 메뉴
         </button>
         <button
           type="button"
@@ -107,18 +139,28 @@ export function OrdersPage() {
               placeholder="주문 ID"
             />
           </div>
-          <button type="button" className="btn btn-accent" onClick={() => void loadStatus()}>
+          <button
+            type="button"
+            className="btn btn-accent"
+            onClick={() => void loadStatus()}
+          >
             조회
           </button>
-          {status != null && <OrderBlob data={status} />}
+          {status != null && (
+            <pre className="order-json">{JSON.stringify(status, null, 2)}</pre>
+          )}
         </div>
       )}
 
       {tab === 'history' && !loading && (
-        <OrderList data={history} empty="주문 내역이 없습니다." />
+        <OrderList
+          data={history}
+          empty="주문 내역이 없습니다."
+          highlightId={highlight}
+        />
       )}
       {tab === 'recent' && !loading && (
-        <OrderList data={recent} empty="최근 주문이 없습니다." />
+        <OrderList data={recent} empty="최근 메뉴가 없습니다." compact />
       )}
 
       <p style={{ marginTop: 18 }}>
@@ -130,91 +172,77 @@ export function OrdersPage() {
   )
 }
 
-function OrderList({ data, empty }: { data: unknown; empty: string }) {
-  const list = extractList(data)
-  if (!list.length) return <Empty>{empty}</Empty>
+function OrderList({
+  data,
+  empty,
+  highlightId,
+  compact,
+}: {
+  data: OrderHistoryView[]
+  empty: string
+  highlightId?: string | null
+  compact?: boolean
+}) {
+  if (!data.length) return <Empty>{empty}</Empty>
   return (
     <div className="stack">
-      {list.map((row, i) => {
-        const r = row as Record<string, unknown>
-        const id = r.id ?? r.orderId ?? i
-        const status = String(r.orderStatus ?? r.status ?? '')
-        const shop = r.shopName ? String(r.shopName) : ''
-        const when = String(r.createdAt ?? r.orderDate ?? r.regDate ?? '')
+      {data.map((row) => {
+        const active =
+          highlightId != null && String(row.orderId) === String(highlightId)
         return (
-          <article key={String(id)} className="card card-pad">
+          <article
+            key={`${row.orderId}-${row.orderNo}-${row.orderedAt}`}
+            className={`card card-pad${active ? ' order-highlight' : ''}`}
+          >
             <div className="row" style={{ justifyContent: 'space-between' }}>
-              <strong>#{String(id)}</strong>
-              {status && (
-                <span className="badge badge-cafe">{orderStatusLabel(status)}</span>
+              <div>
+                <strong className="order-id">
+                  {compact
+                    ? row.items[0]?.name || '메뉴'
+                    : row.orderNo
+                      ? `#${row.orderNo}`
+                      : `#${row.orderId}`}
+                </strong>
+                {row.shopName && (
+                  <p className="muted order-shop">{row.shopName}</p>
+                )}
+              </div>
+              {row.status && (
+                <span className="badge badge-cafe">
+                  {orderStatusLabel(row.status) === row.status
+                    ? row.status
+                    : orderStatusLabel(row.status)}
+                </span>
               )}
             </div>
-            {shop && <p className="muted" style={{ margin: '6px 0 0' }}>{shop}</p>}
-            {when && <p className="muted" style={{ margin: '4px 0 0', fontSize: '0.85rem' }}>{when}</p>}
-            <OrderBlob data={r} compact />
+            {row.orderedAt && (
+              <p className="muted order-when">{formatDateTime(row.orderedAt)}</p>
+            )}
+            <ul className="confirm-list order-lines">
+              {row.items.slice(0, 6).map((it, i) => (
+                <li key={i}>
+                  <span>
+                    {it.name}
+                    {it.options.length > 0 && (
+                      <span className="muted"> ({it.options.join(', ')})</span>
+                    )}
+                    <span className="muted"> × {it.qty}</span>
+                  </span>
+                  {!compact && it.price > 0 && (
+                    <strong>{formatWon(it.price)}</strong>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {!compact && row.totalPaid > 0 && (
+              <div className="order-total">
+                <span>결제 금액</span>
+                <strong>{formatWon(row.totalPaid)}</strong>
+              </div>
+            )}
           </article>
         )
       })}
     </div>
   )
-}
-
-function OrderBlob({ data, compact }: { data: unknown; compact?: boolean }) {
-  if (data == null) return null
-  if (compact) {
-    const r = data as Record<string, unknown>
-    const items = r.orderItems ?? r.items ?? r.goodsOrderItems
-    if (Array.isArray(items) && items.length) {
-      return (
-        <ul className="confirm-list" style={{ marginTop: 8 }}>
-          {items.slice(0, 5).map((it, i) => {
-            const item = it as Record<string, unknown>
-            const name = String(
-              item.goodsName ?? item.name ?? item.displayName ?? `항목 ${i + 1}`,
-            )
-            const qty = item.goodsQty ?? item.qty ?? item.quantity
-            return (
-              <li key={i}>
-                <span>{name}</span>
-                <span className="muted">{qty != null ? `×${qty}` : ''}</span>
-              </li>
-            )
-          })}
-        </ul>
-      )
-    }
-    return null
-  }
-  return (
-    <pre
-      style={{
-        margin: 0,
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-        fontSize: '0.8rem',
-        background: 'var(--surface-2)',
-        padding: 12,
-        borderRadius: 10,
-        overflow: 'auto',
-      }}
-    >
-      {JSON.stringify(data, null, 2)}
-    </pre>
-  )
-}
-
-function extractList(data: unknown): unknown[] {
-  if (data == null) return []
-  if (Array.isArray(data)) return data
-  if (typeof data === 'object' && data !== null) {
-    const o = data as Record<string, unknown>
-    if (Array.isArray(o.content)) return o.content
-    if (o.content && typeof o.content === 'object') {
-      const c = o.content as Record<string, unknown>
-      if (Array.isArray(c.orders)) return c.orders
-      if (Array.isArray(c.list)) return c.list
-    }
-    if (Array.isArray(o.orders)) return o.orders
-  }
-  return []
 }

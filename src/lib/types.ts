@@ -67,6 +67,8 @@ export interface DiningMenuItem {
   calorie: number | null
   nutrition: string
   information: string
+  imageUrl: string | null
+  soldOut: boolean
 }
 
 export interface DiningCourse {
@@ -76,6 +78,38 @@ export interface DiningCourse {
   soldOut: boolean
   congestion: string | null
   origin: string
+}
+
+export interface OrderLineView {
+  name: string
+  qty: number
+  price: number
+  options: string[]
+}
+
+export interface OrderHistoryView {
+  orderId: number
+  orderNo: string
+  shopId: number
+  shopName: string
+  shopType: string
+  status: string
+  orderedAt: string
+  totalPaid: number
+  items: OrderLineView[]
+}
+
+/** Recent / popular cafe menu shortcut from API */
+export interface CafeQuickItem {
+  displayId: number
+  goodsId: number
+  name: string
+  qty: number
+  thumbnailUrl: string | null
+  soldOut: boolean
+  onSale: boolean
+  lastOrderAt: string | null
+  orderCountHint: number | null
 }
 
 export interface DiningPeriod {
