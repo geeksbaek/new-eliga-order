@@ -30,6 +30,7 @@ import {
   cacheSet,
   diningKey,
 } from '../lib/query-cache'
+import { scrollExpandedDiningGroup } from '../lib/scroll-into-view'
 import { useScrollRestore } from '../hooks/useScrollRestore'
 import { useShop } from '../hooks/useShop'
 import type { DiningPeriod } from '../lib/types'
@@ -161,12 +162,20 @@ export function DiningMenuPage() {
   }, [])
 
   const toggleGroup = useCallback((slug: string) => {
+    let opening = false
     setExpanded((prev) => {
+      opening = !prev.has(slug)
       const next = new Set(prev)
-      if (next.has(slug)) next.delete(slug)
-      else next.add(slug)
+      if (opening) next.add(slug)
+      else next.delete(slug)
       return next
     })
+    // After expand: scroll so the full open card sits above tab/cart chrome
+    if (opening) {
+      requestAnimationFrame(() => {
+        scrollExpandedDiningGroup(groupRefs.current.get(slug))
+      })
+    }
   }, [])
 
   useEffect(() => {
@@ -254,7 +263,7 @@ export function DiningMenuPage() {
     const t = window.setTimeout(() => {
       const el = groupRefs.current.get(slug)
       if (!el) return
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      scrollExpandedDiningGroup(el)
       el.focus({ preventScroll: true })
       el.classList.add('is-focus-flash')
       window.setTimeout(() => el.classList.remove('is-focus-flash'), 1600)
@@ -373,21 +382,25 @@ export function DiningMenuPage() {
         aria-busy={loading}
       >
         {!hasData && loading && (
-          <section className="dining-group-block" aria-hidden>
-            <div className="dining-group-head is-open">
+          <section className="dining-group-block is-open" aria-hidden>
+            <div className="dining-group-head">
               <span className="dining-group-title">불러오는 중</span>
             </div>
-            <div className="dining-group-body">
-              {Array.from({ length: SKELETON_ROWS }, (_, i) => (
-                <div key={i} className="dining-line dining-line-skel">
-                  <span className="dining-thumb is-empty" aria-hidden />
-                  <div className="dining-line-main">
-                    <span className="skel-bar skel-bar-sm" />
-                    <span className="skel-bar skel-bar-name" />
-                  </div>
-                  <span className="skel-bar skel-bar-status" aria-hidden />
+            <div className="dining-group-panel">
+              <div className="dining-group-panel-inner">
+                <div className="dining-group-body">
+                  {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+                    <div key={i} className="dining-line dining-line-skel">
+                      <span className="dining-thumb is-empty" aria-hidden />
+                      <div className="dining-line-main">
+                        <span className="skel-bar skel-bar-sm" />
+                        <span className="skel-bar skel-bar-name" />
+                      </div>
+                      <span className="skel-bar skel-bar-status" aria-hidden />
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           </section>
         )}
@@ -424,6 +437,7 @@ export function DiningMenuPage() {
                 className="dining-group-head"
                 id={`dining-period-title-${slug}`}
                 aria-expanded={open}
+                aria-controls={`dining-period-panel-${slug}`}
                 onClick={() => toggleGroup(slug)}
               >
                 <span className="dining-group-title">
@@ -437,30 +451,40 @@ export function DiningMenuPage() {
                     : ''}
                 </span>
                 <span className="dining-group-chevron" aria-hidden>
-                  {open ? '▾' : '▸'}
+                  ▾
                 </span>
               </button>
 
-              {open && (
-                <div className="dining-group-body">
-                  {dishes.length === 0 ? (
-                    <div className="dining-panel-empty">
-                      {allDishes.length > 0 && !showSoldOut
-                        ? '표시할 메뉴가 없습니다. 품절 메뉴 보기를 켜 보세요.'
-                        : '이 시간대 메뉴가 없습니다.'}
-                    </div>
-                  ) : (
-                    dishes.map((dish) => (
-                      <DishRow
-                        key={dish.key}
-                        dish={dish}
-                        recommended={dishMatchesPrefs(dish, prefsSet)}
-                        onPreview={setPreview}
-                      />
-                    ))
-                  )}
+              <div
+                className="dining-group-panel"
+                id={`dining-period-panel-${slug}`}
+                role="region"
+                aria-labelledby={`dining-period-title-${slug}`}
+                aria-hidden={!open}
+                // Closed panels stay in DOM for height animation; block focus/AT
+                inert={open ? undefined : true}
+              >
+                <div className="dining-group-panel-inner">
+                  <div className="dining-group-body">
+                    {dishes.length === 0 ? (
+                      <div className="dining-panel-empty">
+                        {allDishes.length > 0 && !showSoldOut
+                          ? '표시할 메뉴가 없습니다. 품절 메뉴 보기를 켜 보세요.'
+                          : '이 시간대 메뉴가 없습니다.'}
+                      </div>
+                    ) : (
+                      dishes.map((dish) => (
+                        <DishRow
+                          key={dish.key}
+                          dish={dish}
+                          recommended={dishMatchesPrefs(dish, prefsSet)}
+                          onPreview={setPreview}
+                        />
+                      ))
+                    )}
+                  </div>
                 </div>
-              )}
+              </div>
             </section>
           )
         })}

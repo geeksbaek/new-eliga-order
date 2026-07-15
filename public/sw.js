@@ -1,16 +1,28 @@
-/* new-eliga service worker — installability + meal notifications */
+/* 엘리가오더 service worker — installability + meal notifications */
 /* eslint-disable no-restricted-globals */
 
-const CACHE = 'new-eliga-shell-v1'
+/**
+ * Bump CACHE whenever shell strategy changes so activate drops old entries.
+ * Hashed /assets/* files are cache-friendly; navigations stay network-first.
+ */
+const CACHE = 'eliga-order-shell-v3'
 
 /** App shell assets to precache (paths relative to origin). */
-const PRECACHE = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png']
+const PRECACHE = [
+  '/',
+  '/manifest.webmanifest',
+  '/favicon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/apple-touch-icon.png',
+]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
       .then((cache) => cache.addAll(PRECACHE).catch(() => undefined))
+      // Activate as soon as installed so clients can claim on next message/reload
       .then(() => self.skipWaiting()),
   )
 })
@@ -34,6 +46,24 @@ function isNavigation(req) {
   return req.mode === 'navigate' || req.destination === 'document'
 }
 
+/** Hashed build output — safe to cache long-term. */
+function isBuildAsset(url) {
+  return url.pathname.startsWith('/assets/')
+}
+
+/** Icons / manifest / root sw — prefer network when online. */
+function isShellAsset(url) {
+  const p = url.pathname
+  return (
+    p === '/sw.js' ||
+    p.endsWith('.webmanifest') ||
+    p.endsWith('.png') ||
+    p.endsWith('.svg') ||
+    p.endsWith('.ico') ||
+    p.endsWith('.woff2')
+  )
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -44,18 +74,16 @@ self.addEventListener('fetch', (event) => {
   } catch {
     return
   }
-  // Same-origin only
   if (url.origin !== self.location.origin) return
-  // Never cache API / auth
   if (isApi(url)) return
 
-  // SPA navigations: network first, fall back to cached shell
+  // SPA document: always try network first so deploys show up on next open
   if (isNavigation(req)) {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone()
           if (res.ok) {
+            const copy = res.clone()
             void caches.open(CACHE).then((c) => c.put('/', copy))
           }
           return res
@@ -67,27 +95,39 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Static assets: stale-while-revalidate
-  if (
-    url.pathname.startsWith('/assets/') ||
-    url.pathname.endsWith('.js') ||
-    url.pathname.endsWith('.css') ||
-    url.pathname.endsWith('.png') ||
-    url.pathname.endsWith('.svg') ||
-    url.pathname.endsWith('.webmanifest') ||
-    url.pathname.endsWith('.woff2')
-  ) {
+  // Never let an old sw.js stick forever offline-first
+  if (url.pathname === '/sw.js') {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' }).catch(() => caches.match(req)),
+    )
+    return
+  }
+
+  // Vite hashed bundles: cache-first (URL changes every deploy)
+  if (isBuildAsset(url)) {
     event.respondWith(
       caches.open(CACHE).then(async (cache) => {
         const cached = await cache.match(req)
-        const network = fetch(req)
-          .then((res) => {
-            if (res && res.ok) void cache.put(req, res.clone())
-            return res
-          })
-          .catch(() => cached)
-        return cached || network
+        if (cached) return cached
+        const res = await fetch(req)
+        if (res && res.ok) void cache.put(req, res.clone())
+        return res
       }),
+    )
+    return
+  }
+
+  // Icons / fonts / manifest: network-first so rebrand/icons update
+  if (isShellAsset(url)) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            void caches.open(CACHE).then((c) => c.put(req, res.clone()))
+          }
+          return res
+        })
+        .catch(() => caches.match(req)),
     )
   }
 })
@@ -144,7 +184,7 @@ self.addEventListener('message', (event) => {
   }
   if (data.type !== 'SHOW_NOTIFICATION') return
   const title =
-    typeof data.title === 'string' ? data.title.slice(0, 120) : '엘리가'
+    typeof data.title === 'string' ? data.title.slice(0, 120) : '엘리가오더'
   const options =
     data.options && typeof data.options === 'object' ? { ...data.options } : {}
   if (typeof options.body === 'string') options.body = options.body.slice(0, 400)

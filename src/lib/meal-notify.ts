@@ -165,7 +165,7 @@ export function formatMenuBody(period: DiningPeriod | null, label: string): {
   })
   const more = dishes.length > 8 ? `\n외 ${dishes.length - 8}개` : ''
   return {
-    title: `${label} 메뉴 · 엘리가`,
+    title: `${label} 메뉴 · 엘리가오더`,
     body: lines.join('\n') + more,
   }
 }

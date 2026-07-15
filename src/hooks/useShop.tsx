@@ -61,7 +61,7 @@ interface ShopContextValue {
   getCart: (shopId: number) => Cart
   refreshCart: (opts?: RefreshCartOpts) => Promise<Cart | null>
   /** Prefetch carts for every orderable cafe shop */
-  refreshAllCafeCarts: () => Promise<void>
+  refreshAllCafeCarts: (opts?: { force?: boolean }) => Promise<void>
   /** Immediate local cart write for a shop (optimistic UI). */
   setCartLocal: (
     next: Cart | ((prev: Cart) => Cart),
@@ -103,11 +103,14 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   /** Forces re-render so hours recompute past open/close boundaries. */
   const [hoursTick, setHoursTick] = useState(0)
   const cartsRef = useRef<Record<number, Cart>>({})
+  /** Always-current shop list (pull-to-refresh / async callbacks). */
+  const shopsRef = useRef<Shop[]>([])
   /** Last successful network (or optimistic) write time per shop */
   const cartFetchedAtRef = useRef<Record<number, number>>({})
   const planFetchedAtRef = useRef<Record<number, number>>({})
   const selectedShopIdRef = useRef<number | null>(null)
   selectedShopIdRef.current = selectedShopId
+  shopsRef.current = shops
 
   const cartRef = useRef<Cart>(EMPTY_CART)
 
@@ -162,6 +165,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         ...s,
         type: resolveShopType(s.shopId, s.type),
       }))
+      shopsRef.current = normalized
       setShops(normalized)
       setSelectedShopId((prev) => {
         if (prev != null && normalized.some((s) => s.shopId === prev)) return prev
@@ -171,6 +175,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setShopsError(
         e instanceof Error ? e.message : '매장 목록을 불러오지 못했습니다',
       )
+      shopsRef.current = []
       setShops([])
     } finally {
       setShopsLoading(false)
@@ -181,52 +186,49 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     shops.find((s) => s.shopId === selectedShopId) ?? null
   const canOrder = canOrderFromShop(selectedShop)
 
-  const refreshCafePlans = useCallback(
-    async (opts?: { force?: boolean }) => {
-      const force = Boolean(opts?.force)
-      const cafes = shops.filter(
-        (s) => isCafeShop(s.type) && canOrderFromShop(s),
-      )
-      if (!cafes.length) return
-      const now = Date.now()
-      await Promise.all(
-        cafes.map(async (s) => {
-          const at = planFetchedAtRef.current[s.shopId]
-          if (!force && at != null && now - at <= PLAN_TTL_MS) {
-            return
-          }
-          try {
-            const plan = await fetchCafeSalesPlan(s.shopId)
-            planFetchedAtRef.current[s.shopId] = Date.now()
-            setCafePlansByShop((prev) => {
-              const prevP = prev[s.shopId]
-              if (
-                prevP &&
-                plan &&
-                prevP.open === plan.open &&
-                prevP.pauseOrder === plan.pauseOrder &&
-                prevP.nowBreak === plan.nowBreak &&
-                prevP.autoOpenTime === plan.autoOpenTime &&
-                prevP.autoCloseTime === plan.autoCloseTime &&
-                prevP.lastOrderUse === plan.lastOrderUse &&
-                prevP.lastOrderTime === plan.lastOrderTime
-              ) {
-                return prev
-              }
-              return { ...prev, [s.shopId]: plan }
-            })
-          } catch (e) {
-            console.warn('cafe sales-plan failed', s.shopId, e)
-            planFetchedAtRef.current[s.shopId] = Date.now()
-            setCafePlansByShop((prev) =>
-              s.shopId in prev ? prev : { ...prev, [s.shopId]: null },
-            )
-          }
-        }),
-      )
-    },
-    [shops],
-  )
+  const refreshCafePlans = useCallback(async (opts?: { force?: boolean }) => {
+    const force = Boolean(opts?.force)
+    const cafes = shopsRef.current.filter(
+      (s) => isCafeShop(s.type) && canOrderFromShop(s),
+    )
+    if (!cafes.length) return
+    const now = Date.now()
+    await Promise.all(
+      cafes.map(async (s) => {
+        const at = planFetchedAtRef.current[s.shopId]
+        if (!force && at != null && now - at <= PLAN_TTL_MS) {
+          return
+        }
+        try {
+          const plan = await fetchCafeSalesPlan(s.shopId)
+          planFetchedAtRef.current[s.shopId] = Date.now()
+          setCafePlansByShop((prev) => {
+            const prevP = prev[s.shopId]
+            if (
+              prevP &&
+              plan &&
+              prevP.open === plan.open &&
+              prevP.pauseOrder === plan.pauseOrder &&
+              prevP.nowBreak === plan.nowBreak &&
+              prevP.autoOpenTime === plan.autoOpenTime &&
+              prevP.autoCloseTime === plan.autoCloseTime &&
+              prevP.lastOrderUse === plan.lastOrderUse &&
+              prevP.lastOrderTime === plan.lastOrderTime
+            ) {
+              return prev
+            }
+            return { ...prev, [s.shopId]: plan }
+          })
+        } catch (e) {
+          console.warn('cafe sales-plan failed', s.shopId, e)
+          planFetchedAtRef.current[s.shopId] = Date.now()
+          setCafePlansByShop((prev) =>
+            s.shopId in prev ? prev : { ...prev, [s.shopId]: null },
+          )
+        }
+      }),
+    )
+  }, [])
 
   const getCafeHours = useCallback(
     (shopId: number | null | undefined): CafeHoursStatus => {
@@ -264,7 +266,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         return EMPTY_CART
       }
       const shopMeta =
-        shops.find((s) => s.shopId === sid) ?? {
+        shopsRef.current.find((s) => s.shopId === sid) ?? {
           shopId: sid,
           type: resolveShopType(sid),
           name: '',
@@ -302,20 +304,28 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         if (!silent && sid === selectedShopIdRef.current) setCartLoading(false)
       }
     },
-    [shops, setCartLocal, getCart, isCartCacheFresh],
+    [setCartLocal, getCart, isCartCacheFresh],
   )
 
-  const refreshAllCafeCarts = useCallback(async () => {
-    const cafes = shops.filter(
-      (s) => isCafeShop(s.type) && canOrderFromShop(s),
-    )
-    if (!cafes.length) return
-    await Promise.all(
-      cafes.map((s) =>
-        refreshCart({ shopId: s.shopId, silent: true /* force false → skip fresh */ }),
-      ),
-    )
-  }, [shops, refreshCart])
+  const refreshAllCafeCarts = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const force = Boolean(opts?.force)
+      const cafes = shopsRef.current.filter(
+        (s) => isCafeShop(s.type) && canOrderFromShop(s),
+      )
+      if (!cafes.length) return
+      await Promise.all(
+        cafes.map((s) =>
+          refreshCart({
+            shopId: s.shopId,
+            silent: true,
+            force,
+          }),
+        ),
+      )
+    },
+    [refreshCart],
+  )
 
   useEffect(() => {
     void refreshShops()

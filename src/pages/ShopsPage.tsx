@@ -339,7 +339,7 @@ export function ShopsPage() {
     <div className="home">
       <PageHeader
         kicker={todayISODate()}
-        title={shortName || '엘리가'}
+        title={shortName || '엘리가오더'}
         trailing={
           <>
             <button

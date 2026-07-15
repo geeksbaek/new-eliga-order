@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────
-   new 엘리가 — production mobile shell
+   엘리가오더 — production mobile shell
    Dense campus F&B UI. Yellow is CTA/active mark only.
    ───────────────────────────────────────────────────────────── */
 
@@ -53,9 +53,11 @@
 html {
   /* Prevent horizontal jump when scrollbars appear/disappear (preview, overflow) */
   scrollbar-gutter: stable;
-  /* App-like overscroll (standalone PWA) */
-  overscroll-behavior-y: none;
   touch-action: manipulation;
+  /*
+   * Do NOT set overscroll-behavior-y: none here — that kills mobile Chrome’s
+   * native pull-to-refresh. Custom PTR runs only in standalone (below).
+   */
 }
 
 html,
@@ -69,8 +71,6 @@ body,
 body {
   min-width: 320px;
   background: var(--bg);
-  /* iOS standalone: avoid rubber-band revealing browser chrome */
-  overscroll-behavior-y: none;
   -webkit-text-size-adjust: 100%;
   /* Native-app feel: no text selection / long-press callout */
   user-select: none;
@@ -98,10 +98,76 @@ svg {
   -webkit-touch-callout: none;
 }
 
-/* Installed PWA */
-@media (display-mode: standalone) {
+/* Installed PWA — no browser chrome; custom pull-to-refresh owns overscroll.
+   Class is set from display-mode + iOS navigator.standalone (see main.tsx). */
+html.is-standalone,
+html.is-standalone body,
+body.is-standalone {
+  overscroll-behavior-y: none;
+}
+
+@media (display-mode: standalone),
+  (display-mode: fullscreen),
+  (display-mode: minimal-ui) {
   .tabbar {
     padding-bottom: max(var(--safe-b), 0px);
+  }
+}
+
+/* ── Pull-to-refresh (standalone only; see usePullToRefresh) ── */
+
+.ptr-root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  /* Anchor sits above the fold; translateY pulls the badge into view */
+  margin-top: -40px;
+  padding-top: env(safe-area-inset-top, 0px);
+  transition: none;
+  will-change: transform;
+}
+
+.ptr-root.is-refreshing {
+  transition: transform 0.18s ease-out;
+}
+
+.ptr-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: grid;
+  place-items: center;
+  transition: opacity 0.12s ease;
+}
+
+.ptr-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--ink);
+  box-sizing: border-box;
+}
+
+.ptr-root.is-refreshing .ptr-spinner {
+  animation: ptr-spin 0.7s linear infinite;
+}
+
+.ptr-root.is-armed .ptr-badge {
+  border-color: var(--ink);
+}
+
+@keyframes ptr-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -1231,22 +1297,33 @@ img {
   display: none;
 }
 
-/* Cafe: fixed strip height so shops loading never expands the page.
-   Sticks with category chips (category strip uses --cafe-shop-stick-h). */
+/* Cafe: sticky shop + category strips.
+   Vertical pad matches chip gap so stuck bars don’t look cramped. */
 .cafe {
-  --cafe-shop-stick-h: 40px;
+  --chip-gap: 6px;
+  --cafe-chip-h: 34px;
+  /* full sticky band: pad + chip + pad */
+  --cafe-shop-stick-h: calc(var(--cafe-chip-h) + var(--chip-gap) * 2);
+  --cafe-cat-stick-h: calc(var(--cafe-chip-h) + var(--chip-gap) * 2);
 }
 
 .cafe-shop-pills {
-  height: 38px;
-  margin-bottom: 10px;
+  height: var(--cafe-shop-stick-h);
+  margin-bottom: var(--chip-gap);
+  padding-block: var(--chip-gap);
   align-items: center;
   flex-wrap: nowrap;
-  box-sizing: content-box;
+  box-sizing: border-box;
   position: sticky;
   top: 0;
   z-index: 11;
   background: var(--bg);
+}
+
+/* Horizontal inset + same vertical pad (overrides shop-pills-scroll padding) */
+.cafe-shop-pills.shop-pills-scroll {
+  margin: 0 -16px var(--chip-gap);
+  padding: var(--chip-gap) 16px;
 }
 
 .shop-pill {
@@ -2229,7 +2306,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
-  overflow: visible;
+  overflow: hidden;
   outline: none;
 }
 
@@ -2258,12 +2335,16 @@ img {
   background: transparent;
   border: none;
   border-radius: 14px;
+  border-bottom: 1px solid transparent;
   box-sizing: border-box;
+  transition:
+    border-color 0.22s ease,
+    border-radius 0.22s ease;
 }
 
 .dining-group-block.is-open > .dining-group-head {
   border-radius: 14px 14px 0 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom-color: var(--line);
 }
 
 .dining-group-block > .dining-group-head .dining-group-title {
@@ -2312,6 +2393,38 @@ img {
   font-size: 0.85rem;
   color: var(--muted);
   font-weight: 700;
+  line-height: 1;
+  display: inline-block;
+  /* ▾ points down when open; rotated to face right when closed */
+  transform: rotate(-90deg);
+  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.dining-group-block.is-open > .dining-group-head .dining-group-chevron {
+  transform: rotate(0deg);
+}
+
+/* Accordion body: grid 0fr → 1fr height (no max-height guess) */
+.dining-group-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.dining-group-block.is-open > .dining-group-panel {
+  grid-template-rows: 1fr;
+}
+
+.dining-group-panel-inner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.dining-group-block.is-open > .dining-group-panel > .dining-group-panel-inner {
+  opacity: 1;
+  transition-delay: 0.04s;
 }
 
 .dining-group-body {
@@ -2326,6 +2439,19 @@ img {
 .dining-group-body > .dining-line:last-child {
   border-bottom-left-radius: 13px;
   border-bottom-right-radius: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dining-group-block > .dining-group-head,
+  .dining-group-block > .dining-group-head .dining-group-chevron,
+  .dining-group-panel,
+  .dining-group-panel-inner {
+    transition: none;
+  }
+
+  .dining-group-block.is-open > .dining-group-panel > .dining-group-panel-inner {
+    transition-delay: 0s;
+  }
 }
 
 .dining-panel-empty {
@@ -2784,9 +2910,13 @@ img {
   scrollbar-width: none;
 }
 
-/* Sit under sticky cafe shop pills when both are pinned */
+/* Sit under sticky cafe shop pills; pad matches chip gap */
 .cafe .chip-strip {
-  top: var(--cafe-shop-stick-h, 40px);
+  top: var(--cafe-shop-stick-h, 46px);
+  height: var(--cafe-cat-stick-h, 46px);
+  margin: 0 -16px var(--chip-gap, 6px);
+  padding: var(--chip-gap, 6px) 16px;
+  box-sizing: border-box;
 }
 
 .chip-strip::-webkit-scrollbar {
@@ -2861,6 +2991,9 @@ img {
   border: none;
   padding: 0;
   display: block;
+  /* Fixed box so remount does not reflow while img decodes */
+  contain: strict;
+  flex: 0 0 56px;
 }
 
 .menu-row-thumb img {
@@ -2868,6 +3001,8 @@ img {
   width: 56px;
   height: 56px;
   object-fit: cover;
+  /* Solid fill under decode to avoid white flash on remount */
+  background: var(--surface-2);
 }
 
 .menu-row-thumb.is-empty {

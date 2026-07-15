@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useShop } from '../hooks/useShop'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useScrollRestore } from '../hooks/useScrollRestore'
 import { cartGrandTotal } from '../lib/cart-math'
 import { formatWon } from '../lib/format'
+import { cacheInvalidate } from '../lib/query-cache'
 import {
   CAFETERIA_SHOP_ID,
   DEFAULT_CAFE_SHOP_ID,
@@ -13,6 +15,7 @@ import {
   resolveShopType,
 } from '../lib/shop-rules'
 import { MealNotifyRunner } from './MealNotifyRunner'
+import { PullToRefreshIndicator } from './PullToRefresh'
 import { IconCup, IconHome, IconReceipt, IconUtensils } from './Icons'
 
 export function Layout() {
@@ -25,12 +28,44 @@ export function Layout() {
     selectedShopId,
     selectShop,
     shops,
+    refreshShops,
+    refreshCafePlans,
+    refreshAllCafeCarts,
   } = useShop()
   const navigate = useNavigate()
   const location = useLocation()
+  // Remount page tree after pull-to-refresh so load effects re-run on cold cache.
+  const [contentKey, setContentKey] = useState(0)
   // Note: pages that manage their own restore also call useScrollRestore;
   // double-call is ok — last effect wins for the active page key.
   useScrollRestore()
+
+  const handlePullRefresh = useCallback(async () => {
+    cacheInvalidate()
+    try {
+      sessionStorage.removeItem(
+        `eliga:scroll:${location.pathname}${location.search}`,
+      )
+    } catch {
+      /* private mode */
+    }
+    window.scrollTo(0, 0)
+    await refreshShops()
+    await Promise.all([
+      refreshCafePlans({ force: true }),
+      refreshAllCafeCarts({ force: true }),
+    ])
+    setContentKey((k) => k + 1)
+  }, [
+    location.pathname,
+    location.search,
+    refreshShops,
+    refreshCafePlans,
+    refreshAllCafeCarts,
+  ])
+
+  // Standalone PWA only — mobile Chrome keeps native pull-to-refresh.
+  const ptr = usePullToRefresh({ onRefresh: handlePullRefresh })
 
   const path = location.pathname
   const hideCartDock =
@@ -103,8 +138,9 @@ export function Layout() {
   return (
     <div className="app-shell" data-tab={tab}>
       <MealNotifyRunner />
+      <PullToRefreshIndicator state={ptr} />
       <main className="app-main">
-        <Outlet />
+        <Outlet key={contentKey} />
       </main>
 
       {/* Fixed overlay: always mounted to avoid layout jump when cart appears */}

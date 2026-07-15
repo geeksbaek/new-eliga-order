@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   fetchCafeCategories,
@@ -28,6 +35,7 @@ import {
   type CafeFavorite,
 } from '../lib/cafe-favorites'
 import { schedulePrefetchCafe } from '../lib/prefetch-cafe'
+import { warmImageUrls } from '../lib/image-warm'
 import { ensureHorizontalVisible } from '../lib/scroll-chip'
 import { KNOWN_SHOPS, listCafeShops } from '../lib/shop-rules'
 import { useCartMutations } from '../hooks/useCartMutations'
@@ -133,7 +141,17 @@ export function CafeMenuPage() {
       ? (cachePeek(cafeCatsKey(shopId)) ?? [])
       : [],
   )
-  const [activeCat, setActiveCat] = useState<ActiveCat>('all')
+  // Seed from session so back-nav does not flash "전체" then the real chip.
+  const [activeCat, setActiveCat] = useState<ActiveCat>(() => {
+    if (isFavView || !Number.isFinite(shopId)) return 'all'
+    const saved = readStoredCat(shopId)
+    if (saved == null) return 'all'
+    if (saved === 'all') return 'all'
+    const cats = cachePeek<CafeCategory[]>(cafeCatsKey(shopId))
+    if (cats && cats.some((c) => c.id === saved)) return saved
+    // Cats not cached yet — still prefer stored id so chip can light up when list paints
+    return saved
+  })
   const [favEntries, setFavEntries] = useState<CafeFavorite[]>(() =>
     loadFavorites(),
   )
@@ -176,17 +194,23 @@ export function CafeMenuPage() {
   }, [shopId, isFavView, selectShop])
 
   const applyCatsAndRestore = useCallback((sid: number, cats: CafeCategory[]) => {
-    setCategories(cats)
+    setCategories((prev) => {
+      if (
+        prev.length === cats.length &&
+        prev.every((c, i) => c.id === cats[i]?.id && c.name === cats[i]?.name)
+      ) {
+        return prev
+      }
+      return cats
+    })
     const saved = readStoredCat(sid)
-    if (saved === 'all') {
-      setActiveCat('all')
-      return
-    }
-    if (typeof saved === 'number' && cats.some((c) => c.id === saved)) {
-      setActiveCat(saved)
-      return
-    }
-    setActiveCat('all')
+    const next: ActiveCat =
+      saved === 'all'
+        ? 'all'
+        : typeof saved === 'number' && cats.some((c) => c.id === saved)
+          ? saved
+          : 'all'
+    setActiveCat((prev) => (prev === next ? prev : next))
   }, [])
 
   const loadCategories = useCallback(
@@ -223,6 +247,32 @@ export function CafeMenuPage() {
     [applyCatsAndRestore],
   )
 
+  /** Skip setState when list thumbs would look identical (avoids remount flash). */
+  const applyMenusIfChanged = useCallback(
+    (sid: number, shopLabel: string, items: CafeMenuItem[]) => {
+      warmImageUrls(items.map((m) => m.thumbnailUrl))
+      setMenus((prev) => {
+        if (
+          prev.length === items.length &&
+          prev.every(
+            (row, i) =>
+              row.shopId === sid &&
+              row.displayId === items[i].displayId &&
+              row.thumbnailUrl === items[i].thumbnailUrl &&
+              row.price === items[i].price &&
+              row.soldOut === items[i].soldOut &&
+              row.name === items[i].name &&
+              row.label === items[i].label,
+          )
+        ) {
+          return prev
+        }
+        return withShop(items, sid, shopLabel)
+      })
+    },
+    [],
+  )
+
   /** Always fetch the full shop menu once; category chips filter client-side. */
   const loadMenu = useCallback(
     async (sid: number, shopLabel: string, force = false) => {
@@ -232,7 +282,7 @@ export function CafeMenuPage() {
         const hit = cachePeek<CafeMenuItem[]>(key)
         if (hit) {
           if (req === menuReqId.current) {
-            setMenus(withShop(hit, sid, shopLabel))
+            applyMenusIfChanged(sid, shopLabel, hit)
             setLoading(false)
             setError(null)
           }
@@ -241,7 +291,8 @@ export function CafeMenuPage() {
               .then((items) => {
                 if (req !== menuReqId.current) return
                 cacheSet(key, items)
-                setMenus(withShop(items, sid, shopLabel))
+                // Soft revalidate: only update when content actually changed
+                applyMenusIfChanged(sid, shopLabel, items)
               })
               .catch(() => {})
           }
@@ -257,7 +308,7 @@ export function CafeMenuPage() {
         const items = await fetchCafeMenu(sid)
         if (req !== menuReqId.current) return items
         cacheSet(key, items)
-        setMenus(withShop(items, sid, shopLabel))
+        applyMenusIfChanged(sid, shopLabel, items)
         setLoading(false)
         return items
       } catch (e) {
@@ -268,7 +319,7 @@ export function CafeMenuPage() {
         throw e
       }
     },
-    [],
+    [applyMenusIfChanged],
   )
 
   /** Load all cafe shops and pick favorited rows (multi-shop view). */
@@ -404,14 +455,20 @@ export function CafeMenuPage() {
     const cachedCats = cachePeek<CafeCategory[]>(cafeCatsKey(shopId))
     const cachedRail = cachePeek<RailCache>(cafeRailKey(shopId))
     if (cachedMenu) {
-      setMenus(withShop(cachedMenu, shopId, label))
+      // Skip setState when identical — avoids remount flash of sticky strips + rows
+      applyMenusIfChanged(shopId, label, cachedMenu)
       setLoading(false)
     } else {
       setMenus([])
       setLoading(true)
     }
     if (cachedCats) applyCatsAndRestore(shopId, cachedCats)
-    else setCategories([])
+    else {
+      // Shop switch without cache — clear so previous shop chips don't linger
+      setCategories([])
+      const saved = readStoredCat(shopId)
+      setActiveCat(saved ?? 'all')
+    }
     if (cachedRail) {
       setRecent(cachedRail.recent)
       setPopular(cachedRail.popular)
@@ -431,6 +488,7 @@ export function CafeMenuPage() {
     cafeShops,
     shops,
     applyCatsAndRestore,
+    applyMenusIfChanged,
     loadCategories,
     loadMenu,
     loadRail,
@@ -443,22 +501,17 @@ export function CafeMenuPage() {
     writeStoredCat(shopId, activeCat)
   }, [shopId, activeCat, isFavView])
 
-  // Keep active cafe pill / category chip in horizontal view
-  useEffect(() => {
+  // Keep active cafe pill / category chip in horizontal view before paint
+  // (rAF left one frame of strip at scrollLeft=0 → visible chip jump on back).
+  useLayoutEffect(() => {
     if (isFavView) return
-    const id = requestAnimationFrame(() => {
-      ensureHorizontalVisible(shopPillRefs.current.get(String(shopId)))
-    })
-    return () => cancelAnimationFrame(id)
+    ensureHorizontalVisible(shopPillRefs.current.get(String(shopId)))
   }, [shopId, isFavView, cafeShops.length])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isFavView) return
     const key = activeCat === 'all' ? 'all' : String(activeCat)
-    const id = requestAnimationFrame(() => {
-      ensureHorizontalVisible(catChipRefs.current.get(key))
-    })
-    return () => cancelAnimationFrame(id)
+    ensureHorizontalVisible(catChipRefs.current.get(key))
   }, [activeCat, categories, isFavView])
 
   // Prefetch sibling cafe shops when the pill strip is available.
@@ -911,6 +964,8 @@ export function CafeMenuPage() {
                             src={item.thumbnailUrl}
                             width={56}
                             height={56}
+                            loading="eager"
+                            decoding="sync"
                           />
                         </button>
                         <button

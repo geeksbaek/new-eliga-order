@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isImageWarm, markImageWarm } from '../lib/image-warm'
 import { IconUtensils } from './Icons'
 
 type Props = {
@@ -7,6 +8,7 @@ type Props = {
   width?: number
   height?: number
   loading?: 'lazy' | 'eager'
+  decoding?: 'async' | 'sync' | 'auto'
   className?: string
   /**
    * inline — list thumbs (compact label)
@@ -21,12 +23,19 @@ export function MenuThumb({
   alt = '',
   width,
   height,
-  loading = 'lazy',
+  loading,
+  decoding,
   className,
   variant = 'inline',
 }: Props) {
   const url = src?.trim() || ''
   const [failed, setFailed] = useState(false)
+  const warm = isImageWarm(url)
+  // Prefer eager/sync for warm list thumbs so back-navigation does not blank.
+  const loadMode =
+    loading ?? (variant === 'inline' && warm ? 'eager' : 'lazy')
+  const decodeMode =
+    decoding ?? (variant === 'inline' && warm ? 'sync' : 'async')
 
   useEffect(() => {
     setFailed(false)
@@ -58,9 +67,12 @@ export function MenuThumb({
       alt={alt}
       width={width}
       height={height}
-      loading={loading}
-      decoding="async"
+      loading={loadMode}
+      decoding={decodeMode}
+      // Browser may still re-fetch if missing cache; fetchpriority helps list
+      fetchPriority={loadMode === 'eager' ? 'high' : 'auto'}
       className={className}
+      onLoad={() => markImageWarm(url)}
       onError={() => setFailed(true)}
     />
   )

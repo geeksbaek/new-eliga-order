@@ -45,12 +45,12 @@ export function LoginPage() {
   return (
     <div className="login-shell">
       <header className="login-top">
-        <div className="login-brand" aria-label="new 엘리가">
+        <div className="login-brand" aria-label="엘리가오더">
           <span className="login-mark" aria-hidden>
             <IconCup size={18} />
           </span>
           <div className="login-brand-text">
-            <strong>new 엘리가</strong>
+            <strong>엘리가오더</strong>
             <span>사내 식당 · 카페 주문</span>
           </div>
         </div>
@@ -60,7 +60,7 @@ export function LoginPage() {
         <div className="login-intro">
           <h1 className="login-title">로그인</h1>
           <p className="login-lead">
-            엘리가 오더 계정으로 입장합니다. 카카오 사내 계정과 동일합니다.
+            엘리가오더 계정으로 입장합니다. 카카오 사내 계정과 동일합니다.
           </p>
         </div>
 
