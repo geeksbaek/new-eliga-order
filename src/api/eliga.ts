@@ -4,6 +4,10 @@
  */
 import { apiRequest, BRAND_CODE, signIn as clientSignIn } from './client'
 import {
+  mapCafeSalesPlan,
+  type CafeSalesPlan,
+} from '../lib/cafe-hours'
+import {
   hiddenCategoryIds,
   mapCafeCategories,
   mapCafeMenu,
@@ -15,6 +19,7 @@ import {
   mapPaymentReasons,
   mapShops,
 } from '../lib/mappers'
+import { inflight } from '../lib/inflight'
 import {
   buildCartAddBody,
   buildCartDeleteBody,
@@ -52,21 +57,40 @@ export async function fetchShopInfo(shopId: number): Promise<unknown> {
   return apiRequest(`/shop/${shopId}`)
 }
 
-export async function fetchCafeCategories(shopId: number): Promise<CafeCategory[]> {
-  const raw = await apiRequest(`/goods/category?shopId=${shopId}`)
-  return mapCafeCategories(raw)
+/** Per-cafe sales plan (openYn, auto open/close, openDay, pause/break). */
+export async function fetchCafeSalesPlan(shopId: number): Promise<CafeSalesPlan | null> {
+  return inflight(`cafe:plan:${shopId}`, async () => {
+    const raw = await apiRequest(`/sales-plan/cafe/${shopId}`)
+    return mapCafeSalesPlan(raw, shopId)
+  })
 }
 
+export async function fetchCafeCategories(shopId: number): Promise<CafeCategory[]> {
+  return inflight(`cafe:cats:${shopId}`, async () => {
+    const raw = await apiRequest(`/goods/category?shopId=${shopId}`)
+    return mapCafeCategories(raw)
+  })
+}
+
+/**
+ * Full (or category) cafe menu. Categories + display load in parallel;
+ * concurrent callers for the same shop/cat share one in-flight request.
+ */
 export async function fetchCafeMenu(
   shopId: number,
   categoryId?: number,
 ): Promise<CafeMenuItem[]> {
-  const cats = await fetchCafeCategories(shopId)
-  const hidden = hiddenCategoryIds(cats)
-  const params = new URLSearchParams({ shopId: String(shopId) })
-  if (categoryId != null) params.set('categoryId', String(categoryId))
-  const raw = await apiRequest(`/goods/display?${params}`)
-  return mapCafeMenu(raw, hidden)
+  const catKey = categoryId == null ? 'all' : String(categoryId)
+  return inflight(`cafe:menu:${shopId}:${catKey}`, async () => {
+    const params = new URLSearchParams({ shopId: String(shopId) })
+    if (categoryId != null) params.set('categoryId', String(categoryId))
+    // Was sequential (cats → display); parallel cuts first-paint wait roughly in half.
+    const [cats, raw] = await Promise.all([
+      fetchCafeCategories(shopId),
+      apiRequest(`/goods/display?${params}`),
+    ])
+    return mapCafeMenu(raw, hiddenCategoryIds(cats))
+  })
 }
 
 export async function fetchCafeMenuDetail(displayId: number): Promise<MenuDetail> {
@@ -82,6 +106,23 @@ export async function fetchDiningMenu(
     `/meal/operation-times-and-courses?shopId=${shopId}&startDate=${date}&endDate=${date}`,
   )
   return mapDiningMenu(raw)
+}
+
+/** Multi-day cafeteria menu (for preference catalog). */
+export async function fetchDiningMenuRange(
+  shopId: number,
+  startDate: string,
+  endDate: string,
+): Promise<DiningPeriod[]> {
+  return inflight(
+    `dining:range:${shopId}:${startDate}:${endDate}`,
+    async () => {
+      const raw = await apiRequest(
+        `/meal/operation-times-and-courses?shopId=${shopId}&startDate=${startDate}&endDate=${endDate}`,
+      )
+      return mapDiningMenu(raw)
+    },
+  )
 }
 
 export async function fetchCart(shopId: number): Promise<Cart> {
@@ -159,15 +200,19 @@ export async function fetchOrderHistory(
 export async function fetchRecentOrders(
   shopId: number,
 ): Promise<CafeQuickItem[]> {
-  const raw = await apiRequest(`/goods/order/recent/${shopId}`)
-  return mapCafeQuickItems(raw)
+  return inflight(`cafe:recent:${shopId}`, async () => {
+    const raw = await apiRequest(`/goods/order/recent/${shopId}`)
+    return mapCafeQuickItems(raw)
+  })
 }
 
 export async function fetchPopularOrders(
   shopId: number,
 ): Promise<CafeQuickItem[]> {
-  const raw = await apiRequest(`/goods/order/popular/${shopId}`)
-  return mapCafeQuickItems(raw)
+  return inflight(`cafe:popular:${shopId}`, async () => {
+    const raw = await apiRequest(`/goods/order/popular/${shopId}`)
+    return mapCafeQuickItems(raw)
+  })
 }
 
 export async function fetchCustomerMe(): Promise<unknown> {

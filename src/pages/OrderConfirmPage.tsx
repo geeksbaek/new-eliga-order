@@ -6,6 +6,7 @@ import {
   placeOrder,
 } from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
+import { PageHeader } from '../components/PageHeader'
 import { formatWon } from '../lib/format'
 import { lineTotal } from '../lib/cart-math'
 import {
@@ -24,8 +25,13 @@ export function OrderConfirmPage() {
     selectedShopId,
     canOrder,
     refreshCart,
+    getCafeHours,
+    isSelectedCafeOpen,
   } = useShop()
   const navigate = useNavigate()
+  const hours =
+    selectedShopId != null ? getCafeHours(selectedShopId) : null
+  const hoursBlockOrder = hours != null && !hours.orderable
 
   const [reasons, setReasons] = useState<PaymentReason[]>([])
   const [reasonId, setReasonId] = useState<number | null>(null)
@@ -65,10 +71,31 @@ export function OrderConfirmPage() {
 
   if (!canOrder) {
     return (
-      <div>
-        <h1 className="page-title">주문 확인</h1>
+      <div className="order-confirm">
+        <PageHeader
+          back={{ fallbackTo: '/cart', label: '장바구니' }}
+          title="주문 확인"
+        />
         <Empty>
           카페 매장에서만 주문할 수 있습니다. <Link to="/">매장 선택</Link>
+        </Empty>
+      </div>
+    )
+  }
+
+  if (hoursBlockOrder && hours) {
+    return (
+      <div className="order-confirm">
+        <PageHeader
+          back={{ fallbackTo: '/cart', label: '장바구니' }}
+          title="주문 확인"
+        />
+        <div className="cafe-hours-banner is-closed" role="status">
+          {hours.message}
+        </div>
+        <Empty>
+          운영시간에만 주문할 수 있습니다.{' '}
+          <Link to="/cart">장바구니로</Link>
         </Empty>
       </div>
     )
@@ -80,8 +107,11 @@ export function OrderConfirmPage() {
 
   if (!cart.items.length || !cart.cartId) {
     return (
-      <div>
-        <h1 className="page-title">주문 확인</h1>
+      <div className="order-confirm">
+        <PageHeader
+          back={{ fallbackTo: '/cart', label: '장바구니' }}
+          title="주문 확인"
+        />
         <Empty>
           장바구니가 비어 있습니다. <Link to="/cart">장바구니</Link>
         </Empty>
@@ -92,6 +122,12 @@ export function OrderConfirmPage() {
   async function onSubmit() {
     setError(null)
     setResultMsg(null)
+    if (!isSelectedCafeOpen) {
+      const h =
+        selectedShopId != null ? getCafeHours(selectedShopId) : null
+      setError(h?.message ?? '지금은 주문할 수 없습니다')
+      return
+    }
     try {
       assertOrderConfirmed(confirmed)
     } catch (e) {
@@ -125,7 +161,7 @@ export function OrderConfirmPage() {
           ? `주문이 접수되었습니다. 주문번호 ${orderId}`
           : '주문이 접수되었습니다.',
       )
-      await refreshCart()
+      await refreshCart({ force: true })
       setTimeout(() => {
         navigate(orderId ? `/orders?highlight=${orderId}` : '/orders')
       }, 800)
@@ -137,16 +173,12 @@ export function OrderConfirmPage() {
   }
 
   return (
-    <div>
-      <div className="row" style={{ marginBottom: 8 }}>
-        <Link to="/cart" className="btn btn-ghost btn-sm">
-          ← 장바구니
-        </Link>
-      </div>
-      <h1 className="page-title">주문 확인</h1>
-      <p className="page-sub">
-        아래 내역과 금액을 확인한 뒤, 체크하고 주문하세요. 확인 없이는 주문이 실행되지 않습니다.
-      </p>
+    <div className="order-confirm">
+      <PageHeader
+        back={{ fallbackTo: '/cart', label: '장바구니' }}
+        title="주문 확인"
+        sub="아래 내역과 금액을 확인한 뒤, 체크하고 주문하세요. 확인 없이는 주문이 실행되지 않습니다."
+      />
 
       {error && <ErrorBox>{error}</ErrorBox>}
       {resultMsg && <div className="info-box">{resultMsg}</div>}
@@ -206,11 +238,18 @@ export function OrderConfirmPage() {
             </div>
           )}
 
+          {hoursBlockOrder && hours && (
+            <div className="cafe-hours-banner is-closed" role="status">
+              {hours.message}
+            </div>
+          )}
+
           <label className="confirm-check">
             <input
               type="checkbox"
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
+              disabled={hoursBlockOrder}
             />
             <span>
               위 주문 내역과 총 금액 <strong>{formatWon(cartTotal)}</strong>을
@@ -221,10 +260,20 @@ export function OrderConfirmPage() {
           <button
             type="button"
             className="btn btn-primary btn-block"
-            disabled={busy || !confirmed || reasonId == null}
+            disabled={
+              busy ||
+              !confirmed ||
+              reasonId == null ||
+              hoursBlockOrder ||
+              !isSelectedCafeOpen
+            }
             onClick={() => void onSubmit()}
           >
-            {busy ? '주문 중…' : '주문하기'}
+            {hoursBlockOrder
+              ? '운영시간 외 · 주문 불가'
+              : busy
+                ? '주문 중…'
+                : '주문하기'}
           </button>
         </section>
       </div>

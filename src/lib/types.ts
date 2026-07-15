@@ -20,6 +20,8 @@ export interface CafeMenuItem {
   displayId: number
   goodsId: number | null
   name: string
+  /** Category id for client-side filtering without re-fetch */
+  categoryId: number | null
   category: string
   price: number
   soldOut: boolean
@@ -28,6 +30,8 @@ export interface CafeMenuItem {
   nutrition: string | null
   label: string | null
   displayName: string
+  /** Menu list thumbnail (CDN URL) */
+  thumbnailUrl: string | null
 }
 
 export interface OptionMenu {
@@ -52,6 +56,7 @@ export interface GoodsVariant {
   description: string | null
   calorie: number | null
   nutrition: string | null
+  thumbnailUrl: string | null
   options: GoodsOption[]
 }
 
@@ -59,6 +64,8 @@ export interface MenuDetail {
   displayId: number
   shopId: number | null
   label: string | null
+  /** Display-level hero image (falls back to first variant image) */
+  thumbnailUrl: string | null
   variants: GoodsVariant[]
 }
 
@@ -131,6 +138,8 @@ export interface CartItem {
   qty: number
   price: number
   options: CartOptionView[]
+  /** Goods thumbnail when API provides one */
+  thumbnailUrl: string | null
 }
 
 export interface Cart {

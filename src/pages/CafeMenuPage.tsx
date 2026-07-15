@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   fetchCafeCategories,
@@ -6,178 +6,787 @@ import {
   fetchPopularOrders,
   fetchRecentOrders,
 } from '../api/eliga'
-import { Empty, ErrorBox, Loading } from '../components/UiState'
-import { formatDateTime, formatWon } from '../lib/format'
+import { Empty, ErrorBox } from '../components/UiState'
+import { ImagePreview, type PreviewImage } from '../components/ImagePreview'
+import { PageHeader } from '../components/PageHeader'
+import { formatWon } from '../lib/format'
+import { MenuThumb } from '../components/MenuThumb'
+import { CafeHeaderActions } from '../components/CafeHeaderActions'
+import { IconStar } from '../components/Icons'
+import {
+  cacheIsFresh,
+  cachePeek,
+  cacheSet,
+  cafeCatsKey,
+  cafeMenuKey,
+  cafeRailKey,
+} from '../lib/query-cache'
+import {
+  isFavorite,
+  loadFavorites,
+  toggleFavorite,
+  type CafeFavorite,
+} from '../lib/cafe-favorites'
+import { schedulePrefetchCafe } from '../lib/prefetch-cafe'
+import { ensureHorizontalVisible } from '../lib/scroll-chip'
+import { KNOWN_SHOPS, listCafeShops } from '../lib/shop-rules'
+import { useCartMutations } from '../hooks/useCartMutations'
+import { useScrollRestore } from '../hooks/useScrollRestore'
 import { useShop } from '../hooks/useShop'
 import type { CafeCategory, CafeMenuItem, CafeQuickItem } from '../lib/types'
 
+const MENU_SKELETON_COUNT = 8
+const RAIL_SLOT_COUNT = 4
+const FAV_ROUTE = 'favorites'
+
+type RailCache = { recent: CafeQuickItem[]; popular: CafeQuickItem[] }
+/** Category chip: all or real category id (favorites is a shop-level pill). */
+type ActiveCat = number | 'all'
+
+function catStorageKey(sid: number): string {
+  return `eliga.cafe.cat:${sid}`
+}
+
+function readStoredCat(sid: number): ActiveCat | null {
+  try {
+    const raw = sessionStorage.getItem(catStorageKey(sid))
+    if (raw == null || raw === '') return null
+    if (raw === 'all') return 'all'
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredCat(sid: number, cat: ActiveCat): void {
+  try {
+    sessionStorage.setItem(catStorageKey(sid), String(cat))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Menu row with shop context (needed for multi-shop favorites). */
+type MenuRow = CafeMenuItem & { shopId: number; shopName: string }
+
+function shortCafeName(name: string): string {
+  return (
+    name
+      .replace(/^kafé\s*/i, '')
+      .replace(/\s*\(.*\)$/, '')
+      .trim() || name
+  )
+}
+
+function withShop(
+  items: CafeMenuItem[],
+  shopId: number,
+  shopName: string,
+): MenuRow[] {
+  return items.map((m) => ({ ...m, shopId, shopName }))
+}
+
 export function CafeMenuPage() {
   const { shopId: shopIdParam } = useParams()
-  const shopId = Number(shopIdParam)
+  const isFavView = shopIdParam === FAV_ROUTE || shopIdParam === 'fav'
+  const shopId = isFavView ? NaN : Number(shopIdParam)
   const navigate = useNavigate()
-  const { selectShop, shops } = useShop()
-  const shopName = shops.find((s) => s.shopId === shopId)?.name ?? `매장 ${shopId}`
+  const { selectShop, shops, cart, cartsByShop, getCafeHours } = useShop()
+  useScrollRestore()
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  const [categories, setCategories] = useState<CafeCategory[]>([])
-  const [activeCat, setActiveCat] = useState<number | 'all'>('all')
-  const [menus, setMenus] = useState<CafeMenuItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [recent, setRecent] = useState<CafeQuickItem[]>([])
-  const [popular, setPopular] = useState<CafeQuickItem[]>([])
-  const [quickError, setQuickError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'menu' | 'quick'>('menu')
-
-  useEffect(() => {
-    if (Number.isFinite(shopId)) selectShop(shopId)
-  }, [shopId, selectShop])
-
-  // Categories once per shop
-  useEffect(() => {
-    if (!Number.isFinite(shopId)) return
-    let cancelled = false
-    fetchCafeCategories(shopId)
-      .then((cats) => {
-        if (!cancelled) setCategories(cats.filter((c) => c.mobileUseYn))
-      })
-      .catch(() => {
-        if (!cancelled) setCategories([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [shopId])
-
-  // Menu when shop or category changes (single fetch — no race)
-  useEffect(() => {
-    if (!Number.isFinite(shopId)) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    const catId = activeCat === 'all' ? undefined : activeCat
-    fetchCafeMenu(shopId, catId)
-      .then((items) => {
-        if (!cancelled) setMenus(items)
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : '메뉴를 불러오지 못했습니다')
-          setMenus([])
+  const { bumpMenuQty } = useCartMutations({
+    onError: (err) => {
+      if (err.code === 'OPTION_REQUIRED' && err.goodsId != null) {
+        const menu = menus.find((m) => m.goodsId === err.goodsId)
+        if (menu) {
+          navigate(`/cafe/${menu.shopId}/menu?d=${menu.displayId}`)
+          return
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [shopId, activeCat])
+      }
+      const msg =
+        err.error instanceof Error
+          ? err.error.message
+          : '장바구니 반영에 실패했습니다'
+      setActionError(msg)
+    },
+  })
+
+  const cafeShops = useMemo(() => listCafeShops(shops), [shops])
+  const cafeShopKey = useMemo(
+    () => cafeShops.map((s) => s.shopId).join(','),
+    [cafeShops],
+  )
+  const shopName = isFavView
+    ? '즐겨찾기'
+    : (shops.find((s) => s.shopId === shopId)?.name ??
+      KNOWN_SHOPS.find((s) => s.shopId === shopId)?.name ??
+      `매장 ${shopId}`)
+
+  const shopHours = !isFavView && Number.isFinite(shopId)
+    ? getCafeHours(shopId)
+    : null
+
+  const [categories, setCategories] = useState<CafeCategory[]>(() =>
+    !isFavView && Number.isFinite(shopId)
+      ? (cachePeek(cafeCatsKey(shopId)) ?? [])
+      : [],
+  )
+  const [activeCat, setActiveCat] = useState<ActiveCat>('all')
+  const [favEntries, setFavEntries] = useState<CafeFavorite[]>(() =>
+    loadFavorites(),
+  )
+  const [menus, setMenus] = useState<MenuRow[]>(() => {
+    if (isFavView) return []
+    if (!Number.isFinite(shopId)) return []
+    const hit = cachePeek<CafeMenuItem[]>(cafeMenuKey(shopId, 'all'))
+    if (!hit) return []
+    const name =
+      shops.find((s) => s.shopId === shopId)?.name ??
+      KNOWN_SHOPS.find((s) => s.shopId === shopId)?.name ??
+      `매장 ${shopId}`
+    return withShop(hit, shopId, name)
+  })
+  const [loading, setLoading] = useState(() => menus.length === 0)
+  const [error, setError] = useState<string | null>(null)
+  const [recent, setRecent] = useState<CafeQuickItem[]>(() => {
+    if (!Number.isFinite(shopId)) return []
+    return cachePeek<RailCache>(cafeRailKey(shopId))?.recent ?? []
+  })
+  const [popular, setPopular] = useState<CafeQuickItem[]>(() => {
+    if (!Number.isFinite(shopId)) return []
+    return cachePeek<RailCache>(cafeRailKey(shopId))?.popular ?? []
+  })
+  const [railReady, setRailReady] = useState(
+    () =>
+      Number.isFinite(shopId) && cachePeek(cafeRailKey(shopId)) != null,
+  )
+  const [preview, setPreview] = useState<PreviewImage | null>(null)
+
+  /** Bumps on every shop/cat navigation so stale responses never win. */
+  const menuReqId = useRef(0)
+  const railReqId = useRef(0)
+  const catReqId = useRef(0)
+  const shopPillRefs = useRef(new Map<string, HTMLButtonElement>())
+  const catChipRefs = useRef(new Map<string, HTMLButtonElement>())
 
   useEffect(() => {
-    if (!Number.isFinite(shopId)) return
-    let cancelled = false
-    setQuickError(null)
-    Promise.all([fetchRecentOrders(shopId), fetchPopularOrders(shopId)])
-      .then(([r, p]) => {
-        if (cancelled) return
-        setRecent(r)
-        setPopular(p)
-      })
-      .catch((e) => {
-        if (cancelled) return
-        setRecent([])
-        setPopular([])
-        setQuickError(
-          e instanceof Error ? e.message : '최근·인기 메뉴를 불러오지 못했습니다',
-        )
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [shopId])
+    if (!isFavView && Number.isFinite(shopId)) selectShop(shopId)
+  }, [shopId, isFavView, selectShop])
 
-  const availableCount = useMemo(
-    () => menus.filter((m) => !m.soldOut).length,
-    [menus],
+  const applyCatsAndRestore = useCallback((sid: number, cats: CafeCategory[]) => {
+    setCategories(cats)
+    const saved = readStoredCat(sid)
+    if (saved === 'all') {
+      setActiveCat('all')
+      return
+    }
+    if (typeof saved === 'number' && cats.some((c) => c.id === saved)) {
+      setActiveCat(saved)
+      return
+    }
+    setActiveCat('all')
+  }, [])
+
+  const loadCategories = useCallback(
+    async (sid: number, force = false) => {
+      const req = ++catReqId.current
+      const key = cafeCatsKey(sid)
+      if (!force) {
+        const hit = cachePeek<CafeCategory[]>(key)
+        if (hit) {
+          if (req === catReqId.current) applyCatsAndRestore(sid, hit)
+          if (cacheIsFresh(key)) return hit
+          void fetchCafeCategories(sid)
+            .then((raw) => {
+              if (req !== catReqId.current) return
+              const cats = raw.filter((c) => c.mobileUseYn)
+              cacheSet(key, cats)
+              applyCatsAndRestore(sid, cats)
+            })
+            .catch(() => {})
+          return hit
+        }
+      }
+      try {
+        const cats = (await fetchCafeCategories(sid)).filter((c) => c.mobileUseYn)
+        if (req !== catReqId.current) return cats
+        cacheSet(key, cats)
+        applyCatsAndRestore(sid, cats)
+        return cats
+      } catch {
+        if (req === catReqId.current) setCategories([])
+        return []
+      }
+    },
+    [applyCatsAndRestore],
   )
 
-  if (!Number.isFinite(shopId)) {
-    return <Empty>잘못된 매장입니다. <Link to="/">매장 목록</Link></Empty>
+  /** Always fetch the full shop menu once; category chips filter client-side. */
+  const loadMenu = useCallback(
+    async (sid: number, shopLabel: string, force = false) => {
+      const req = ++menuReqId.current
+      const key = cafeMenuKey(sid, 'all')
+      if (!force) {
+        const hit = cachePeek<CafeMenuItem[]>(key)
+        if (hit) {
+          if (req === menuReqId.current) {
+            setMenus(withShop(hit, sid, shopLabel))
+            setLoading(false)
+            setError(null)
+          }
+          if (!cacheIsFresh(key)) {
+            void fetchCafeMenu(sid)
+              .then((items) => {
+                if (req !== menuReqId.current) return
+                cacheSet(key, items)
+                setMenus(withShop(items, sid, shopLabel))
+              })
+              .catch(() => {})
+          }
+          return hit
+        }
+      }
+      if (req === menuReqId.current) {
+        setLoading(true)
+        setError(null)
+        if (!cachePeek(key)) setMenus([])
+      }
+      try {
+        const items = await fetchCafeMenu(sid)
+        if (req !== menuReqId.current) return items
+        cacheSet(key, items)
+        setMenus(withShop(items, sid, shopLabel))
+        setLoading(false)
+        return items
+      } catch (e) {
+        if (req !== menuReqId.current) throw e
+        setError(e instanceof Error ? e.message : '메뉴를 불러오지 못했습니다')
+        if (!cachePeek(key)) setMenus([])
+        setLoading(false)
+        throw e
+      }
+    },
+    [],
+  )
+
+  /** Load all cafe shops and pick favorited rows (multi-shop view). */
+  const loadFavoritesView = useCallback(
+    async (shopList: Array<{ shopId: number; name: string }>) => {
+      const req = ++menuReqId.current
+      setLoading(true)
+      setError(null)
+      setCategories([])
+      setRecent([])
+      setPopular([])
+      setRailReady(true)
+      setActiveCat('all')
+
+      const entries = loadFavorites()
+      setFavEntries(entries)
+
+      // Seed from cache for instant paint
+      const pool: MenuRow[] = []
+      for (const s of shopList) {
+        const hit = cachePeek<CafeMenuItem[]>(cafeMenuKey(s.shopId, 'all'))
+        if (hit) pool.push(...withShop(hit, s.shopId, s.name))
+      }
+      if (pool.length && req === menuReqId.current) {
+        setMenus(pool)
+        setLoading(false)
+      }
+
+      try {
+        const packs = await Promise.all(
+          shopList.map(async (s) => {
+            try {
+              const items = await fetchCafeMenu(s.shopId)
+              cacheSet(cafeMenuKey(s.shopId, 'all'), items)
+              return withShop(items, s.shopId, s.name)
+            } catch {
+              return [] as MenuRow[]
+            }
+          }),
+        )
+        if (req !== menuReqId.current) return
+        setMenus(packs.flat())
+        setLoading(false)
+      } catch (e) {
+        if (req !== menuReqId.current) return
+        setError(
+          e instanceof Error ? e.message : '즐겨찾기를 불러오지 못했습니다',
+        )
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  const loadRail = useCallback(async (sid: number, force = false) => {
+    const req = ++railReqId.current
+    const key = cafeRailKey(sid)
+    if (!force) {
+      const hit = cachePeek<RailCache>(key)
+      if (hit) {
+        if (req === railReqId.current) {
+          setRecent(hit.recent)
+          setPopular(hit.popular)
+          setRailReady(true)
+        }
+        if (!cacheIsFresh(key)) {
+          void Promise.all([fetchRecentOrders(sid), fetchPopularOrders(sid)])
+            .then(([r, p]) => {
+              if (req !== railReqId.current) return
+              const next = { recent: r.slice(0, 8), popular: p.slice(0, 6) }
+              cacheSet(key, next)
+              setRecent(next.recent)
+              setPopular(next.popular)
+            })
+            .catch(() => {})
+        }
+        return
+      }
+    }
+    if (req === railReqId.current) {
+      setRailReady(false)
+      setRecent([])
+      setPopular([])
+    }
+    try {
+      const [r, p] = await Promise.all([
+        fetchRecentOrders(sid),
+        fetchPopularOrders(sid),
+      ])
+      if (req !== railReqId.current) return
+      const next = { recent: r.slice(0, 8), popular: p.slice(0, 6) }
+      cacheSet(key, next)
+      setRecent(next.recent)
+      setPopular(next.popular)
+    } catch {
+      if (req !== railReqId.current) return
+      setRecent([])
+      setPopular([])
+    } finally {
+      if (req === railReqId.current) setRailReady(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    menuReqId.current += 1
+    railReqId.current += 1
+    catReqId.current += 1
+    setActionError(null)
+    setError(null)
+    setFavEntries(loadFavorites())
+
+    if (isFavView) {
+      setActiveCat('all')
+      const list =
+        cafeShops.length > 0
+          ? cafeShops.map((s) => ({ shopId: s.shopId, name: s.name }))
+          : KNOWN_SHOPS.filter((s) => s.type === 'CAFE').map((s) => ({
+              shopId: s.shopId,
+              name: s.name,
+            }))
+      void loadFavoritesView(list)
+      return
+    }
+
+    if (!Number.isFinite(shopId)) return
+
+    const label =
+      shops.find((s) => s.shopId === shopId)?.name ??
+      KNOWN_SHOPS.find((s) => s.shopId === shopId)?.name ??
+      `매장 ${shopId}`
+
+    const cachedMenu = cachePeek<CafeMenuItem[]>(cafeMenuKey(shopId, 'all'))
+    const cachedCats = cachePeek<CafeCategory[]>(cafeCatsKey(shopId))
+    const cachedRail = cachePeek<RailCache>(cafeRailKey(shopId))
+    if (cachedMenu) {
+      setMenus(withShop(cachedMenu, shopId, label))
+      setLoading(false)
+    } else {
+      setMenus([])
+      setLoading(true)
+    }
+    if (cachedCats) applyCatsAndRestore(shopId, cachedCats)
+    else setCategories([])
+    if (cachedRail) {
+      setRecent(cachedRail.recent)
+      setPopular(cachedRail.popular)
+      setRailReady(true)
+    } else {
+      setRecent([])
+      setPopular([])
+      setRailReady(false)
+    }
+    void loadCategories(shopId)
+    void loadMenu(shopId, label)
+    void loadRail(shopId)
+  }, [
+    shopId,
+    isFavView,
+    cafeShopKey,
+    cafeShops,
+    shops,
+    applyCatsAndRestore,
+    loadCategories,
+    loadMenu,
+    loadRail,
+    loadFavoritesView,
+  ])
+
+  // Persist last category for this shop
+  useEffect(() => {
+    if (isFavView || !Number.isFinite(shopId)) return
+    writeStoredCat(shopId, activeCat)
+  }, [shopId, activeCat, isFavView])
+
+  // Keep active cafe pill / category chip in horizontal view
+  useEffect(() => {
+    if (isFavView) return
+    const id = requestAnimationFrame(() => {
+      ensureHorizontalVisible(shopPillRefs.current.get(String(shopId)))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [shopId, isFavView, cafeShops.length])
+
+  useEffect(() => {
+    if (isFavView) return
+    const key = activeCat === 'all' ? 'all' : String(activeCat)
+    const id = requestAnimationFrame(() => {
+      ensureHorizontalVisible(catChipRefs.current.get(key))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [activeCat, categories, isFavView])
+
+  // Prefetch sibling cafe shops when the pill strip is available.
+  useEffect(() => {
+    if (isFavView) {
+      for (const s of cafeShops) schedulePrefetchCafe(s.shopId)
+      return
+    }
+    if (!Number.isFinite(shopId)) return
+    for (const s of cafeShops) {
+      if (s.shopId !== shopId) schedulePrefetchCafe(s.shopId)
+    }
+  }, [shopId, cafeShops, isFavView])
+
+  /** Full list for current shop, or multi-shop favorites ordered by storage. */
+  const visibleMenus = useMemo(() => {
+    if (isFavView) {
+      const byKey = new Map(
+        menus.map((m) => [`${m.shopId}:${m.displayId}`, m] as const),
+      )
+      const byDisplay = new Map<number, MenuRow[]>()
+      for (const m of menus) {
+        const list = byDisplay.get(m.displayId) ?? []
+        list.push(m)
+        byDisplay.set(m.displayId, list)
+      }
+      const ordered: MenuRow[] = []
+      for (const e of favEntries) {
+        if (e.shopId > 0) {
+          const hit = byKey.get(`${e.shopId}:${e.displayId}`)
+          if (hit) ordered.push(hit)
+          continue
+        }
+        // Legacy entries without shopId: take first match across shops
+        const hits = byDisplay.get(e.displayId)
+        if (hits?.length) ordered.push(hits[0])
+      }
+      return ordered
+    }
+    if (activeCat === 'all') return menus
+    return menus.filter((m) => m.categoryId === activeCat)
+  }, [menus, activeCat, isFavView, favEntries])
+
+  const availableCount = useMemo(
+    () => visibleMenus.filter((m) => !m.soldOut).length,
+    [visibleMenus],
+  )
+
+  /**
+   * Per-shop list: 즐겨찾기 → BEST → NEW → 전체 메뉴.
+   * Favorited items appear only in the 즐겨찾기 block (no duplicate below).
+   * Global favorites view stays a flat multi-shop list.
+   */
+  const menuSections = useMemo(() => {
+    if (isFavView) {
+      return visibleMenus.length
+        ? [{ key: 'fav-all', title: null as string | null, items: visibleMenus }]
+        : []
+    }
+
+    const fav: MenuRow[] = []
+    const best: MenuRow[] = []
+    const neu: MenuRow[] = []
+    const rest: MenuRow[] = []
+    // Preserve favEntries order for the shop section
+    const visibleByKey = new Map<string, MenuRow>()
+    for (const m of visibleMenus) {
+      visibleByKey.set(`${m.shopId}:${m.displayId}`, m)
+    }
+    const claimed = new Set<string>()
+    for (const e of favEntries) {
+      if (e.shopId > 0 && Number.isFinite(shopId) && e.shopId !== shopId) {
+        continue
+      }
+      const key =
+        e.shopId > 0
+          ? `${e.shopId}:${e.displayId}`
+          : Number.isFinite(shopId)
+            ? `${shopId}:${e.displayId}`
+            : ''
+      if (!key) continue
+      const hit = visibleByKey.get(key)
+      if (!hit || claimed.has(key)) continue
+      fav.push(hit)
+      claimed.add(key)
+    }
+    for (const m of visibleMenus) {
+      const key = `${m.shopId}:${m.displayId}`
+      if (claimed.has(key)) continue
+      const u = (m.label || '').toUpperCase()
+      if (u === 'BEST') best.push(m)
+      else if (u === 'NEW') neu.push(m)
+      else rest.push(m)
+    }
+
+    const sections: Array<{
+      key: string
+      title: string | null
+      items: MenuRow[]
+    }> = []
+    if (fav.length) {
+      sections.push({ key: 'fav', title: '즐겨찾기', items: fav })
+    }
+    if (best.length) sections.push({ key: 'best', title: 'BEST', items: best })
+    if (neu.length) sections.push({ key: 'new', title: 'NEW', items: neu })
+    if (rest.length) {
+      const hasHead = fav.length > 0 || best.length > 0 || neu.length > 0
+      sections.push({
+        key: 'rest',
+        title: hasHead ? '전체 메뉴' : null,
+        items: rest,
+      })
+    }
+    return sections
+  }, [visibleMenus, isFavView, favEntries, shopId])
+
+  function toggleFav(item: MenuRow) {
+    const next = toggleFavorite(item.displayId, item.shopId)
+    setFavEntries(next)
   }
 
+  const railItems = recent.length > 0 ? recent : popular
+  const railLabel = recent.length > 0 ? '다시 주문' : '인기'
+  const showMenuSkeleton = loading && menus.length === 0
+
+  if (!isFavView && !Number.isFinite(shopId)) {
+    return (
+      <Empty>
+        잘못된 매장입니다. <Link to="/">홈</Link>
+      </Empty>
+    )
+  }
+
+  function openDetail(item: MenuRow) {
+    navigate(`/cafe/${item.shopId}/menu?d=${item.displayId}`)
+  }
+
+  /** qty key: shopId:goodsId so favorites can show every cafe's cart */
+  const qtyByShopGoods = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const [sidStr, c] of Object.entries(cartsByShop)) {
+      const sid = Number(sidStr)
+      for (const line of c.items) {
+        const k = `${sid}:${line.goodsId}`
+        map.set(k, (map.get(k) ?? 0) + line.qty)
+      }
+    }
+    // Fallback: selected cart if not yet in map (race)
+    for (const line of cart.items) {
+      const sid = cart.shopId ?? shopId
+      if (!Number.isFinite(sid)) continue
+      const k = `${sid}:${line.goodsId}`
+      if (!map.has(k)) map.set(k, line.qty)
+    }
+    return map
+  }, [cartsByShop, cart.items, cart.shopId, shopId])
+
+  function bumpQty(item: MenuRow, delta: number) {
+    if (item.soldOut) return
+    if (delta > 0) {
+      const hours = getCafeHours(item.shopId)
+      if (!hours.orderable) {
+        setActionError(hours.message)
+        return
+      }
+    }
+    if (item.goodsId == null) {
+      if (delta > 0) openDetail(item)
+      return
+    }
+    setActionError(null)
+    selectShop(item.shopId)
+    const result = bumpMenuQty(item, delta, item.shopId)
+    if (result.ok === false && result.reason === 'no-goods' && delta > 0) {
+      openDetail(item)
+    }
+  }
+
+  const headerSub = (() => {
+    if (isFavView) {
+      return loading && menus.length === 0
+        ? '메뉴 불러오는 중'
+        : `${visibleMenus.length}개 · 매장별 운영시간에 주문`
+    }
+    if (loading && menus.length === 0) return '메뉴 불러오는 중'
+    const count = `${visibleMenus.length}개 · 주문 가능 ${availableCount}`
+    if (shopHours && shopHours.hoursLabel) {
+      return `${count} · ${shopHours.statusLabel}`
+    }
+    return count
+  })()
+
   return (
-    <div>
-      <div className="row" style={{ marginBottom: 8 }}>
-        <Link to="/" className="btn btn-ghost btn-sm">
-          ← 매장
-        </Link>
-      </div>
-      <h1 className="page-title">{shopName}</h1>
-      <p className="page-sub">
-        메뉴를 눌러 옵션을 고르고 담으세요. 품절 메뉴는 주문할 수 없습니다.
-      </p>
+      <div className="cafe">
+        <PageHeader
+          title={shopName}
+          sub={headerSub}
+          trailing={
+            <CafeHeaderActions active={isFavView ? 'fav' : null} />
+          }
+        />
 
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          className={`tab${tab === 'menu' ? ' active' : ''}`}
-          onClick={() => setTab('menu')}
+        <div
+          className="shop-pills shop-pills-scroll cafe-shop-pills"
+          role="list"
+          data-hscroll
         >
-          메뉴
-        </button>
-        <button
-          type="button"
-          className={`tab${tab === 'quick' ? ' active' : ''}`}
-          onClick={() => setTab('quick')}
-        >
-          최근·인기
-        </button>
-      </div>
-
-      {tab === 'quick' && (
-        <div className="stack">
-          {quickError && <ErrorBox>{quickError}</ErrorBox>}
-          <section className="card card-pad">
-            <h2 className="section-title" style={{ marginTop: 0 }}>
-              최근 주문
-            </h2>
-            <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
-              이 매장에서 최근에 주문한 메뉴입니다. 탭하면 상세로 이동합니다.
-            </p>
-            <QuickOrders
-              items={recent}
-              empty="최근 주문 메뉴가 없습니다."
-              onPick={(item) =>
-                navigate(`/cafe/${shopId}/menu?d=${item.displayId}`)
-              }
-              mode="recent"
-            />
-          </section>
-          <section className="card card-pad">
-            <h2 className="section-title" style={{ marginTop: 0 }}>
-              인기 메뉴
-            </h2>
-            <p className="muted" style={{ marginTop: 0, fontSize: '0.88rem' }}>
-              이 매장에서 자주 찾는 메뉴입니다.
-            </p>
-            <QuickOrders
-              items={popular}
-              empty="인기 메뉴가 없습니다."
-              onPick={(item) =>
-                navigate(`/cafe/${shopId}/menu?d=${item.displayId}`)
-              }
-              mode="popular"
-            />
-          </section>
+          {cafeShops.map((s) => (
+            <button
+              key={s.shopId}
+              type="button"
+              role="listitem"
+              className={`shop-pill${
+                !isFavView && s.shopId === shopId ? ' is-active' : ''
+              }`}
+              ref={(el) => {
+                const k = String(s.shopId)
+                if (el) shopPillRefs.current.set(k, el)
+                else shopPillRefs.current.delete(k)
+              }}
+              onPointerEnter={() => schedulePrefetchCafe(s.shopId)}
+              onFocus={() => schedulePrefetchCafe(s.shopId)}
+              onClick={() => {
+                if (!isFavView && s.shopId === shopId) return
+                selectShop(s.shopId)
+                navigate(`/cafe/${s.shopId}`)
+              }}
+            >
+              {s.name}
+              {(() => {
+                const h = getCafeHours(s.shopId)
+                if (h.reason === 'unknown') return null
+                if (h.orderable) return null
+                return (
+                  <span className="shop-pill-closed" aria-label="영업 종료">
+                    마감
+                  </span>
+                )
+              })()}
+            </button>
+          ))}
         </div>
-      )}
 
-      {tab === 'menu' && (
-        <>
-          <div className="chip-row" role="tablist" aria-label="카테고리">
+        {!isFavView && shopHours && !shopHours.orderable && (
+          <div
+            className={`cafe-hours-banner${
+              shopHours.reason === 'unknown' ? ' is-muted' : ' is-closed'
+            }`}
+            role="status"
+          >
+            {shopHours.message}
+          </div>
+        )}
+
+        {!isFavView && (
+          <section className="cafe-rail-block" aria-busy={!railReady}>
+            <h2 className="rail-title">
+              {!railReady
+                ? '불러오는 중'
+                : railItems.length > 0
+                  ? railLabel
+                  : '추천'}
+            </h2>
+            <div className="recent-rail">
+              {!railReady &&
+                Array.from({ length: RAIL_SLOT_COUNT }, (_, i) => (
+                  <div
+                    key={`rail-skel-${i}`}
+                    className="recent-card is-skel"
+                    aria-hidden
+                  >
+                    <div className="recent-card-thumb" />
+                    <p className="recent-card-name">
+                      <span className="cafe-skel-line" />
+                    </p>
+                  </div>
+                ))}
+              {railReady &&
+                railItems.length > 0 &&
+                railItems.map((item) => (
+                  <button
+                    key={`${railLabel}-${item.displayId}-${item.goodsId}`}
+                    type="button"
+                    className={`recent-card${item.soldOut ? ' is-soldout' : ''}`}
+                    disabled={item.soldOut || !item.displayId}
+                    onClick={() => {
+                      if (!item.displayId) return
+                      navigate(`/cafe/${shopId}/menu?d=${item.displayId}`)
+                    }}
+                  >
+                    <div className="recent-card-thumb">
+                      <MenuThumb
+                        src={item.thumbnailUrl}
+                        width={96}
+                        height={96}
+                      />
+                      {item.soldOut && (
+                        <span className="recent-card-soldout">
+                          <span className="recent-card-soldout-label">품절</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="recent-card-name">{item.name || '메뉴'}</p>
+                  </button>
+                ))}
+              {railReady && railItems.length === 0 && (
+                <div className="cafe-rail-empty" aria-live="polite">
+                  최근·인기 메뉴가 없습니다
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {!isFavView && (
+          <div
+            className="chip-strip"
+            role="tablist"
+            aria-label="카테고리"
+            data-hscroll
+          >
             <button
               type="button"
-              className={`chip${activeCat === 'all' ? ' active' : ''}`}
+              className={`chip${activeCat === 'all' ? ' is-active' : ''}`}
+              ref={(el) => {
+                if (el) catChipRefs.current.set('all', el)
+                else catChipRefs.current.delete('all')
+              }}
               onClick={() => setActiveCat('all')}
             >
               전체
@@ -186,124 +795,223 @@ export function CafeMenuPage() {
               <button
                 key={c.id}
                 type="button"
-                className={`chip${activeCat === c.id ? ' active' : ''}`}
+                className={`chip${activeCat === c.id ? ' is-active' : ''}`}
+                ref={(el) => {
+                  const k = String(c.id)
+                  if (el) catChipRefs.current.set(k, el)
+                  else catChipRefs.current.delete(k)
+                }}
                 onClick={() => setActiveCat(c.id)}
               >
                 {c.name}
               </button>
             ))}
           </div>
+        )}
 
-          {loading && <Loading label="메뉴 불러오는 중…" />}
-          {error && <ErrorBox>{error}</ErrorBox>}
-          {!loading && !error && menus.length === 0 && (
-            <Empty>이 카테고리에 메뉴가 없습니다.</Empty>
-          )}
-          {!loading && menus.length > 0 && (
-            <p
-              className="muted"
-              style={{ marginTop: 0, marginBottom: 10, fontSize: '0.88rem' }}
-            >
-              {menus.length}개 중 주문 가능 {availableCount}개
-            </p>
-          )}
+        {error && <ErrorBox>{error}</ErrorBox>}
+        {actionError && <ErrorBox>{actionError}</ErrorBox>}
 
-          <div className="menu-list">
-            {menus.map((item) => (
-              <button
-                key={item.displayId}
-                type="button"
-                className={`card menu-item${item.soldOut ? ' soldout' : ''}`}
-                disabled={item.soldOut}
-                onClick={() => {
-                  if (!item.soldOut) {
-                    navigate(`/cafe/${shopId}/menu?d=${item.displayId}`)
-                  }
-                }}
-              >
-                <div className="menu-body">
-                  <div className="row" style={{ gap: 6, marginBottom: 4 }}>
-                    {item.label && (
-                      <span className="badge badge-label">{item.label}</span>
-                    )}
-                    {item.soldOut && (
-                      <span className="badge badge-soldout">품절</span>
-                    )}
-                  </div>
-                  <p className="menu-name">{item.name}</p>
-                  {item.description && (
-                    <p className="menu-desc">{item.description}</p>
-                  )}
-                  <div className="menu-price">{formatWon(item.price)}</div>
-                </div>
-                <div className="menu-side">
-                  <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    {item.displayName || item.category}
-                  </span>
-                  {!item.soldOut && (
-                    <span className="btn btn-primary btn-sm">담기</span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function QuickOrders({
-  items,
-  empty,
-  onPick,
-  mode,
-}: {
-  items: CafeQuickItem[]
-  empty: string
-  onPick: (item: CafeQuickItem) => void
-  mode: 'recent' | 'popular'
-}) {
-  if (!items.length) {
-    return <p className="muted">{empty}</p>
-  }
-  return (
-    <div className="quick-list">
-      {items.map((item) => (
-        <button
-          key={`${mode}-${item.displayId}-${item.goodsId}`}
-          type="button"
-          className={`quick-item${item.soldOut ? ' soldout' : ''}`}
-          disabled={item.soldOut || !item.displayId}
-          onClick={() => onPick(item)}
+        <div
+          className={`menu-dense${loading && menus.length > 0 ? ' is-dim' : ''}`}
+          aria-busy={loading}
         >
-          <div className="quick-thumb">
-            {item.thumbnailUrl ? (
-              <img src={item.thumbnailUrl} alt="" loading="lazy" />
-            ) : (
-              <div className="meal-thumb-empty" aria-hidden>
-                ·
+          {showMenuSkeleton &&
+            Array.from({ length: MENU_SKELETON_COUNT }, (_, i) => (
+              <div
+                key={`menu-skel-${i}`}
+                className="menu-row is-skel"
+                aria-hidden
+              >
+                <div className="menu-row-thumb-wrap" aria-hidden>
+                  <div className="menu-row-thumb is-empty" />
+                </div>
+                <div className="menu-row-main">
+                  <div className="menu-row-title">
+                    <span className="cafe-skel-line cafe-skel-name" />
+                  </div>
+                  <p className="menu-row-desc">
+                    <span className="cafe-skel-line cafe-skel-desc" />
+                  </p>
+                </div>
+                <div className="menu-row-side">
+                  <span className="menu-row-price">
+                    <span className="cafe-skel-line cafe-skel-price" />
+                  </span>
+                  <div className="menu-qty" aria-hidden>
+                    <span className="menu-qty-btn" />
+                    <span className="menu-qty-val">0</span>
+                    <span className="menu-qty-btn" />
+                  </div>
+                </div>
               </div>
+            ))}
+
+          {!showMenuSkeleton &&
+            menuSections.map((section) => (
+              <div key={section.key} className="cafe-menu-section">
+                {section.title && (
+                  <h3
+                    className={`cafe-menu-section-title${
+                      section.key === 'fav'
+                        ? ' is-fav'
+                        : section.key === 'best'
+                          ? ' is-best'
+                          : section.key === 'new'
+                            ? ' is-new'
+                            : ''
+                    }`}
+                  >
+                    {section.title}
+                  </h3>
+                )}
+                {section.items.map((item) => {
+                  const goodsId = item.goodsId
+                  const qty =
+                    goodsId != null
+                      ? (qtyByShopGoods.get(`${item.shopId}:${goodsId}`) ?? 0)
+                      : 0
+                  const itemHours = getCafeHours(item.shopId)
+                  const orderBlocked =
+                    item.soldOut || !itemHours.orderable
+                  const labelU = (item.label || '').toUpperCase()
+                  const tagClass =
+                    labelU === 'BEST'
+                      ? 'tag tag-best'
+                      : labelU === 'NEW'
+                        ? 'tag tag-new'
+                        : item.label
+                          ? 'tag tag-hot'
+                          : ''
+                  const starred = isFavorite(
+                    item.displayId,
+                    item.shopId,
+                    favEntries,
+                  )
+                  return (
+                    <div
+                      key={`${item.shopId}-${item.displayId}`}
+                      className={`menu-row${item.soldOut ? ' is-soldout' : ''}${!item.soldOut && !itemHours.orderable ? ' is-closed' : ''}${qty > 0 ? ' is-in-cart' : ''}`}
+                    >
+                      <div className="menu-row-thumb-wrap">
+                        <button
+                          type="button"
+                          className="menu-row-thumb"
+                          aria-label={`${item.name} 사진 크게 보기`}
+                          onClick={() =>
+                            setPreview({
+                              src: item.thumbnailUrl,
+                              alt: item.name,
+                              caption: item.name,
+                              detail: item.description?.trim() || undefined,
+                            })
+                          }
+                        >
+                          <MenuThumb
+                            src={item.thumbnailUrl}
+                            width={56}
+                            height={56}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          className={`menu-fav-btn${starred ? ' is-on' : ''}`}
+                          aria-label={
+                            starred
+                              ? `${item.name} 즐겨찾기 해제`
+                              : `${item.name} 즐겨찾기`
+                          }
+                          aria-pressed={starred}
+                          onClick={() => toggleFav(item)}
+                        >
+                          <IconStar size={13} filled={starred} />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="menu-row-main menu-row-main-btn"
+                        onClick={() => openDetail(item)}
+                      >
+                        <div className="menu-row-title">
+                          {isFavView ? (
+                            <span className="tag tag-shop">
+                              {shortCafeName(item.shopName)}
+                            </span>
+                          ) : null}
+                          {item.label ? (
+                            <span className={tagClass}>{item.label}</span>
+                          ) : null}
+                          <span className="menu-row-name">{item.name}</span>
+                        </div>
+                        <p className="menu-row-desc">
+                          {item.description?.trim() || '\u00a0'}
+                        </p>
+                      </button>
+                      <div className="menu-row-side">
+                        <span className="menu-row-price">
+                          {formatWon(item.price)}
+                        </span>
+                        {item.soldOut ? (
+                          <span className="menu-qty is-disabled" aria-hidden>
+                            품절
+                          </span>
+                        ) : !itemHours.orderable && qty <= 0 ? (
+                          <span
+                            className="menu-qty is-disabled"
+                            title={itemHours.message}
+                          >
+                            마감
+                          </span>
+                        ) : (
+                          <div
+                            className="menu-qty"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="menu-qty-btn"
+                              aria-label={`${item.name} 수량 감소`}
+                              disabled={qty <= 0}
+                              onClick={() => bumpQty(item, -1)}
+                            >
+                              −
+                            </button>
+                            <span className="menu-qty-val" aria-live="polite">
+                              {qty}
+                            </span>
+                            <button
+                              type="button"
+                              className="menu-qty-btn menu-qty-btn-plus"
+                              aria-label={`${item.name} 수량 증가`}
+                              disabled={orderBlocked}
+                              onClick={() => bumpQty(item, 1)}
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+
+          {!showMenuSkeleton &&
+            !loading &&
+            !error &&
+            visibleMenus.length === 0 && (
+              <p className="menu-list-empty">
+                {isFavView
+                  ? '즐겨찾기한 메뉴가 없습니다. 별 아이콘으로 추가해 보세요.'
+                  : menus.length === 0
+                    ? '메뉴가 없습니다.'
+                    : '이 카테고리에 메뉴가 없습니다.'}
+              </p>
             )}
-          </div>
-          <div className="quick-body">
-            <p className="quick-name">{item.name || '메뉴'}</p>
-            <p className="muted quick-meta">
-              {mode === 'recent' && item.lastOrderAt
-                ? formatDateTime(item.lastOrderAt)
-                : mode === 'popular' && item.orderCountHint
-                  ? `${item.orderCountHint}잔`
-                  : item.qty > 1
-                    ? `${item.qty}개`
-                    : '바로 담기'}
-              {item.soldOut ? ' · 품절' : ''}
-            </p>
-          </div>
-          <span className="quick-chevron" aria-hidden>
-            ›
-          </span>
-        </button>
-      ))}
-    </div>
+        </div>
+
+        <ImagePreview image={preview} onClose={() => setPreview(null)} />
+      </div>
   )
 }

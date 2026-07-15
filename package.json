@@ -12,10 +12,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@vercel/node": "^5.8.24",
+    "lucide-react": "^1.24.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.13.1",
-    "@vercel/node": "^5.8.24"
+    "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

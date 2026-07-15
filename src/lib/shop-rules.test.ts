@@ -6,6 +6,7 @@ import {
   canViewDiningMenu,
   isCafeShop,
   isCafeteriaShop,
+  listCafeShops,
   preferShopId,
   soldOutBlocksOrder,
 } from './shop-rules'
@@ -50,5 +51,16 @@ describe('shop-rules', () => {
     expect(preferShopId(3, available)).toBe(3)
     expect(preferShopId(99, available)).toBe(DEFAULT_CAFE_SHOP_ID)
     expect(preferShopId(null, [{ shopId: 4 }])).toBe(4)
+  })
+
+  it('lists only known cafes, never cafeteria even if API says CAFE', () => {
+    const list = listCafeShops([
+      { shopId: 7, name: '춘식도락(B1F)', type: 'CAFE' },
+      { shopId: 5, name: 'kafé 5F live', type: 'CAFE' },
+      { shopId: 99, name: 'mystery', type: 'CAFE' },
+    ])
+    expect(list.map((s) => s.shopId).sort()).toEqual([3, 4, 5, 8])
+    expect(list.find((s) => s.shopId === 5)?.name).toBe('kafé 5F live')
+    expect(list.some((s) => s.shopId === 7)).toBe(false)
   })
 })

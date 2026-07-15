@@ -38,6 +38,99 @@ const MIME = {
   '.map': 'application/json',
 }
 
+const CDN_ORIGIN = 'https://kr.object.ncloudstorage.com/eliga-order/'
+
+function isSafeProxyPath(path) {
+  if (!path) return false
+  if (path.includes('..') || path.includes('\\')) return false
+  if (path.includes('://') || path.startsWith('//')) return false
+  if (/[\u0000-\u001f]/.test(path)) return false
+  if (!/^[a-zA-Z0-9._\-/:%]+$/.test(path)) return false
+  return true
+}
+
+function rewriteLocalCookies(setCookie) {
+  const list = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : []
+  return list.map((c) =>
+    c
+      .replace(/;\s*Domain=[^;]*/gi, '')
+      .replace(/;\s*SameSite=[^;]*/gi, '')
+      .replace(/;\s*Secure/gi, '')
+      .replace(/;\s*HttpOnly/gi, '')
+      .replace(/;\s*Path=[^;]*/gi, '')
+      .concat('; Path=/; HttpOnly; SameSite=Lax'),
+  )
+}
+
+function proxyCdn(req, res) {
+  const u = new URL(req.url || '/', `http://${req.headers.host}`)
+  const pathRaw = (u.searchParams.get('path') || '').replace(/^\/+/, '')
+  if (
+    !pathRaw ||
+    pathRaw.includes('..') ||
+    pathRaw.includes('://') ||
+    pathRaw.startsWith('//')
+  ) {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'bad_path' }))
+    return
+  }
+  let decoded
+  try {
+    decoded = decodeURIComponent(pathRaw)
+  } catch {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'bad_path' }))
+    return
+  }
+  const encoded = decoded
+    .split('/')
+    .filter(Boolean)
+    .map((s) => encodeURIComponent(s))
+    .join('/')
+  const target = new URL(`${CDN_ORIGIN}${encoded}`)
+  if (
+    target.hostname !== 'kr.object.ncloudstorage.com' ||
+    target.protocol !== 'https:'
+  ) {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'host_not_allowed' }))
+    return
+  }
+  const lib = https
+  const up = lib.request(
+    target,
+    {
+      method: 'GET',
+      headers: { accept: 'image/*,*/*', 'user-agent': UA },
+    },
+    (upRes) => {
+      const ct = String(upRes.headers['content-type'] || 'image/jpeg')
+        .split(';')[0]
+        .trim()
+        .toLowerCase()
+      if (!ct.startsWith('image/')) {
+        res.writeHead(415, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'unsupported_media_type' }))
+        upRes.resume()
+        return
+      }
+      const outHeaders = {
+        'content-type': ct,
+        'cache-control': 'public, max-age=86400',
+        'x-content-type-options': 'nosniff',
+      }
+      res.writeHead(upRes.statusCode || 502, outHeaders)
+      upRes.pipe(res)
+    },
+  )
+  up.on('error', () => {
+    res.writeHead(502, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'upstream_failed' }))
+  })
+  up.end()
+}
+
 function proxyQuery(req, res) {
   const u = new URL(req.url || '/', `http://${req.headers.host}`)
   const to = u.searchParams.get('to')
@@ -49,11 +142,28 @@ function proxyQuery(req, res) {
     res.end(JSON.stringify({ error: 'query.to and query.path required' }))
     return
   }
+  if (!isSafeProxyPath(path)) {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'invalid_path' }))
+    return
+  }
   u.searchParams.delete('to')
   u.searchParams.delete('path')
   const qs = u.searchParams.toString()
   const targetUrl = `${upstream}/${path}${qs ? `?${qs}` : ''}`
-  const target = new URL(targetUrl)
+  let target
+  try {
+    target = new URL(targetUrl)
+  } catch {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'invalid_target' }))
+    return
+  }
+  if (target.hostname !== new URL(upstream).hostname || target.protocol !== 'https:') {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'host_not_allowed' }))
+    return
+  }
 
   const headers = {
     accept: req.headers.accept || 'application/json',
@@ -61,12 +171,28 @@ function proxyQuery(req, res) {
     origin: WEBAPP_ORIGIN,
     referer: `${WEBAPP_ORIGIN}/`,
   }
-  if (req.headers['content-type']) headers['content-type'] = req.headers['content-type']
-  if (req.headers.authorization) headers.authorization = req.headers.authorization
+  const ct = req.headers['content-type']
+  if (ct && String(ct).toLowerCase().includes('application/json')) {
+    headers['content-type'] = ct
+  }
+  if (req.headers.authorization && /^Bearer\s+\S+/i.test(String(req.headers.authorization))) {
+    headers.authorization = req.headers.authorization
+  }
   if (req.headers.cookie) headers.cookie = req.headers.cookie
 
   const chunks = []
-  req.on('data', (c) => chunks.push(c))
+  let size = 0
+  const MAX = 512 * 1024
+  req.on('data', (c) => {
+    size += c.length
+    if (size > MAX) {
+      res.writeHead(413, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'payload_too_large' }))
+      req.destroy()
+      return
+    }
+    chunks.push(c)
+  })
   req.on('end', () => {
     const body = Buffer.concat(chunks)
     const opts = {
@@ -78,15 +204,12 @@ function proxyQuery(req, res) {
       const setCookies = upRes.headers['set-cookie']
       const outHeaders = { ...upRes.headers }
       if (setCookies) {
-        outHeaders['set-cookie'] = setCookies.map((c) =>
-          c
-            .replace(/;\s*Domain=[^;]*/gi, '')
-            .replace(/;\s*SameSite=[^;]*/gi, '')
-            .concat('; SameSite=Lax; Path=/'),
-        )
+        outHeaders['set-cookie'] = rewriteLocalCookies(setCookies)
       }
       delete outHeaders['access-control-allow-origin']
       delete outHeaders['access-control-allow-credentials']
+      outHeaders['x-content-type-options'] = 'nosniff'
+      outHeaders['cache-control'] = 'no-store'
 
       const isSignIn =
         target.pathname.endsWith('/customer/sign-in') && req.method === 'POST'
@@ -130,9 +253,9 @@ function proxyQuery(req, res) {
         res.end(raw)
       })
     })
-    up.on('error', (err) => {
+    up.on('error', () => {
       res.writeHead(502, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ error: 'upstream failed', message: String(err) }))
+      res.end(JSON.stringify({ error: 'upstream_failed' }))
     })
     if (body.length) up.write(body)
     up.end()
@@ -167,6 +290,9 @@ function tryStatic(req, res) {
 
 const server = http.createServer((req, res) => {
   const url = req.url || '/'
+  if (url.startsWith('/api/cdn')) {
+    return proxyCdn(req, res)
+  }
   if (url.startsWith('/api/proxy')) {
     return proxyQuery(req, res)
   }

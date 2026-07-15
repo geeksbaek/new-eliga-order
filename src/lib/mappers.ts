@@ -49,30 +49,181 @@ export function mapCafeCategories(raw: unknown): CafeCategory[] {
   return content.map((cat) => ({
     id: Number(cat.id),
     name: localizeName(cat.name),
-    mobileUseYn: cat.mobileUseYn !== false,
+    // API property only — mobile app hides mobileUseYn=false categories
+    mobileUseYn: ynTrue(cat.mobileUseYn) || cat.mobileUseYn === true,
     goodsCount: Number(cat.goodsDisplayCount ?? 0),
   }))
+}
+
+/** Pull CDN image from display row / goods object (list + detail). */
+function cafeImageFrom(...bags: Array<Record<string, unknown> | null | undefined>): string | null {
+  const candidates: unknown[] = []
+  for (const bag of bags) {
+    if (!bag) continue
+    candidates.push(
+      bag.thumbnailPath,
+      bag.thumbnail,
+      bag.imagePath,
+      bag.imageUrl,
+      bag.filePath,
+      bag.sharePath,
+    )
+  }
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) {
+      const url = mediaUrl(c)
+      if (url) return url
+    }
+  }
+  for (const bag of bags) {
+    if (!bag) continue
+    const files = asArray<Record<string, unknown>>(bag.fileItems)
+    if (!files.length) continue
+    const preferred =
+      files.find((f) => f.thumbnailYn && f.filePath) ||
+      files.find((f) => f.filePath) ||
+      files.find((f) => f.sharePath) ||
+      files[0]
+    const url = mediaUrl(
+      (preferred?.filePath as string) ||
+        (preferred?.sharePath as string) ||
+        null,
+    )
+    if (url) return url
+  }
+  return null
+}
+
+function cafeDisplayThumbnail(
+  item: Record<string, unknown>,
+  rep: Record<string, unknown>,
+): string | null {
+  return cafeImageFrom(item, rep)
+}
+
+function ynTrue(v: unknown): boolean {
+  return v === true || v === 'Y' || v === 'y' || v === 1 || v === '1' || v === 'true'
+}
+
+function ynFalse(v: unknown): boolean {
+  return v === false || v === 'N' || v === 'n' || v === 0 || v === '0' || v === 'false'
+}
+
+function readCategoryId(item: Record<string, unknown>): number | null {
+  const nested =
+    item.category && typeof item.category === 'object'
+      ? (item.category as Record<string, unknown>).id
+      : undefined
+  for (const v of [
+    item.categoryId,
+    item.goodsCategoryId,
+    item.goodsDisplayCategoryId,
+    nested,
+  ]) {
+    if (v == null || v === '') continue
+    const n = Number(v)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return null
+}
+
+function categoryLabelOf(item: Record<string, unknown>): string {
+  const parts = [localizeName(item.categoryName)]
+  if (item.category && typeof item.category === 'object') {
+    parts.push(
+      localizeName((item.category as Record<string, unknown>).name),
+    )
+  }
+  return parts.filter(Boolean).join(' ')
+}
+
+/**
+ * True when every goodsPricePlans entry is 0원 (ops test stubs like
+ * "Test상품(지우지 말아주세요)"). Real menus have positive NORMAL/IDCARD prices.
+ *
+ * Recent/popular rows have no price plans — missing price is NOT zero.
+ */
+export function isZeroPriceCafeGoods(
+  item: Record<string, unknown>,
+  rep: Record<string, unknown> = {},
+): boolean {
+  const plans = asArray<Record<string, unknown>>(
+    rep.goodsPricePlans ?? item.goodsPricePlans,
+  )
+  if (plans.length > 0) {
+    return plans.every((p) => Number(p.price ?? 0) <= 0)
+  }
+  // Only treat as zero when an explicit price field is present
+  const explicit =
+    item.salePrice ?? item.price ?? rep.price ?? rep.salePrice
+  if (explicit == null || explicit === '') return false
+  const n = Number(explicit)
+  return Number.isFinite(n) && n <= 0
+}
+
+/**
+ * Hide non-sellable / test cafe displays.
+ * - Explicit API flags (testYn, displayYn, …)
+ * - 0원 goodsPricePlans (test stubs in real categories)
+ * Category visibility is separate: mobileUseYn → hiddenCategoryIds.
+ */
+export function isTestCafeDisplay(
+  item: Record<string, unknown>,
+  rep: Record<string, unknown> = {},
+): boolean {
+  const testKeys = [
+    'testYn',
+    'isTest',
+    'goodsTestYn',
+    'testGoodsYn',
+    'sampleYn',
+    'demoYn',
+    'dummyYn',
+    'qaYn',
+    'isTestGoods',
+    'testDisplayYn',
+  ] as const
+  for (const bag of [item, rep]) {
+    for (const k of testKeys) {
+      if (k in bag && ynTrue(bag[k])) return true
+    }
+    if ('displayYn' in bag && ynFalse(bag.displayYn)) return true
+    if ('mobileDisplayYn' in bag && ynFalse(bag.mobileDisplayYn)) return true
+    if ('mobileYn' in bag && ynFalse(bag.mobileYn)) return true
+    if ('useYn' in bag && ynFalse(bag.useYn)) return true
+  }
+  if (isZeroPriceCafeGoods(item, rep)) return true
+  return false
 }
 
 export function mapCafeMenu(raw: unknown, hiddenCatIds: Set<number> = new Set()): CafeMenuItem[] {
   const content = asArray<Record<string, unknown>>(contentOf(raw))
   const result: CafeMenuItem[] = []
   for (const item of content) {
-    const catId = Number(item.categoryId)
-    if (hiddenCatIds.size && hiddenCatIds.has(catId)) continue
+    const categoryId = readCategoryId(item)
+    if (
+      categoryId != null &&
+      hiddenCatIds.size > 0 &&
+      hiddenCatIds.has(categoryId)
+    ) {
+      continue
+    }
     const rep = (item.repGoods as Record<string, unknown>) || {}
+    if (isTestCafeDisplay(item, rep)) continue
     result.push({
-      displayId: Number(item.id),
+      displayId: Number(item.id ?? item.displayId),
       goodsId: rep.id != null ? Number(rep.id) : null,
       name: localizeName(item.name),
-      category: localizeName(item.categoryName),
-      price: calcPlanPrice(rep.goodsPricePlans as never),
-      soldOut: Boolean(rep.soldOutYn),
+      categoryId,
+      category: categoryLabelOf(item) || localizeName(item.categoryName),
+      price: calcPlanPrice(rep.goodsPricePlans as never) || Number(item.salePrice ?? item.price ?? 0),
+      soldOut: Boolean(rep.soldOutYn ?? item.soldOutYn ?? item.soldoutYn),
       description: localizeName(rep.description) || null,
       calorie: (rep.calorie as number) ?? null,
       nutrition: localizeName(rep.nutrition) || null,
       label: normalizeLabel(item.labelOptionType),
       displayName: localizeName(rep.displayName),
+      thumbnailUrl: cafeDisplayThumbnail(item, rep),
     })
   }
   return result
@@ -103,6 +254,7 @@ function parseGoods(goods: Record<string, unknown>): GoodsVariant {
     description: localizeName(goods.description) || null,
     calorie: (goods.calorie as number) ?? null,
     nutrition: localizeName(goods.nutrition) || null,
+    thumbnailUrl: cafeImageFrom(goods),
     options,
   }
 }
@@ -117,11 +269,23 @@ export function mapCafeMenuDetail(raw: unknown): MenuDetail {
     goodsList = goodsList ? [goodsList] : []
   }
   const goodsArr = asArray<Record<string, unknown>>(goodsList)
+  const variants = goodsArr.map(parseGoods)
+  const displayThumb =
+    cafeImageFrom(content) ||
+    variants.find((v) => v.thumbnailUrl)?.thumbnailUrl ||
+    null
+  // Fill variants missing image with display-level hero
+  const variantsWithImg = variants.map((v) =>
+    v.thumbnailUrl
+      ? v
+      : { ...v, thumbnailUrl: displayThumb },
+  )
   return {
     displayId: Number(content.id),
     shopId: goodsArr[0]?.shopId != null ? Number(goodsArr[0].shopId) : null,
     label: normalizeLabel(content.labelOptionType),
-    variants: goodsArr.map(parseGoods),
+    thumbnailUrl: displayThumb,
+    variants: variantsWithImg,
   }
 }
 
@@ -258,23 +422,28 @@ export function mapOrderHistory(raw: unknown): OrderHistoryView[] {
 
 export function mapCafeQuickItems(raw: unknown): CafeQuickItem[] {
   const list = asArray<Record<string, unknown>>(contentOf(raw))
-  return list.map((row) => ({
-    displayId: Number(row.displayId ?? 0),
-    goodsId: Number(row.goodsId ?? 0),
-    name: localizeName(row.name),
-    qty: Number(row.goodsQty ?? 1) || 1,
-    thumbnailUrl: row.thumbnailYn === false ? null : mediaUrl(row.thumbnail as string),
-    soldOut: Boolean(row.stockEmptyYn) || row.isSale === false,
-    onSale: row.isSale !== false,
-    lastOrderAt:
-      row.lastOrderAt != null ? String(row.lastOrderAt) : null,
-    orderCountHint:
-      row.orderCount != null
-        ? Number(row.orderCount)
-        : row.goodsQty != null
-          ? Number(row.goodsQty)
-          : null,
-  }))
+  return list
+    .filter((row) => !isTestCafeDisplay(row, row))
+    .map((row) => ({
+      displayId: Number(row.displayId ?? 0),
+      goodsId: Number(row.goodsId ?? 0),
+      name: localizeName(row.name),
+      qty: Number(row.goodsQty ?? 1) || 1,
+      thumbnailUrl:
+        row.thumbnailYn === false
+          ? null
+          : mediaUrl(row.thumbnail as string),
+      soldOut: Boolean(row.stockEmptyYn) || row.isSale === false,
+      onSale: row.isSale !== false,
+      lastOrderAt:
+        row.lastOrderAt != null ? String(row.lastOrderAt) : null,
+      orderCountHint:
+        row.orderCount != null
+          ? Number(row.orderCount)
+          : row.goodsQty != null
+            ? Number(row.goodsQty)
+            : null,
+    }))
 }
 
 export function mapCart(raw: unknown): Cart {
@@ -303,6 +472,7 @@ export function mapCart(raw: unknown): Cart {
         qty: Number(item.goodsQty ?? 0),
         price: calcPlanPrice(detail.goodsPricePlans as never),
         options: opts,
+        thumbnailUrl: cafeImageFrom(detail, item),
       }
     },
   )
@@ -324,6 +494,7 @@ export function mapPaymentReasons(raw: unknown): PaymentReason[] {
     }))
 }
 
+/** Categories with mobileUseYn=false (테스트, 그 외 사용안함, 이벤트 아카이브 등). */
 export function hiddenCategoryIds(categories: CafeCategory[]): Set<number> {
   return new Set(categories.filter((c) => !c.mobileUseYn).map((c) => c.id))
 }

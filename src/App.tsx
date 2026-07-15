@@ -11,6 +11,7 @@ import { MenuDetailPage } from './pages/MenuDetailPage'
 import { CartPage } from './pages/CartPage'
 import { OrderConfirmPage } from './pages/OrderConfirmPage'
 import { OrdersPage } from './pages/OrdersPage'
+import { SettingsPage } from './pages/SettingsPage'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { ready, authed } = useAuth()
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="cart" element={<CartPage />} />
         <Route path="order/confirm" element={<OrderConfirmPage />} />
         <Route path="orders" element={<OrdersPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

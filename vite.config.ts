@@ -10,6 +10,7 @@ function spaRouteShells(): Plugin {
     'cart',
     'orders',
     'order/confirm',
+    'settings',
     'dining/7',
     'cafe/3',
     'cafe/3/menu',
@@ -41,16 +42,76 @@ function spaRouteShells(): Plugin {
 }
 
 /**
- * Local dev: /api/proxy?to=base&path=space → upstream
+ * Local dev: /api/proxy?to=base|svc&path=… and /api/cdn?path=… (CDN images)
  */
 function eligaProxyPlugin(): Plugin {
   const WEBAPP = 'https://webapp.eligaorder.com'
+  const CDN_ORIGIN = 'https://kr.object.ncloudstorage.com/eliga-order/'
   return {
     name: 'eliga-proxy',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         try {
           const raw = req.url || '/'
+          if (raw.startsWith('/api/cdn')) {
+            const u = new URL(raw, 'http://localhost')
+            const pathRaw = (u.searchParams.get('path') || '').replace(
+              /^\/+/,
+              '',
+            )
+            if (
+              !pathRaw ||
+              pathRaw.includes('..') ||
+              pathRaw.includes('://') ||
+              pathRaw.startsWith('//')
+            ) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'bad_path' }))
+              return
+            }
+            let decoded: string
+            try {
+              decoded = decodeURIComponent(pathRaw)
+            } catch {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'bad_path' }))
+              return
+            }
+            const encoded = decoded
+              .split('/')
+              .filter(Boolean)
+              .map((s) => encodeURIComponent(s))
+              .join('/')
+            const target = `${CDN_ORIGIN}${encoded}`
+            const hostOk = new URL(target)
+            if (
+              hostOk.hostname !== 'kr.object.ncloudstorage.com' ||
+              hostOk.protocol !== 'https:'
+            ) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'host_not_allowed' }))
+              return
+            }
+            const up = await fetch(target, {
+              headers: { Accept: 'image/*,*/*' },
+            })
+            const buf = Buffer.from(await up.arrayBuffer())
+            const ct = (up.headers.get('content-type') || 'image/jpeg')
+              .split(';')[0]
+              .trim()
+              .toLowerCase()
+            if (!ct.startsWith('image/')) {
+              res.statusCode = 415
+              res.end(JSON.stringify({ error: 'unsupported_media_type' }))
+              return
+            }
+            res.statusCode = up.status
+            res.setHeader('Content-Type', ct)
+            res.setHeader('X-Content-Type-Options', 'nosniff')
+            res.setHeader('Cache-Control', 'public, max-age=3600')
+            res.end(buf)
+            return
+          }
           if (!raw.startsWith('/api/proxy')) return next()
           const u = new URL(raw, 'http://localhost')
           const to = u.searchParams.get('to')
@@ -61,7 +122,14 @@ function eligaProxyPlugin(): Plugin {
               : to === 'svc'
                 ? 'https://svc.eligaorder.com'
                 : null
-          if (!upstream || !path) {
+          if (
+            !upstream ||
+            !path ||
+            path.includes('..') ||
+            path.includes('://') ||
+            path.startsWith('//') ||
+            !/^[a-zA-Z0-9._\-/:%]+$/.test(path)
+          ) {
             res.statusCode = 400
             res.end(JSON.stringify({ error: 'bad proxy query' }))
             return
@@ -70,9 +138,27 @@ function eligaProxyPlugin(): Plugin {
           u.searchParams.delete('path')
           const qs = u.searchParams.toString()
           const target = `${upstream}/${path}${qs ? `?${qs}` : ''}`
+          const targetUrl = new URL(target)
+          if (
+            targetUrl.hostname !== new URL(upstream).hostname ||
+            targetUrl.protocol !== 'https:'
+          ) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: 'host_not_allowed' }))
+            return
+          }
 
           const chunks: Buffer[] = []
-          for await (const c of req) chunks.push(c as Buffer)
+          let size = 0
+          for await (const c of req) {
+            size += (c as Buffer).length
+            if (size > 512 * 1024) {
+              res.statusCode = 413
+              res.end(JSON.stringify({ error: 'payload_too_large' }))
+              return
+            }
+            chunks.push(c as Buffer)
+          }
           const body = Buffer.concat(chunks)
 
           const headers: Record<string, string> = {
@@ -81,11 +167,15 @@ function eligaProxyPlugin(): Plugin {
             Origin: WEBAPP,
             Referer: `${WEBAPP}/`,
           }
-          if (req.headers['content-type']) {
-            headers['Content-Type'] = String(req.headers['content-type'])
+          const ct = req.headers['content-type']
+          if (ct && String(ct).toLowerCase().includes('application/json')) {
+            headers['Content-Type'] = String(ct)
           }
           if (req.headers.cookie) headers.Cookie = String(req.headers.cookie)
-          if (req.headers.authorization) {
+          if (
+            req.headers.authorization &&
+            /^Bearer\s+\S+/i.test(String(req.headers.authorization))
+          ) {
             headers.Authorization = String(req.headers.authorization)
           }
           if (body.length) headers['Content-Length'] = String(body.length)

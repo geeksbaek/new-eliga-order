@@ -46,12 +46,26 @@ function localSet(key: string, value: string): void {
   }
 }
 
+/**
+ * Auth tokens live in localStorage so refresh survives tab close / reload.
+ * Session flag is mirrored in both storages for cookie-session mode.
+ */
 export function loadTokens(): AuthTokens | null {
-  const raw = sessionGet(TOKEN_KEY)
+  const raw = localGet(TOKEN_KEY) ?? sessionGet(TOKEN_KEY)
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as AuthTokens
-    if (parsed?.accessToken) return parsed
+    if (parsed?.accessToken) {
+      // Migrate sessionStorage-only tokens to localStorage once
+      if (!localGet(TOKEN_KEY)) {
+        try {
+          localSet(TOKEN_KEY, raw)
+        } catch {
+          /* ignore */
+        }
+      }
+      return parsed
+    }
   } catch {
     /* bad json */
   }
@@ -59,23 +73,60 @@ export function loadTokens(): AuthTokens | null {
 }
 
 export function saveTokens(tokens: AuthTokens): void {
-  sessionSet(TOKEN_KEY, JSON.stringify(tokens))
+  // Never persist empty / non-string tokens
+  if (
+    !tokens?.accessToken ||
+    typeof tokens.accessToken !== 'string' ||
+    tokens.accessToken.length < 16
+  ) {
+    return
+  }
+  const safe: AuthTokens = {
+    accessToken: tokens.accessToken,
+    refreshToken:
+      typeof tokens.refreshToken === 'string' ? tokens.refreshToken : '',
+    tokenType:
+      typeof tokens.tokenType === 'string' ? tokens.tokenType : 'Bearer',
+  }
+  const raw = JSON.stringify(safe)
+  localSet(TOKEN_KEY, raw)
+  sessionSet(TOKEN_KEY, raw)
+  localSet(SESSION_KEY, '1')
   sessionSet(SESSION_KEY, '1')
 }
 
 export function clearTokens(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(SESSION_KEY)
+  } catch {
+    /* ignore */
+  }
   sessionRemove(TOKEN_KEY)
   sessionRemove(SESSION_KEY)
 }
 
 /** Cookie-session flag when AccessToken is HttpOnly and not readable by JS. */
 export function loadSessionFlag(): boolean {
-  return sessionGet(SESSION_KEY) === '1' || Boolean(loadTokens()?.accessToken)
+  return (
+    localGet(SESSION_KEY) === '1' ||
+    sessionGet(SESSION_KEY) === '1' ||
+    Boolean(loadTokens()?.accessToken)
+  )
 }
 
 export function saveSessionFlag(on: boolean): void {
-  if (on) sessionSet(SESSION_KEY, '1')
-  else sessionRemove(SESSION_KEY)
+  if (on) {
+    localSet(SESSION_KEY, '1')
+    sessionSet(SESSION_KEY, '1')
+  } else {
+    try {
+      localStorage.removeItem(SESSION_KEY)
+    } catch {
+      /* ignore */
+    }
+    sessionRemove(SESSION_KEY)
+  }
 }
 
 export function loadLastShopId(): number | null {

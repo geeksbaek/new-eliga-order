@@ -2,17 +2,50 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#fee500" />
+
+    <title>new 엘리가</title>
     <meta
       name="description"
-      content="new 엘리가오더 — 카카오 사내 식당·카페 메뉴 조회와 카페 주문"
+      content="카카오 사내 식당·카페 메뉴 조회와 카페 주문"
     />
-    <title>new 엘리가오더</title>
+    <meta name="application-name" content="new 엘리가" />
+    <meta name="theme-color" content="#fee500" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#191600" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- PWA / install -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="엘리가" />
+
+    <!-- Icons -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+
+    <!-- Social (same-origin preview) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="new 엘리가" />
+    <meta
+      property="og:description"
+      content="카카오 사내 식당·카페 메뉴 조회와 카페 주문"
+    />
+    <meta property="og:image" content="/icon-512.png" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="new 엘리가" />
+    <meta
+      name="twitter:description"
+      content="카카오 사내 식당·카페 메뉴 조회와 카페 주문"
+    />
+    <meta name="twitter:image" content="/icon-512.png" />
   </head>
   <body>
     <div id="root"></div>

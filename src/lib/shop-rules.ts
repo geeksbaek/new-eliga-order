@@ -79,3 +79,22 @@ export function preferShopId(
   }
   return available[0]?.shopId ?? DEFAULT_CAFE_SHOP_ID
 }
+
+/**
+ * Cafe tab chips / home recent sources.
+ * Always whitelist known CAFE ids so API mislabels (e.g. shop 7 as CAFE)
+ * never surface the cafeteria 춘식도락(B1F).
+ */
+export function listCafeShops(
+  shops: Array<{ shopId: number; name: string; type?: string }>,
+): Array<{ shopId: number; name: string; type: ShopType }> {
+  const live = new Map(shops.map((s) => [s.shopId, s]))
+  return KNOWN_SHOPS.filter((s) => s.type === 'CAFE').map((k) => {
+    const hit = live.get(k.shopId)
+    return {
+      shopId: k.shopId,
+      name: hit?.name?.trim() || k.name,
+      type: 'CAFE' as ShopType,
+    }
+  })
+}

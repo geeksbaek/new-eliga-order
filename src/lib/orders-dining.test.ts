@@ -170,9 +170,13 @@ describe('dining menu images', () => {
     expect(parseKcalFromNutrition('열량 : 902Kcal')).toBe(902)
   })
 
-  it('encodes special characters in file names', () => {
+  it('keeps path segments URL-safe while preserving parentheses per encodeURIComponent', () => {
+    // encodeURIComponent does not escape ( ) per ECMAScript; spaces etc. still encoded
     expect(mediaUrl('data/box/venus/kakao/7/IMG_9126(1).jpeg')).toBe(
-      `${ELIGA_CDN_BASE}data/box/venus/kakao/7/IMG_9126%281%29.jpeg`,
+      `${ELIGA_CDN_BASE}data/box/venus/kakao/7/IMG_9126(1).jpeg`,
+    )
+    expect(mediaUrl('data/box/a b/c.jpeg')).toBe(
+      `${ELIGA_CDN_BASE}data/box/a%20b/c.jpeg`,
     )
   })
 })

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   fetchOrderHistory,
   fetchOrderStatus,
   fetchRecentOrders,
 } from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
+import { PageHeader } from '../components/PageHeader'
 import {
   formatDateTime,
   formatWon,
@@ -97,31 +98,30 @@ export function OrdersPage() {
   }
 
   return (
-    <div>
-      <h1 className="page-title">주문 내역</h1>
-      <p className="page-sub">최근 3개월 주문과 상태를 확인합니다.</p>
+    <div className="orders-page">
+      <PageHeader title="주문 내역" sub="최근 3개월" />
 
-      <div className="tabs">
+      <div className="segment segment-3" role="tablist">
         <button
           type="button"
-          className={`tab${tab === 'history' ? ' active' : ''}`}
+          className={`segment-item${tab === 'history' ? ' is-active' : ''}`}
           onClick={() => setTab('history')}
         >
-          전체
+          <span className="segment-label">전체</span>
         </button>
         <button
           type="button"
-          className={`tab${tab === 'recent' ? ' active' : ''}`}
+          className={`segment-item${tab === 'recent' ? ' is-active' : ''}`}
           onClick={() => setTab('recent')}
         >
-          최근 메뉴
+          <span className="segment-label">최근 메뉴</span>
         </button>
         <button
           type="button"
-          className={`tab${tab === 'status' ? ' active' : ''}`}
+          className={`segment-item${tab === 'status' ? ' is-active' : ''}`}
           onClick={() => setTab('status')}
         >
-          상태
+          <span className="segment-label">상태</span>
         </button>
       </div>
 
@@ -162,12 +162,6 @@ export function OrdersPage() {
       {tab === 'recent' && !loading && (
         <OrderList data={recent} empty="최근 메뉴가 없습니다." compact />
       )}
-
-      <p style={{ marginTop: 18 }}>
-        <Link to="/" className="btn btn-ghost btn-sm">
-          매장으로
-        </Link>
-      </p>
     </div>
   )
 }

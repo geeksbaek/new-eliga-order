@@ -12,6 +12,7 @@ const required = [
   'dist/cart/index.html',
   'dist/orders/index.html',
   'dist/order/confirm/index.html',
+  'dist/settings/index.html',
   'dist/dining/7/index.html',
   'dist/cafe/5/index.html',
   'dist/cafe/5/menu/index.html',

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="new 엘리가">
+  <rect width="512" height="512" rx="112" fill="#fee500"/>
+  <!-- cup body -->
+  <path fill="#191600" d="M156 188c0-18 14-32 32-32h136c18 0 32 14 32 32v108c0 52-42 94-94 94h-12c-52 0-94-42-94-94V188z"/>
+  <!-- cup handle -->
+  <path fill="none" stroke="#191600" stroke-width="28" stroke-linecap="round" d="M356 220h28c28 0 50 22 50 50s-22 50-50 50h-20"/>
+  <!-- steam -->
+  <path fill="none" stroke="#191600" stroke-width="18" stroke-linecap="round" d="M212 148c8-14 8-28 0-42M256 140c8-14 8-28 0-42M300 148c8-14 8-28 0-42"/>
+</svg>

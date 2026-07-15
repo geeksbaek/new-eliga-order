@@ -19,6 +19,7 @@ const cartItems: CartItem[] = [
     qty: 1,
     price: 2000,
     options: [],
+    thumbnailUrl: null,
   },
   {
     cartItemId: 1188091,
@@ -27,6 +28,7 @@ const cartItems: CartItem[] = [
     qty: 2,
     price: 500,
     options: [{ option: '컵', value: '매장컵' }],
+    thumbnailUrl: null,
   },
 ]
 
