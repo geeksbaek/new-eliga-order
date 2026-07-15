@@ -137,8 +137,16 @@ export async function fetchOrderStatus(orderId: string | number): Promise<unknow
 }
 
 export async function fetchOrderHistory(shopId?: number): Promise<unknown> {
-  const q = shopId != null ? `?shopId=${shopId}` : ''
-  return apiRequest(`/order/history${q}`)
+  // Backend NPEs when searchStartDate is null — always send a range.
+  const end = todayISODate()
+  const start = new Date()
+  start.setMonth(start.getMonth() - 3)
+  const params = new URLSearchParams({
+    searchStartDate: todayISODate(start),
+    searchEndDate: end,
+  })
+  if (shopId != null) params.set('shopId', String(shopId))
+  return apiRequest(`/order/history?${params}`)
 }
 
 export async function fetchRecentOrders(shopId: number): Promise<unknown> {
