@@ -4,7 +4,12 @@ import {
   mapDiningMenu,
   mapOrderHistory,
 } from './mappers'
-import { mediaUrl, orderStatusLabel, parseKcalFromNutrition } from './format'
+import {
+  ELIGA_CDN_BASE,
+  mediaUrl,
+  orderStatusLabel,
+  parseKcalFromNutrition,
+} from './format'
 
 describe('order history mapping', () => {
   it('localizes shop/item names and paid totals from API shape', () => {
@@ -159,7 +164,15 @@ describe('dining menu images', () => {
     const meal = periods[0].courses[0].menus[0]
     expect(meal.name).toContain('마늘보쌈')
     expect(meal.calorie).toBe(902)
-    expect(meal.imageUrl).toContain('IMG_9105.jpeg')
+    expect(meal.imageUrl).toBe(
+      `${ELIGA_CDN_BASE}data/box/venus/kakao/7/IMG_9105.jpeg`,
+    )
     expect(parseKcalFromNutrition('열량 : 902Kcal')).toBe(902)
+  })
+
+  it('encodes special characters in file names', () => {
+    expect(mediaUrl('data/box/venus/kakao/7/IMG_9126(1).jpeg')).toBe(
+      `${ELIGA_CDN_BASE}data/box/venus/kakao/7/IMG_9126%281%29.jpeg`,
+    )
   })
 })

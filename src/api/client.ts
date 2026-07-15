@@ -19,8 +19,7 @@ export const BRAND_CODE = 'kakao'
 export const BASE_HOST = 'https://base.eligaorder.com'
 export const SVC_HOST = 'https://svc.eligaorder.com'
 export const WEBAPP_ORIGIN = 'https://webapp.eligaorder.com'
-export const CDN_URL =
-  'https://eliga-ordercdn.object.ncloudstorage.com/'
+export { ELIGA_CDN_BASE as CDN_URL, mediaUrl as cdnUrl } from '../lib/format'
 
 export const PROXY_ENTRY = '/api/proxy'
 
@@ -379,12 +378,6 @@ export async function refreshAccessToken(): Promise<AuthTokens | null> {
     setSessionAuthed(false)
   }
   return null
-}
-
-export function cdnUrl(path: string | null | undefined): string | null {
-  if (!path) return null
-  if (path.startsWith('http')) return path
-  return `${CDN_URL}${path.replace(/^\//, '')}`
 }
 
 function humanizeLoginError(code: string): string {

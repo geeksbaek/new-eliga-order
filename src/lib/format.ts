@@ -100,12 +100,20 @@ export function formatDateTime(iso: string | null | undefined): string {
   return `${y}-${m}-${day} ${hh}:${mm}`
 }
 
-/** CDN path → absolute image URL */
+/** NCloud object storage used by Eliga meal/goods images */
+export const ELIGA_CDN_BASE =
+  'https://kr.object.ncloudstorage.com/eliga-order/'
+
+/** CDN path → absolute image URL (encode segments for parentheses etc.) */
 export function mediaUrl(path: string | null | undefined): string | null {
   if (!path) return null
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const CDN = 'https://eliga-ordercdn.object.ncloudstorage.com/'
-  return `${CDN}${path.replace(/^\//, '')}`
+  const encoded = path
+    .replace(/^\//, '')
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/')
+  return `${ELIGA_CDN_BASE}${encoded}`
 }
 
 /** Pull kcal number from free-form nutrition text when calorie field is missing */
