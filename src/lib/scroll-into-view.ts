@@ -1,10 +1,13 @@
 /**
- * Scroll helpers for keeping expanded dining groups fully on screen
- * above the fixed tab bar / cart dock.
+ * Scroll helpers for expanded dining groups.
+ * Expand + scroll share one 280ms ease so motion does not stutter.
  */
 
-/** Invalidate in-flight smooth scrolls when the user opens another group. */
+/** Bumps to cancel an in-flight rAF scroll when another group opens. */
 let scrollGen = 0
+
+/** Match `.dining-group-panel` height transition. */
+const EXPAND_MS = 280
 
 function viewBounds(marginTop: number, marginBottom: number) {
   const vv = window.visualViewport
@@ -25,9 +28,53 @@ function viewBounds(marginTop: number, marginBottom: number) {
   return { viewTop, viewBottom: viewBottom - marginBottom }
 }
 
+/** Same family as CSS cubic-bezier(0.32, 0.72, 0, 1) — ease-out, no overshoot. */
+function easeOutExpand(t: number): number {
+  // Closest simple curve to the panel transition without solving bezier roots
+  return 1 - (1 - t) ** 3
+}
+
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
 /**
- * Scroll window so `el` fits in the visible band above chrome.
- * Uses predictedHeight while CSS accordion height is still animating.
+ * Compute how far to scroll so `el` of given height sits in the visible band.
+ * Positive = scroll down.
+ */
+export function computeScrollDelta(
+  el: HTMLElement,
+  height: number,
+  opts?: { marginTop?: number; marginBottom?: number },
+): number {
+  const marginTop = opts?.marginTop ?? 8
+  const marginBottom = opts?.marginBottom ?? 12
+  const { viewTop, viewBottom } = viewBounds(marginTop, marginBottom)
+  const avail = Math.max(0, viewBottom - viewTop)
+
+  const top = el.getBoundingClientRect().top
+  const bottom = top + height
+
+  if (top >= viewTop - 1 && bottom <= viewBottom + 1) return 0
+
+  if (height <= avail) {
+    const needDown = bottom - viewBottom
+    const maxDown = top - viewTop
+    if (needDown > 0) return maxDown >= needDown ? needDown : maxDown
+    if (top < viewTop) return top - viewTop
+    return 0
+  }
+  // Taller than viewport: pin header
+  return top - viewTop
+}
+
+/**
+ * Scroll window so `el` fits above chrome.
+ * Prefer scrollExpandedDiningGroup for accordion open (synced animation).
  */
 export function scrollBlockIntoView(
   el: HTMLElement,
@@ -39,12 +86,6 @@ export function scrollBlockIntoView(
   },
 ): void {
   const behavior = opts?.behavior ?? 'smooth'
-  const marginTop = opts?.marginTop ?? 8
-  const marginBottom = opts?.marginBottom ?? 12
-  const { viewTop, viewBottom } = viewBounds(marginTop, marginBottom)
-  const avail = Math.max(0, viewBottom - viewTop)
-
-  const top = el.getBoundingClientRect().top
   const rendered = el.getBoundingClientRect().height
   const height = Math.max(
     opts?.predictedHeight != null && opts.predictedHeight > 0
@@ -52,31 +93,12 @@ export function scrollBlockIntoView(
       : 0,
     rendered,
   )
-  const bottom = top + height
-
-  // Already fully visible
-  if (top >= viewTop - 1 && bottom <= viewBottom + 1) return
-
-  let delta = 0
-  if (height <= avail) {
-    // Scroll down enough to reveal bottom; never hide the top if it fits.
-    const needDown = bottom - viewBottom
-    const maxDown = top - viewTop
-    if (needDown > 0) {
-      delta = maxDown >= needDown ? needDown : maxDown
-    } else if (top < viewTop) {
-      delta = top - viewTop
-    }
-  } else {
-    // Taller than viewport: pin header under the top margin
-    delta = top - viewTop
-  }
-
+  const delta = computeScrollDelta(el, height, opts)
   if (Math.abs(delta) < 1) return
   window.scrollBy({ top: delta, left: 0, behavior })
 }
 
-/** Head + body content height (body.scrollHeight works even under 0fr collapse). */
+/** Head + body content height (works under 0fr collapse). */
 export function predictedDiningGroupHeight(el: HTMLElement): number {
   const head = el.querySelector('.dining-group-head') as HTMLElement | null
   const body = el.querySelector('.dining-group-body') as HTMLElement | null
@@ -86,35 +108,47 @@ export function predictedDiningGroupHeight(el: HTMLElement): number {
 }
 
 /**
- * After a dining group expands: scroll so the open card is as fully visible
- * as possible. Call only after React has committed `is-open`.
- *
- * 1) smooth scroll using predicted final height (mid-animation)
- * 2) instant correction after the 0.28s height transition
+ * One continuous scroll over the same 280ms as the height expand.
+ * Avoids smooth+instant double jumps that felt choppy.
  */
 export function scrollExpandedDiningGroup(
   el: HTMLElement | null | undefined,
-  opts?: { behavior?: ScrollBehavior },
 ): void {
   if (!el) return
   const gen = ++scrollGen
-  const preferred = opts?.behavior ?? 'smooth'
 
-  const run = (behavior: ScrollBehavior) => {
+  const start = () => {
     if (gen !== scrollGen) return
-    scrollBlockIntoView(el, {
-      behavior,
-      predictedHeight: predictedDiningGroupHeight(el),
-    })
+
+    const height = Math.max(
+      predictedDiningGroupHeight(el),
+      el.getBoundingClientRect().height,
+    )
+    const delta = computeScrollDelta(el, height)
+    if (Math.abs(delta) < 1) return
+
+    if (prefersReducedMotion()) {
+      window.scrollBy({ top: delta, left: 0, behavior: 'instant' as ScrollBehavior })
+      return
+    }
+
+    const from = window.scrollY
+    // Target document Y — re-read max in case content shorter than expected
+    const to = from + delta
+    const t0 = performance.now()
+
+    const step = (now: number) => {
+      if (gen !== scrollGen) return
+      const t = Math.min(1, (now - t0) / EXPAND_MS)
+      const y = from + (to - from) * easeOutExpand(t)
+      window.scrollTo({ top: y, left: 0, behavior: 'instant' as ScrollBehavior })
+      if (t < 1) {
+        requestAnimationFrame(step)
+      }
+    }
+    requestAnimationFrame(step)
   }
 
-  // Double rAF: wait for style/layout with is-open applied
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (gen !== scrollGen) return
-      run(preferred)
-      // Accordion transition is 0.28s — snap once height is final
-      window.setTimeout(() => run('instant' as ScrollBehavior), 300)
-    })
-  })
+  // One frame so `is-open` styles are applied and body metrics are valid
+  requestAnimationFrame(start)
 }
