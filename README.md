@@ -1,4 +1,4 @@
-# new 엘리가
+# 엘리가오더
 
 [엘리가 오더](https://webapp.eligaorder.com) API를 쓰는 사내 식당·카페 SPA입니다.  
 모바일 웹/PWA 기준으로 메뉴 조회, 카페 주문, 식단 확인을 한 화면에서 처리합니다.
@@ -53,6 +53,27 @@ npm test             # 단위 테스트
 | `VITE_BASE` | 배포 base path. 프로덕션 빌드는 `/` |
 
 ## 배포
+
+GitHub Actions가 **push마다** Vercel에 배포합니다.
+
+| 이벤트 | 대상 |
+|--------|------|
+| `main` 푸시 | Production (`https://new-eliga.vercel.app`) |
+| 그 외 브랜치 / PR | Preview URL (PR 코멘트로 남김) |
+| Actions → Deploy Vercel → Run workflow | 수동 배포 |
+
+워크플로: [`.github/workflows/deploy-vercel.yml`](.github/workflows/deploy-vercel.yml)  
+순서: `npm test` → `vercel pull` → `vercel build` → `vercel deploy --prebuilt`
+
+저장소 Secrets (이미 설정됨):
+
+| Secret | 설명 |
+|--------|------|
+| `VERCEL_TOKEN` | Vercel 계정 토큰 |
+| `VERCEL_ORG_ID` | 팀/ORG ID |
+| `VERCEL_PROJECT_ID` | 프로젝트 ID |
+
+로컬에서 수동 배포할 때:
 
 ```bash
 vercel login              # 최초 1회
