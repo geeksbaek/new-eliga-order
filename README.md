@@ -89,6 +89,8 @@ vercel deploy --prod -y
 api/
   proxy.ts          # 엘리가 API 프록시 (쿠키 first-party, 로그인 JWT 주입)
   cdn.ts            # 메뉴 이미지 프록시 (캔버스 색 샘플용)
+docs/
+  gemma4-browser-llm.md  # Gemma 4 브라우저(온디바이스) LLM 조사
 src/
   api/              # HTTP 클라이언트, 엘리가 엔드포인트 래퍼
   pages/            # 라우트 페이지
@@ -102,6 +104,10 @@ public/
 server.mjs          # 로컬/도커용 정적 + 프록시 서버
 vercel.json
 ```
+
+## 관련 조사
+
+- [Gemma 4 브라우저 임베딩](docs/gemma4-browser-llm.md) — E2B/E4B 웹 전용 패키지(`*-web.litertlm`), LiteRT-LM, new-eliga 적용 시 제약
 
 ## 인증
 
