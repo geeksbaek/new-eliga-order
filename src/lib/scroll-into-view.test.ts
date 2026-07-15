@@ -24,7 +24,6 @@ describe('scrollBlockIntoView', () => {
 
   beforeEach(() => {
     window.scrollBy = vi.fn()
-    // Minimal viewport chrome: no tab/dock → use innerHeight
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(800)
   })
 
@@ -50,13 +49,12 @@ describe('scrollBlockIntoView', () => {
 
     scrollBlockIntoView(el, {
       behavior: 'instant',
-      margin: 10,
-      predictedHeight: 400, // bottom = 900 > 790
+      marginTop: 8,
+      marginBottom: 12,
+      predictedHeight: 400, // bottom = 900 > ~788
     })
 
-    expect(window.scrollBy).toHaveBeenCalledWith(
-      expect.objectContaining({ top: expect.any(Number) }),
-    )
+    expect(window.scrollBy).toHaveBeenCalled()
     const arg = vi.mocked(window.scrollBy).mock.calls[0][0] as ScrollToOptions
     expect(arg.top).toBeGreaterThan(0)
   })
@@ -78,10 +76,38 @@ describe('scrollBlockIntoView', () => {
 
     scrollBlockIntoView(el, {
       behavior: 'instant',
-      margin: 10,
+      marginTop: 8,
+      marginBottom: 12,
       predictedHeight: 200,
     })
 
     expect(window.scrollBy).not.toHaveBeenCalled()
+  })
+
+  it('pins header when content is taller than the viewport', () => {
+    const el = document.createElement('div')
+    el.getBoundingClientRect = () =>
+      ({
+        top: 200,
+        bottom: 220,
+        height: 20,
+        left: 0,
+        right: 0,
+        width: 0,
+        x: 0,
+        y: 200,
+        toJSON: () => ({}),
+      }) as DOMRect
+
+    scrollBlockIntoView(el, {
+      behavior: 'instant',
+      marginTop: 8,
+      marginBottom: 12,
+      predictedHeight: 2000,
+    })
+
+    const arg = vi.mocked(window.scrollBy).mock.calls[0][0] as ScrollToOptions
+    // top 200 → viewTop 8 ⇒ scroll down by ~192
+    expect(arg.top).toBeCloseTo(192, 0)
   })
 })

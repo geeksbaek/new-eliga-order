@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { fetchDiningMenu } from '../api/eliga'
 import { Empty, ErrorBox } from '../components/UiState'
@@ -150,6 +157,8 @@ export function DiningMenuPage() {
   const [prefs, setPrefs] = useState<string[]>(() => loadDiningPrefs())
   const groupRefs = useRef<Map<string, HTMLElement>>(new Map())
   const focusDone = useRef(false)
+  /** Scroll after expand only once React has committed `is-open`. */
+  const pendingScrollSlug = useRef<string | null>(null)
 
   const closePreview = useCallback(() => setPreview(null), [])
   const closeCalendar = useCallback(() => setCalendarOpen(false), [])
@@ -162,21 +171,28 @@ export function DiningMenuPage() {
   }, [])
 
   const toggleGroup = useCallback((slug: string) => {
-    let opening = false
     setExpanded((prev) => {
-      opening = !prev.has(slug)
       const next = new Set(prev)
-      if (opening) next.add(slug)
-      else next.delete(slug)
+      if (next.has(slug)) {
+        next.delete(slug)
+        if (pendingScrollSlug.current === slug) pendingScrollSlug.current = null
+        return next
+      }
+      next.add(slug)
+      pendingScrollSlug.current = slug
       return next
     })
-    // After expand: scroll so the full open card sits above tab/cart chrome
-    if (opening) {
-      requestAnimationFrame(() => {
-        scrollExpandedDiningGroup(groupRefs.current.get(slug))
-      })
-    }
   }, [])
+
+  // Must run after paint commit — scrolling in toggle (before is-open) used collapsed height
+  useLayoutEffect(() => {
+    const slug = pendingScrollSlug.current
+    if (!slug || !expanded.has(slug)) return
+    pendingScrollSlug.current = null
+    const el = groupRefs.current.get(slug)
+    if (!el) return
+    scrollExpandedDiningGroup(el)
+  }, [expanded])
 
   useEffect(() => {
     selectShop(shopId)
