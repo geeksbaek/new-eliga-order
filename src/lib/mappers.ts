@@ -187,7 +187,7 @@ export function mapDiningMenu(raw: unknown): DiningPeriod[] {
   return result
 }
 
-function mapOrderLine(item: Record<string, unknown>): OrderLineView {
+function mapGoodsOrderLine(item: Record<string, unknown>): OrderLineView {
   const opts: string[] = []
   for (const opt of asArray<Record<string, unknown>>(item.goodsOrderItemOptions)) {
     const optName = localizeName(opt.optionName)
@@ -208,12 +208,40 @@ function mapOrderLine(item: Record<string, unknown>): OrderLineView {
   }
 }
 
+/** Cafeteria meal lines use mealName / mealQty / courseName */
+function mapMealOrderLine(item: Record<string, unknown>): OrderLineView {
+  const course = localizeName(item.courseName)
+  const op = localizeName(item.operationTimeTitle)
+  const meal = localizeName(item.mealName)
+  const label = [op, course, meal].filter(Boolean).join(' · ')
+  const qty = Number(item.mealQty ?? item.goodsQty ?? 1) || 1
+  const price = Number(
+    item.paidPrice ?? item.salesPrice ?? item.unitPrice ?? 0,
+  )
+  return {
+    name: label || meal || '식단',
+    qty,
+    price,
+    options: [],
+  }
+}
+
 export function mapOrderHistory(raw: unknown): OrderHistoryView[] {
   const list = asArray<Record<string, unknown>>(contentOf(raw))
   return list.map((row) => {
-    const goodsItems = asArray<Record<string, unknown>>(row.goodsOrderItems)
-    const mealItems = asArray<Record<string, unknown>>(row.mealOrderItems)
-    const items = [...goodsItems, ...mealItems].map(mapOrderLine)
+    const goodsItems = asArray<Record<string, unknown>>(row.goodsOrderItems).map(
+      mapGoodsOrderLine,
+    )
+    const mealItems = asArray<Record<string, unknown>>(row.mealOrderItems).map(
+      mapMealOrderLine,
+    )
+    const items = [...goodsItems, ...mealItems]
+    const totalPaid = Number(
+      row.totalPaidPrice ??
+        row.totalSalesPrice ??
+        row.totalUnitPrice ??
+        items.reduce((s, it) => s + it.price, 0),
+    )
     return {
       orderId: Number(row.orderId ?? row.id ?? 0),
       orderNo: String(row.orderNo ?? row.orderId ?? ''),
@@ -222,9 +250,7 @@ export function mapOrderHistory(raw: unknown): OrderHistoryView[] {
       shopType: String(row.shopType ?? ''),
       status: String(row.status ?? row.orderStatus ?? ''),
       orderedAt: String(row.regAt ?? row.createdAt ?? row.orderDate ?? ''),
-      totalPaid: Number(
-        row.totalPaidPrice ?? row.totalSalesPrice ?? row.totalUnitPrice ?? 0,
-      ),
+      totalPaid,
       items,
     }
   })

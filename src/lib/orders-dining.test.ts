@@ -49,6 +49,40 @@ describe('order history mapping', () => {
     expect(list[0].items[0].options[0]).toContain('토핑 없음')
     expect(orderStatusLabel(list[0].status)).toBe('완료')
   })
+
+  it('maps cafeteria mealOrderItems (mealName/courseName)', () => {
+    const raw = {
+      content: [
+        {
+          shopId: 7,
+          shopType: 'CAFETERIA',
+          shopName: { ko: '춘식도락(B1F)' },
+          orderId: 1,
+          orderNo: '00026',
+          goodsOrderItems: null,
+          mealOrderItems: [
+            {
+              courseName: { ko: '한식B' },
+              operationTimeTitle: { ko: '중식' },
+              mealName: { ko: '소고기미역국' },
+              mealQty: 1,
+              paidPrice: 8000,
+              salesPrice: 8000,
+              unitPrice: 8000,
+            },
+          ],
+          status: 'ORDER_COMPLETE',
+          regAt: '2026-07-14T11:00:00+09:00',
+          totalSalesPrice: 8000,
+          totalPaidPrice: null,
+        },
+      ],
+    }
+    const list = mapOrderHistory(raw)
+    expect(list[0].items[0].name).toContain('소고기미역국')
+    expect(list[0].items[0].name).toContain('한식B')
+    expect(list[0].totalPaid).toBe(8000)
+  })
 })
 
 describe('cafe recent/popular mapping', () => {
