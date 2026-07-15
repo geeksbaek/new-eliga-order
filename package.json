@@ -1,0 +1,33 @@
+{
+  "name": "new-eliga",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build && node scripts/assert-spa-shells.mjs",
+    "build:pages": "VITE_BASE=/new-eliga-order/ VITE_CANONICAL_URL=https://geeksbaek.github.io/new-eliga-order VITE_USE_PROXY=false tsc -b && VITE_BASE=/new-eliga-order/ VITE_CANONICAL_URL=https://geeksbaek.github.io/new-eliga-order VITE_USE_PROXY=false vite build && node scripts/assert-spa-shells.mjs",
+    "build:lift": "LIFT_BUILD=1 VITE_BASE=/share/new-eliga-order/ VITE_CANONICAL_URL=https://geeksbaek.github.io/new-eliga-order VITE_USE_PROXY=false tsc -b && LIFT_BUILD=1 VITE_BASE=/share/new-eliga-order/ VITE_CANONICAL_URL=https://geeksbaek.github.io/new-eliga-order VITE_USE_PROXY=false vite build && node scripts/assert-spa-shells.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "jsdom": "^29.0.0",
+    "playwright": "^1.61.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  }
+}
