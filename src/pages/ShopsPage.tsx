@@ -79,7 +79,7 @@ function LunchDishRow({
       onClick={() => onPreview(preview)}
     >
       <div className="course-line-thumb">
-        <MenuThumb src={dish.imageUrl} width={48} height={48} />
+        <MenuThumb src={dish.imageUrl} width={44} height={44} />
       </div>
       <div className="course-line-body">
         <span className="course-line-label" title={courseLabel}>
