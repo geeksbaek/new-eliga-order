@@ -5,9 +5,25 @@
 
 const KEY = 'eliga.cafe.favorites'
 
+/** Same-tab signal so header badge updates without focus/visibility refresh. */
+export const FAVORITES_CHANGED_EVENT = 'eliga:cafe-favorites'
+
 export type CafeFavorite = {
   displayId: number
   shopId: number
+}
+
+function notifyFavoritesChanged(entries: CafeFavorite[]): void {
+  try {
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(
+      new CustomEvent(FAVORITES_CHANGED_EVENT, {
+        detail: { count: entries.length, entries },
+      }),
+    )
+  } catch {
+    /* ignore (SSR / non-DOM) */
+  }
 }
 
 function readEntries(): CafeFavorite[] {
@@ -52,6 +68,7 @@ function writeEntries(entries: CafeFavorite[]): void {
   } catch {
     /* quota / private mode */
   }
+  notifyFavoritesChanged(entries)
 }
 
 export function loadFavorites(): CafeFavorite[] {

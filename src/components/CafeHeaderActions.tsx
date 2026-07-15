@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { loadFavorites } from '../lib/cafe-favorites'
+import {
+  FAVORITES_CHANGED_EVENT,
+  loadFavorites,
+} from '../lib/cafe-favorites'
 import { useShop } from '../hooks/useShop'
 import { IconBag, IconStar } from './Icons'
 
@@ -20,14 +23,20 @@ export function CafeHeaderActions({ active = null }: Props) {
   const [favTotal, setFavTotal] = useState(() => loadFavorites().length)
 
   useEffect(() => {
-    setFavTotal(loadFavorites().length)
     const sync = () => setFavTotal(loadFavorites().length)
+    sync()
     const onVis = () => {
       if (document.visibilityState === 'visible') sync()
     }
+    // Same-tab toggles (menu star / detail) fire this custom event.
+    window.addEventListener(FAVORITES_CHANGED_EVENT, sync)
+    // Other tabs writing localStorage
+    window.addEventListener('storage', sync)
     window.addEventListener('focus', sync)
     document.addEventListener('visibilitychange', onVis)
     return () => {
+      window.removeEventListener(FAVORITES_CHANGED_EVENT, sync)
+      window.removeEventListener('storage', sync)
       window.removeEventListener('focus', sync)
       document.removeEventListener('visibilitychange', onVis)
     }
