@@ -1,15 +1,18 @@
 /**
  * Eliga HTTP client — paths match eliga-api.sh / api-reference.md.
- * Base: https://base.eligaorder.com
- * Service: https://svc.eligaorder.com/{space}
  *
- * Dev: Vite proxy `/__eliga-base` + `/__eliga-svc`.
- * Production (GitHub Pages): direct hosts — Eliga CORS reflects Origin.
+ * Auth (same as eliga-api.sh): HttpOnly AccessToken cookie on .eligaorder.com.
+ * Browser must call via same-origin proxy so cookies are first-party:
+ *   /__eliga-base → https://base.eligaorder.com
+ *   /__eliga-svc  → https://svc.eligaorder.com
+ * (Vite dev proxy or `node server.mjs`)
  */
 import {
   clearTokens,
+  loadSessionFlag,
   loadSpaceUrl,
   loadTokens,
+  saveSessionFlag,
   saveSpaceUrl,
   saveTokens,
 } from '../lib/storage'
@@ -22,15 +25,16 @@ export const WEBAPP_ORIGIN = 'https://webapp.eligaorder.com'
 export const CDN_URL =
   'https://eliga-ordercdn.object.ncloudstorage.com/'
 
-/** Same-origin proxy roots (Vite dev server). */
 export const PROXY_BASE = '/__eliga-base'
 export const PROXY_SVC = '/__eliga-svc'
 
-/** Dev uses Vite proxy; production calls Eliga hosts directly. */
+/**
+ * Always prefer same-origin proxy. Direct host calls cannot use HttpOnly
+ * AccessToken cookies across sites (GitHub Pages → eligaorder.com is third-party).
+ */
 export function useApiProxy(): boolean {
-  if (import.meta.env.VITE_USE_PROXY === 'true') return true
   if (import.meta.env.VITE_USE_PROXY === 'false') return false
-  return import.meta.env.DEV === true
+  return true
 }
 
 export function baseApiRoot(): string {
@@ -54,16 +58,16 @@ export class ApiError extends Error {
   }
 }
 
-type TokenListener = (tokens: AuthTokens | null) => void
-const tokenListeners = new Set<TokenListener>()
+type AuthListener = (authed: boolean) => void
+const authListeners = new Set<AuthListener>()
 
-export function onAuthChange(fn: TokenListener): () => void {
-  tokenListeners.add(fn)
-  return () => tokenListeners.delete(fn)
+export function onAuthChange(fn: AuthListener): () => void {
+  authListeners.add(fn)
+  return () => authListeners.delete(fn)
 }
 
-function notifyAuth(tokens: AuthTokens | null) {
-  tokenListeners.forEach((fn) => fn(tokens))
+function notifyAuth(authed: boolean) {
+  authListeners.forEach((fn) => fn(authed))
 }
 
 export function getAccessToken(): string | null {
@@ -71,23 +75,81 @@ export function getAccessToken(): string | null {
 }
 
 export function setAuthTokens(tokens: AuthTokens | null) {
-  if (tokens) saveTokens(tokens)
-  else clearTokens()
-  notifyAuth(tokens)
+  if (tokens?.accessToken) {
+    saveTokens(tokens)
+    saveSessionFlag(true)
+    notifyAuth(true)
+  } else {
+    clearTokens()
+    saveSessionFlag(false)
+    notifyAuth(false)
+  }
+}
+
+export function setSessionAuthed(on: boolean) {
+  if (on) {
+    saveSessionFlag(true)
+    notifyAuth(true)
+  } else {
+    clearTokens()
+    saveSessionFlag(false)
+    notifyAuth(false)
+  }
 }
 
 export function isAuthenticated(): boolean {
-  return Boolean(getAccessToken())
+  return loadSessionFlag()
 }
 
 const SPACE_RE = /^[a-zA-Z0-9._-]+$/
 
 function networkErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
-  if (/Failed to fetch|NetworkError|Load failed|Content Security Policy|CSP/i.test(msg)) {
-    return '네트워크 연결에 실패했습니다. 사내망/VPN과 브라우저 콘솔을 확인해 주세요.'
+  if (/Failed to fetch|NetworkError|Load failed|404/i.test(msg)) {
+    return (
+      'API 프록시에 연결하지 못했습니다. 로컬에서 `npm run dev` 또는 `npm run build && npm start` 로 실행하세요. ' +
+      '(GitHub Pages 단독 호스팅은 엘리가 쿠키 인증을 지원하지 않습니다.)'
+    )
   }
   return msg || '네트워크 오류'
+}
+
+/** Pull access/refresh tokens from various successful sign-in body shapes. */
+export function extractTokensFromSignInBody(data: unknown): AuthTokens | null {
+  if (!data || typeof data !== 'object') return null
+  const root = data as Record<string, unknown>
+  const candidates: unknown[] = [
+    root.content,
+    root.data,
+    root.result,
+    root,
+  ]
+  for (const c of candidates) {
+    if (!c || typeof c !== 'object') continue
+    const o = c as Record<string, unknown>
+    const access =
+      (typeof o.accessToken === 'string' && o.accessToken) ||
+      (typeof o.access_token === 'string' && o.access_token) ||
+      (typeof o.token === 'string' && o.token) ||
+      null
+    if (access) {
+      const refresh =
+        (typeof o.refreshToken === 'string' && o.refreshToken) ||
+        (typeof o.refresh_token === 'string' && o.refresh_token) ||
+        ''
+      return {
+        accessToken: access,
+        refreshToken: refresh,
+        tokenType: typeof o.tokenType === 'string' ? o.tokenType : 'Bearer',
+      }
+    }
+    // nested token object
+    if (o.token && typeof o.token === 'object') {
+      const nested = extractTokensFromSignInBody({ content: o.token })
+      if (nested) return nested
+    }
+  }
+  return null
 }
 
 export async function resolveSpace(force = false): Promise<string> {
@@ -100,6 +162,7 @@ export async function resolveSpace(force = false): Promise<string> {
   try {
     res = await fetch(url, {
       headers: { Accept: 'application/json' },
+      credentials: 'include',
     })
   } catch (err) {
     throw new ApiError(networkErrorMessage(err), 0, err)
@@ -131,21 +194,26 @@ export interface RequestOptions {
   signal?: AbortSignal
 }
 
+function authHeaders(includeAuth: boolean): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  }
+  if (includeAuth) {
+    const token = getAccessToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+  return headers
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
   const space = await resolveSpace()
   const method = options.method ?? 'GET'
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-  }
+  const headers = authHeaders(options.auth !== false)
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json'
-  }
-  if (options.auth !== false) {
-    const token = getAccessToken()
-    if (token) headers.Authorization = `Bearer ${token}`
   }
 
   const url = `${svcApiRoot(space)}${path.startsWith('/') ? path : `/${path}`}`
@@ -156,13 +224,14 @@ export async function apiRequest<T = unknown>(
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: options.signal,
+      credentials: 'include',
     })
   } catch (err) {
     throw new ApiError(networkErrorMessage(err), 0, err)
   }
 
   if (res.status === 401) {
-    setAuthTokens(null)
+    setSessionAuthed(false)
     throw new ApiError('로그인이 필요합니다', 401, await safeJson(res))
   }
 
@@ -170,8 +239,8 @@ export async function apiRequest<T = unknown>(
     const body = await safeJson(res)
     let msg = `요청 실패 (${res.status})`
     if (body && typeof body === 'object') {
-      const rec = body as { content?: unknown; message?: unknown }
-      const detail = rec.content ?? rec.message
+      const rec = body as { content?: unknown; message?: unknown; code?: unknown }
+      const detail = rec.content ?? rec.message ?? rec.code
       if (detail != null && detail !== '') {
         msg = typeof detail === 'string' ? detail : JSON.stringify(detail)
       }
@@ -186,7 +255,7 @@ export async function apiRequest<T = unknown>(
 export async function signIn(
   userId: string,
   password: string,
-): Promise<AuthTokens> {
+): Promise<AuthTokens | { cookieSession: true }> {
   const space = await resolveSpace()
   const url = `${svcApiRoot(space)}/customer/sign-in`
   let res: Response
@@ -197,6 +266,7 @@ export async function signIn(
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         userId,
         password,
@@ -208,20 +278,54 @@ export async function signIn(
     throw new ApiError(networkErrorMessage(err), 0, err)
   }
 
+  const data = await safeJson(res)
+
   if (!res.ok) {
-    const body = await safeJson(res)
-    throw new ApiError('로그인에 실패했습니다', res.status, body)
+    let msg = '로그인에 실패했습니다'
+    if (data && typeof data === 'object') {
+      const rec = data as { content?: unknown; message?: unknown; code?: unknown }
+      const detail = rec.content ?? rec.message ?? rec.code
+      if (typeof detail === 'string' && detail) msg = detail
+    }
+    throw new ApiError(msg, res.status, data)
   }
 
-  const data = (await res.json()) as {
-    content?: AuthTokens
+  // Prefer JSON tokens when present (proxy may inject AccessToken from Set-Cookie)
+  const tokens = extractTokensFromSignInBody(data)
+  if (tokens?.accessToken) {
+    setAuthTokens(tokens)
+    await assertSessionWorks()
+    return tokens
   }
-  const tokens = data.content
-  if (!tokens?.accessToken) {
-    throw new ApiError('토큰이 응답에 없습니다', 500, data)
+
+  // Official web/CLI path: HttpOnly AccessToken cookie only — no body token
+  setSessionAuthed(true)
+  try {
+    await assertSessionWorks()
+  } catch (e) {
+    setSessionAuthed(false)
+    throw new ApiError(
+      '로그인 응답은 왔지만 세션 쿠키가 유지되지 않았습니다. ' +
+        '`npm run dev` 또는 `npm start`(API 프록시)로 실행해야 합니다. ' +
+        'GitHub Pages 정적 호스팅만으로는 엘리가 쿠키 인증이 동작하지 않습니다.',
+      401,
+      e,
+    )
   }
-  setAuthTokens(tokens)
-  return tokens
+  return { cookieSession: true }
+}
+
+/** Confirm session with /customer/me (cookie and/or Bearer). */
+async function assertSessionWorks(): Promise<void> {
+  const space = await resolveSpace()
+  const url = `${svcApiRoot(space)}/customer/me`
+  const res = await fetch(url, {
+    headers: authHeaders(true),
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    throw new ApiError('세션 확인 실패', res.status, await safeJson(res))
+  }
 }
 
 export async function refreshAccessToken(): Promise<AuthTokens | null> {
@@ -236,12 +340,13 @@ export async function refreshAccessToken(): Promise<AuthTokens | null> {
         auth: false,
       },
     )
-    if (data?.content?.accessToken) {
-      setAuthTokens(data.content)
-      return data.content
+    const tokens = extractTokensFromSignInBody(data)
+    if (tokens?.accessToken) {
+      setAuthTokens(tokens)
+      return tokens
     }
   } catch {
-    setAuthTokens(null)
+    setSessionAuthed(false)
   }
   return null
 }

@@ -4,11 +4,8 @@ import { dirname, resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
-/** Default public path for GitHub Pages project site. */
-const DEFAULT_PAGES_BASE = '/new-eliga-order/'
-
 /**
- * Emit index.html shells under client routes + 404.html for static hosts.
+ * Emit index.html shells under client routes for hard-refresh on static hosts.
  */
 function spaRouteShells(): Plugin {
   const routeDirs = [
@@ -36,7 +33,6 @@ function spaRouteShells(): Plugin {
         throw new Error('spa-route-shells: dist/index.html missing after build')
       }
       copyFileSync(index, resolve(outDir, '200.html'))
-      // GitHub Pages SPA fallback
       copyFileSync(index, resolve(outDir, '404.html'))
       for (const dir of routeDirs) {
         const target = resolve(outDir, dir, 'index.html')
@@ -47,36 +43,42 @@ function spaRouteShells(): Plugin {
   }
 }
 
+const eligaProxy = {
+  '/__eliga-base': {
+    target: 'https://base.eligaorder.com',
+    changeOrigin: true,
+    rewrite: (p: string) => p.replace(/^\/__eliga-base/, ''),
+  },
+  '/__eliga-svc': {
+    target: 'https://svc.eligaorder.com',
+    changeOrigin: true,
+    rewrite: (p: string) => p.replace(/^\/__eliga-svc/, ''),
+    configure: (proxy: {
+      on: (ev: string, fn: (...args: unknown[]) => void) => void
+    }) => {
+      proxy.on('proxyReq', (...args: unknown[]) => {
+        const proxyReq = args[0] as {
+          setHeader: (k: string, v: string) => void
+        }
+        proxyReq.setHeader('Origin', 'https://webapp.eligaorder.com')
+        proxyReq.setHeader('Referer', 'https://webapp.eligaorder.com/')
+      })
+    },
+  },
+}
+
 export default defineConfig(() => {
-  // Override with VITE_BASE=/ for local preview at root if needed
-  const base = process.env.VITE_BASE || DEFAULT_PAGES_BASE
+  const base = process.env.VITE_BASE || '/'
 
   return {
     plugins: [react(), spaRouteShells()],
     base,
-    server: {
-      proxy: {
-        '/__eliga-base': {
-          target: 'https://base.eligaorder.com',
-          changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/__eliga-base/, ''),
-        },
-        '/__eliga-svc': {
-          target: 'https://svc.eligaorder.com',
-          changeOrigin: true,
-          rewrite: (p) => p.replace(/^\/__eliga-svc/, ''),
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              proxyReq.setHeader('Origin', 'https://webapp.eligaorder.com')
-              proxyReq.setHeader('Referer', 'https://webapp.eligaorder.com/')
-            })
-          },
-        },
-      },
-    },
+    server: { proxy: eligaProxy },
+    preview: { proxy: eligaProxy },
     test: {
       environment: 'node',
       include: ['src/**/*.test.ts'],
     },
   }
 })
+

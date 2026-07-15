@@ -10,7 +10,7 @@ import {
 import {
   isAuthenticated,
   onAuthChange,
-  setAuthTokens,
+  setSessionAuthed,
 } from '../api/client'
 import { login as apiLogin } from '../api/eliga'
 import {
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthed(isAuthenticated())
     setUserId(loadRememberedUserId())
     setReady(true)
-    return onAuthChange((tokens) => setAuthed(Boolean(tokens?.accessToken)))
+    return onAuthChange((on) => setAuthed(on))
   }, [])
 
   const login = useCallback(async (id: string, password: string) => {
@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    setAuthTokens(null)
+    setSessionAuthed(false)
     setAuthed(false)
   }, [])
 

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { ErrorBox } from '../components/UiState'
+import { useApiProxy } from '../api/client'
 
 export function LoginPage() {
   const { authed, ready, userId, login } = useAuth()
@@ -13,6 +14,7 @@ export function LoginPage() {
   const location = useLocation()
   const from =
     (location.state as { from?: string } | null)?.from || '/'
+  const proxy = useApiProxy()
 
   if (ready && authed) {
     return <Navigate to={from} replace />
@@ -28,9 +30,7 @@ export function LoginPage() {
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : '로그인에 실패했습니다'
-      setError(
-        `${msg}. 카카오 사내 엘리가 계정(이메일/비밀번호)을 확인하세요. 브라우저 CORS로 직접 호출이 막히면 로컬 개발 서버(proxy)를 사용하세요.`,
-      )
+      setError(msg)
     } finally {
       setBusy(false)
     }
@@ -45,8 +45,16 @@ export function LoginPage() {
         </div>
         <h1>로그인</h1>
         <p className="lead">
-          사내 엘리가 계정으로 로그인하면 카페 주문과 식당 식단을 볼 수 있습니다.
+          사내 엘리가 계정(이메일/비밀번호)으로 로그인합니다.
         </p>
+
+        {!proxy && (
+          <div className="info-box" style={{ marginBottom: 12 }}>
+            이 페이지는 API 프록시 없이 열려 있습니다. 엘리가 인증은 쿠키
+            기반이라 <code>npm run dev</code> 또는{' '}
+            <code>npm start</code> 로 실행해야 로그인됩니다.
+          </div>
+        )}
 
         {error && <ErrorBox>{error}</ErrorBox>}
 

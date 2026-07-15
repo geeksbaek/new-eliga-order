@@ -1,6 +1,7 @@
 import type { AuthTokens } from './types'
 
 const TOKEN_KEY = 'eliga.auth.tokens'
+const SESSION_KEY = 'eliga.auth.session'
 const LAST_SHOP_KEY = 'eliga.lastShopId'
 const SPACE_KEY = 'eliga.spaceUrl'
 const USER_KEY = 'eliga.userId'
@@ -17,7 +18,7 @@ function sessionSet(key: string, value: string): void {
   try {
     sessionStorage.setItem(key, value)
   } catch {
-    /* ignore quota / private mode */
+    /* ignore */
   }
 }
 
@@ -59,10 +60,22 @@ export function loadTokens(): AuthTokens | null {
 
 export function saveTokens(tokens: AuthTokens): void {
   sessionSet(TOKEN_KEY, JSON.stringify(tokens))
+  sessionSet(SESSION_KEY, '1')
 }
 
 export function clearTokens(): void {
   sessionRemove(TOKEN_KEY)
+  sessionRemove(SESSION_KEY)
+}
+
+/** Cookie-session flag when AccessToken is HttpOnly and not readable by JS. */
+export function loadSessionFlag(): boolean {
+  return sessionGet(SESSION_KEY) === '1' || Boolean(loadTokens()?.accessToken)
+}
+
+export function saveSessionFlag(on: boolean): void {
+  if (on) sessionSet(SESSION_KEY, '1')
+  else sessionRemove(SESSION_KEY)
 }
 
 export function loadLastShopId(): number | null {
