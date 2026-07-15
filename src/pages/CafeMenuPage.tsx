@@ -95,13 +95,29 @@ function withShop(
   return items.map((m) => ({ ...m, shopId, shopName }))
 }
 
-export function CafeMenuPage() {
+type CafeMenuPageProps = {
+  /**
+   * False while menu detail is shown on top (CafeShopShell keeps this page
+   * mounted). Scroll restore only runs when the list is visible.
+   */
+  listActive?: boolean
+}
+
+export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
   const { shopId: shopIdParam } = useParams()
   const isFavView = shopIdParam === FAV_ROUTE || shopIdParam === 'fav'
   const shopId = isFavView ? NaN : Number(shopIdParam)
   const navigate = useNavigate()
   const { selectShop, shops, cart, cartsByShop, getCafeHours } = useShop()
-  useScrollRestore()
+  // Stable key: detail URL must not overwrite list scroll storage
+  useScrollRestore({
+    enabled: listActive,
+    storageKey: isFavView
+      ? '/cafe/favorites'
+      : Number.isFinite(shopId)
+        ? `/cafe/${shopId}`
+        : `/cafe/${shopIdParam ?? ''}`,
+  })
   const [actionError, setActionError] = useState<string | null>(null)
 
   const { bumpMenuQty } = useCartMutations({

@@ -6,8 +6,7 @@ import { Loading } from './components/UiState'
 import { LoginPage } from './pages/LoginPage'
 import { ShopsPage } from './pages/ShopsPage'
 import { DiningMenuPage } from './pages/DiningMenuPage'
-import { CafeMenuPage } from './pages/CafeMenuPage'
-import { MenuDetailPage } from './pages/MenuDetailPage'
+import { CafeShopShell } from './pages/CafeShopShell'
 import { CartPage } from './pages/CartPage'
 import { OrderConfirmPage } from './pages/OrderConfirmPage'
 import { OrdersPage } from './pages/OrdersPage'
@@ -38,9 +37,10 @@ function AppRoutes() {
       >
         <Route index element={<ShopsPage />} />
         <Route path="dining/:shopId" element={<DiningMenuPage />} />
-        <Route path="cafe/:shopId" element={<CafeMenuPage />} />
+        {/* List stays mounted under detail so sticky chips do not remount on back */}
+        <Route path="cafe/:shopId" element={<CafeShopShell />} />
         {/* displayId is a query (?d=) so LIFT can serve /cafe/:id/menu/index.html */}
-        <Route path="cafe/:shopId/menu" element={<MenuDetailPage />} />
+        <Route path="cafe/:shopId/menu" element={<CafeShopShell />} />
         <Route path="cart" element={<CartPage />} />
         <Route path="order/confirm" element={<OrderConfirmPage />} />
         <Route path="orders" element={<OrdersPage />} />

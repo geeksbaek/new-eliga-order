@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useLocation, useNavigationType } from 'react-router-dom'
 
 const PREFIX = 'eliga:scroll:'
@@ -14,44 +14,76 @@ function readScrollY(key: string): number {
   }
 }
 
+function writeScrollY(key: string, y: number): void {
+  try {
+    sessionStorage.setItem(key, String(y))
+  } catch {
+    /* private mode */
+  }
+}
+
+export type ScrollRestoreOptions = {
+  /**
+   * When false, stop listening and freeze the last saved Y (cafe list hidden
+   * under menu detail). Re-enabling restores that Y before paint.
+   */
+  enabled?: boolean
+  /**
+   * Override storage key (pathname+search by default). Cafe list keeps a stable
+   * key while the URL is on /menu so chips/scroll survive detail.
+   */
+  storageKey?: string
+}
+
 /**
  * Restore scroll on back/forward; save on unmount / leave.
  *
- * POP uses useLayoutEffect so the first paint already has the saved scrollY.
- * (Deferred rAF restore left sticky shop/category chips unstuck for 1–2 frames.)
+ * POP / re-enable uses useLayoutEffect so the first paint already has the
+ * saved scrollY (avoids sticky chip flash).
  */
-export function useScrollRestore(): void {
+export function useScrollRestore(opts?: ScrollRestoreOptions): void {
   const location = useLocation()
   const navType = useNavigationType()
-  const key = `${PREFIX}${location.pathname}${location.search}`
+  const enabled = opts?.enabled !== false
+  const key =
+    PREFIX + (opts?.storageKey ?? `${location.pathname}${location.search}`)
+  const wasEnabled = useRef(enabled)
+  /** Last Y while this restore target was active (survives detail scroll-to-0). */
+  const yRef = useRef(0)
 
   // Before paint: put the window at the right offset so sticky bars never flash.
   useLayoutEffect(() => {
-    if (navType === 'POP') {
-      const top = readScrollY(key)
-      window.scrollTo({ top, left: 0, behavior: 'instant' as ScrollBehavior })
-      // One more pass after children commit (list height from cache).
-      const id = requestAnimationFrame(() => {
-        window.scrollTo({ top, left: 0, behavior: 'instant' as ScrollBehavior })
-      })
-      return () => cancelAnimationFrame(id)
+    if (!enabled) {
+      wasEnabled.current = false
+      return
     }
-    window.scrollTo(0, 0)
-  }, [key, navType])
 
-  // Persist while the user scrolls; flush on leave.
+    const reactivated = !wasEnabled.current
+    wasEnabled.current = true
+
+    if (navType === 'POP' || reactivated) {
+      const top = readScrollY(key)
+      yRef.current = top
+      window.scrollTo({ top, left: 0, behavior: 'instant' as ScrollBehavior })
+      return
+    }
+    yRef.current = 0
+    window.scrollTo(0, 0)
+  }, [key, navType, enabled])
+
+  // Persist while active. On cleanup write yRef — not window.scrollY — so a
+  // sibling layoutEffect that already scrolled to 0 for detail cannot clobber.
   useEffect(() => {
+    if (!enabled) return
+    yRef.current = window.scrollY
     const save = () => {
-      try {
-        sessionStorage.setItem(key, String(window.scrollY))
-      } catch {
-        /* private mode */
-      }
+      yRef.current = window.scrollY
+      writeScrollY(key, yRef.current)
     }
     window.addEventListener('scroll', save, { passive: true })
     return () => {
-      save()
       window.removeEventListener('scroll', save)
+      writeScrollY(key, yRef.current)
     }
-  }, [key, navType])
+  }, [key, enabled])
 }
