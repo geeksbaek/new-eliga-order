@@ -3,10 +3,8 @@
  * Base: https://base.eligaorder.com
  * Service: https://svc.eligaorder.com/{space}
  *
- * Network strategy:
- * - Prefer same-origin proxy `/__eliga-base` + `/__eliga-svc` (Vite dev, Vercel rewrites).
- *   This avoids LIFT CSP (connect-src blocked) and CORS surprises.
- * - Direct host calls only as fallback when proxy is disabled.
+ * Dev: Vite proxy `/__eliga-base` + `/__eliga-svc`.
+ * Production (GitHub Pages): direct hosts — Eliga CORS reflects Origin.
  */
 import {
   clearTokens,
@@ -22,41 +20,17 @@ export const BASE_HOST = 'https://base.eligaorder.com'
 export const SVC_HOST = 'https://svc.eligaorder.com'
 export const WEBAPP_ORIGIN = 'https://webapp.eligaorder.com'
 export const CDN_URL =
-  'https://eliga-order.kr.object.ncloudstorage.com/'
+  'https://eliga-ordercdn.object.ncloudstorage.com/'
 
-/** Same-origin proxy roots (dev server + Vercel rewrites). */
+/** Same-origin proxy roots (Vite dev server). */
 export const PROXY_BASE = '/__eliga-base'
 export const PROXY_SVC = '/__eliga-svc'
 
-/**
- * Use same-origin proxy unless explicitly forced off.
- * LIFT static hosting cannot proxy and also blocks connect-src to Eliga hosts.
- */
+/** Dev uses Vite proxy; production calls Eliga hosts directly. */
 export function useApiProxy(): boolean {
   if (import.meta.env.VITE_USE_PROXY === 'true') return true
   if (import.meta.env.VITE_USE_PROXY === 'false') return false
-  // Dev: Vite proxy. Production static (GitHub Pages): direct hosts —
-  // Eliga CORS reflects Origin, so connect works when CSP allows it (not on LIFT).
   return import.meta.env.DEV === true
-}
-
-export function isLiftHost(hostname = getHostname()): boolean {
-  return hostname === 'lift.onkakao.net' || hostname.endsWith('.lift.onkakao.net')
-}
-
-function getHostname(): string {
-  try {
-    return typeof window !== 'undefined' ? window.location.hostname : ''
-  } catch {
-    return ''
-  }
-}
-
-/** Canonical app URL when LIFT CSP blocks API (set at build time). */
-export function getCanonicalAppUrl(): string {
-  const fromEnv = (import.meta.env.VITE_CANONICAL_URL as string | undefined)?.trim()
-  if (fromEnv) return fromEnv.replace(/\/$/, '')
-  return 'https://geeksbaek.github.io/new-eliga-order'
 }
 
 export function baseApiRoot(): string {
@@ -109,16 +83,9 @@ export function isAuthenticated(): boolean {
 const SPACE_RE = /^[a-zA-Z0-9._-]+$/
 
 function networkErrorMessage(err: unknown): string {
-  const name = err instanceof Error ? err.name : ''
   const msg = err instanceof Error ? err.message : String(err)
-  if (
-    isLiftHost() ||
-    /Failed to fetch|NetworkError|Load failed|Content Security Policy|CSP/i.test(
-      `${name} ${msg}`,
-    )
-  ) {
-    const dest = getCanonicalAppUrl()
-    return `이 호스트에서는 엘리가 API 연결이 차단됩니다(CSP). 아래 주소에서 이용해 주세요: ${dest}`
+  if (/Failed to fetch|NetworkError|Load failed|Content Security Policy|CSP/i.test(msg)) {
+    return '네트워크 연결에 실패했습니다. 사내망/VPN과 브라우저 콘솔을 확인해 주세요.'
   }
   return msg || '네트워크 오류'
 }

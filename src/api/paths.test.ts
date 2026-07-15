@@ -5,8 +5,6 @@ import {
   BRAND_CODE,
   PROXY_BASE,
   PROXY_SVC,
-  isLiftHost,
-  getCanonicalAppUrl,
 } from './client'
 import {
   buildCartAddBody,
@@ -24,12 +22,6 @@ describe('API contract wiring', () => {
     expect(BRAND_CODE).toBe('kakao')
     expect(PROXY_BASE).toBe('/__eliga-base')
     expect(PROXY_SVC).toBe('/__eliga-svc')
-  })
-
-  it('detects LIFT host for CSP redirect gate', () => {
-    expect(isLiftHost('lift.onkakao.net')).toBe(true)
-    expect(isLiftHost('localhost')).toBe(false)
-    expect(getCanonicalAppUrl()).toMatch(/^https?:\/\//)
   })
 
   it('cart and order payloads use production field names', () => {

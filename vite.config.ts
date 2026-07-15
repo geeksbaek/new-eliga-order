@@ -4,13 +4,11 @@ import { dirname, resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// LIFT static share path when building with VITE_BASE=/share/new-eliga-order/
-const SITE_ID = 'new-eliga-order'
-const DEFAULT_LIFT_BASE = `/share/${SITE_ID}/`
+/** Default public path for GitHub Pages project site. */
+const DEFAULT_PAGES_BASE = '/new-eliga-order/'
 
 /**
- * LIFT static host does not rewrite unknown paths to 200.html.
- * Emit an index.html shell under every client route directory.
+ * Emit index.html shells under client routes + 404.html for static hosts.
  */
 function spaRouteShells(): Plugin {
   const routeDirs = [
@@ -50,10 +48,8 @@ function spaRouteShells(): Plugin {
 }
 
 export default defineConfig(() => {
-  // Vercel / local: base "/". LIFT: VITE_BASE=/share/new-eliga-order/ npm run build:lift
-  const base =
-    process.env.VITE_BASE ||
-    (process.env.LIFT_BUILD === '1' ? DEFAULT_LIFT_BASE : '/')
+  // Override with VITE_BASE=/ for local preview at root if needed
+  const base = process.env.VITE_BASE || DEFAULT_PAGES_BASE
 
   return {
     plugins: [react(), spaRouteShells()],

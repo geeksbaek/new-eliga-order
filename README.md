@@ -2,9 +2,11 @@
 
 카카오 사내 엘리가오더 API를 쓰는 반응형 웹앱입니다. 모바일·데스크톱에서 식당 식단 조회와 카페 주문 흐름을 빠르게 처리하는 데 초점을 둡니다.
 
-## 배포 URL
+## 사용 URL
 
-https://lift.onkakao.net/share/new-eliga-order/
+https://geeksbaek.github.io/new-eliga-order/
+
+(GitHub Pages — Eliga API 직접 호출, CSP 제한 없음)
 
 ## 기능
 
@@ -21,19 +23,20 @@ https://lift.onkakao.net/share/new-eliga-order/
 - Vite + React + TypeScript
 - React Router (SPA)
 - Vitest (도메인 로직 단위 테스트)
-- LIFT 정적 배포 (`base: /share/new-eliga-order/`)
+- GitHub Pages (`base: /new-eliga-order/`)
 
 ## 로컬 실행
 
 ```bash
 npm install
-npm run dev      # Vite proxy로 CORS 우회
+npm run dev      # Vite proxy로 API 프록시
 npm test
-npm run build
-npm run preview  # http://127.0.0.1:4173/share/new-eliga-order/
+npm run build:pages
+npm run preview  # base 경로 확인 시 사용
 ```
 
-개발 서버는 `base.eligaorder.com` / `svc.eligaorder.com` 을 `/__eliga-base`, `/__eliga-svc` 로 프록시합니다.
+개발 서버는 `base.eligaorder.com` / `svc.eligaorder.com` 을 `/__eliga-base`, `/__eliga-svc` 로 프록시합니다.  
+프로덕션(GitHub Pages)은 API를 브라우저에서 직접 호출합니다(Eliga CORS가 Origin을 반영).
 
 ## API
 
@@ -51,19 +54,16 @@ npm run preview  # http://127.0.0.1:4173/share/new-eliga-order/
 | 결제 사유 | `GET /payment/reason` |
 | 주문 | `POST /goods/order` |
 
-주문 본문은 `eliga-api.sh` 형태(`deviceType`, `orderType`, `payType`, `cartId`, `paymentReasonId`, `orderItems` …)를 따릅니다.
-
-## CORS 안내
-
-LIFT 오리진(`lift.onkakao.net`)에서 Eliga API를 직접 호출하면 CORS에 막힐 수 있습니다. 로컬 개발은 프록시를 사용하세요. 클라이언트 계약과 페이로드는 실 API와 맞춰 두었습니다.
-
-## SPA 딥링크 (LIFT)
-
-LIFT는 `200.html` 경로 rewrite가 동작하지 않을 수 있어, 빌드 시 주요 라우트 디렉터리에 `index.html` 셸을 복사합니다 (`vite` plugin `spa-route-shells`). 메뉴 상세는 `/cafe/:shopId/menu?d=<displayId>` 형태입니다.
-
-## 재배포
+## 재배포 (GitHub Pages)
 
 ```bash
-npm run build
-lift upload ./dist --name new-eliga-order --spa --expires never --force --json
+npm run build:pages
+# dist/ 내용을 gh-pages 브랜치로 푸시
+rm -rf /tmp/new-eliga-pages && mkdir -p /tmp/new-eliga-pages
+cp -R dist/. /tmp/new-eliga-pages/
+cd /tmp/new-eliga-pages
+git init && git checkout -b gh-pages
+git add -A && git commit -m "deploy"
+git remote add origin https://github.com/geeksbaek/new-eliga-order.git
+git push -f origin gh-pages
 ```
