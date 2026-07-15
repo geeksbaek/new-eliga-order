@@ -2,41 +2,36 @@
 
 카카오 사내 엘리가오더 API를 쓰는 반응형 웹앱입니다.
 
-## 중요: 로그인 방식
+## 서비스 URL (Vercel)
 
-엘리가 공식 인증은 **JSON Bearer가 아니라 HttpOnly `AccessToken` 쿠키**입니다  
-(`eliga-api.sh` 와 동일). 브라우저에서 동작하려면 **같은 출처 API 프록시**가 필요합니다.
+**https://new-eliga.vercel.app/**
 
-| 실행 방법 | 로그인 |
-|-----------|--------|
-| `npm run dev` | 동작 (Vite 프록시) |
-| `npm run build && npm start` | 동작 (`server.mjs` 프록시) |
-| GitHub Pages 정적 단독 | **불가** (3rd-party 쿠키/프록시 없음) |
+- 프론트 + 엘리가 API 프록시(`/__eliga-base`, `/__eliga-svc`) 포함
+- 로그인: 사내 엘리가 이메일/비밀번호
+- 인증은 쿠키 기반이라 **같은 출처 프록시**가 필요 → Vercel Serverless로 처리
 
-## 실행
+## 로컬 실행
 
 ```bash
 npm install
-
-# 개발
-npm run dev
-# → http://127.0.0.1:5173/
-
-# 프로덕션 로컬
-npm run build
-npm start
-# → http://127.0.0.1:3456/
+npm run dev          # http://127.0.0.1:5173/
+# 또는
+npm run build && npm start   # http://127.0.0.1:3456/
 ```
 
-사내 엘리가 이메일/비밀번호로 로그인하세요.
+## 재배포 (Vercel)
 
-## 기능
+```bash
+vercel login         # 최초 1회
+vercel deploy --prod --yes
+```
 
-- 로그인 (쿠키 세션 + 프록시가 주입한 토큰)
-- 매장 / 식당 식단(조회만) / 카페 메뉴·옵션
-- 장바구니 · 결제 사유 · 주문 확인 · 주문 내역
+## 구조
 
-## API
+| 경로 | 역할 |
+|------|------|
+| `src/` | React SPA |
+| `api/eliga-base/`, `api/eliga-svc/` | Vercel Serverless 프록시 (쿠키 first-party 변환 + 로그인 시 JWT 주입) |
+| `server.mjs` | 로컬/Docker용 Node 프록시 서버 |
 
-스킬 `eliga-order` 계약과 동일. 브라우저는 `/__eliga-base`, `/__eliga-svc` 로 호출하고,  
-개발 서버·`server.mjs` 가 `base.eligaorder.com` / `svc.eligaorder.com` 으로 넘깁니다.
+사내 k8s·LIFT·D2Hub 등 내부 자원은 사용하지 않습니다.
