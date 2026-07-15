@@ -3,17 +3,22 @@
  * price = NORMAL - IDCARD (employee ID card discount).
  */
 
+/** Always returns a string safe to render as React text (never {ko,en} object). */
 export function localizeName(obj: unknown): string {
   if (obj == null) return ''
   if (typeof obj === 'string') return obj.trim()
+  if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj)
   if (typeof obj === 'object') {
     const rec = obj as Record<string, unknown>
     const ko = rec.ko
     const en = rec.en
     if (typeof ko === 'string' && ko.trim()) return ko.trim()
     if (typeof en === 'string' && en.trim()) return en.trim()
+    // Nested name bags or unexpected shapes — never return the object itself
+    if (ko != null) return localizeName(ko)
+    if (en != null) return localizeName(en)
   }
-  return String(obj).trim()
+  return ''
 }
 
 export interface PricePlan {

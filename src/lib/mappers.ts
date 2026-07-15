@@ -60,10 +60,10 @@ export function mapCafeMenu(raw: unknown, hiddenCatIds: Set<number> = new Set())
       category: localizeName(item.categoryName),
       price: calcPlanPrice(rep.goodsPricePlans as never),
       soldOut: Boolean(rep.soldOutYn),
-      description: (rep.description as string) ?? null,
+      description: localizeName(rep.description) || null,
       calorie: (rep.calorie as number) ?? null,
-      nutrition: (rep.nutrition as string) ?? null,
-      label: (item.labelOptionType as string) ?? null,
+      nutrition: localizeName(rep.nutrition) || null,
+      label: normalizeLabel(item.labelOptionType),
       displayName: localizeName(rep.displayName),
     })
   }
@@ -92,9 +92,9 @@ function parseGoods(goods: Record<string, unknown>): GoodsVariant {
     displayName: localizeName(goods.displayName),
     price: calcPlanPrice(goods.goodsPricePlans as never),
     soldOut: Boolean(goods.soldOutYn),
-    description: (goods.description as string) ?? null,
+    description: localizeName(goods.description) || null,
     calorie: (goods.calorie as number) ?? null,
-    nutrition: (goods.nutrition as string) ?? null,
+    nutrition: localizeName(goods.nutrition) || null,
     options,
   }
 }
@@ -112,9 +112,17 @@ export function mapCafeMenuDetail(raw: unknown): MenuDetail {
   return {
     displayId: Number(content.id),
     shopId: goodsArr[0]?.shopId != null ? Number(goodsArr[0].shopId) : null,
-    label: (content.labelOptionType as string) ?? null,
+    label: normalizeLabel(content.labelOptionType),
     variants: goodsArr.map(parseGoods),
   }
+}
+
+/** BEST/NEW only — hide NONE/null labels in UI */
+function normalizeLabel(v: unknown): string | null {
+  if (v == null) return null
+  const s = String(v).trim()
+  if (!s || s.toUpperCase() === 'NONE') return null
+  return s
 }
 
 export function mapDiningMenu(raw: unknown): DiningPeriod[] {

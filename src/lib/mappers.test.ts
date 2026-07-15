@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  mapCafeMenu,
   mapCafeMenuDetail,
   mapCart,
   mapPaymentReasons,
@@ -28,6 +29,35 @@ describe('mappers from skill-shaped API fixtures', () => {
       { shopId: 5, name: 'kafé 5F', type: 'CAFE', open: true },
       { shopId: 7, name: '춘식도락(B1F)', type: 'CAFETERIA', open: false },
     ])
+  })
+
+  it('stringifies i18n description objects (React cannot render {ko,en})', () => {
+    const raw = {
+      content: [
+        {
+          id: 1,
+          name: { ko: '아메리카노' },
+          categoryName: { ko: 'Coffee' },
+          categoryId: 1,
+          labelOptionType: 'BEST',
+          repGoods: {
+            id: 10,
+            displayName: { ko: 'HOT' },
+            description: { ko: '진한 에스프레소', en: 'Espresso' },
+            nutrition: { ko: '탄수화물 0g' },
+            soldOutYn: false,
+            goodsPricePlans: [
+              { payMethodType: 'NORMAL', price: 3000 },
+              { payMethodType: 'IDCARD', price: 2500 },
+            ],
+          },
+        },
+      ],
+    }
+    const items = mapCafeMenu(raw)
+    expect(items[0].description).toBe('진한 에스프레소')
+    expect(items[0].nutrition).toBe('탄수화물 0g')
+    expect(typeof items[0].description).toBe('string')
   })
 
   it('maps menu detail variants and options', () => {
