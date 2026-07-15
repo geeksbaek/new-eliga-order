@@ -3,25 +3,29 @@ import {
   BASE_HOST,
   SVC_HOST,
   BRAND_CODE,
-  PROXY_BASE,
-  PROXY_SVC,
+  PROXY_ENTRY,
+  proxyUrl,
 } from './client'
 import {
   buildCartAddBody,
   buildOrderPayload,
 } from '../lib/order-payload'
 
-/**
- * Static contract checks: shipped client targets skill hosts/paths
- * and encodes cafe order constraints.
- */
 describe('API contract wiring', () => {
   it('targets base.eligaorder.com and svc.eligaorder.com', () => {
     expect(BASE_HOST).toBe('https://base.eligaorder.com')
     expect(SVC_HOST).toBe('https://svc.eligaorder.com')
     expect(BRAND_CODE).toBe('kakao')
-    expect(PROXY_BASE).toBe('/__eliga-base')
-    expect(PROXY_SVC).toBe('/__eliga-svc')
+    expect(PROXY_ENTRY).toBe('/api/proxy')
+  })
+
+  it('builds single-endpoint proxy URLs', () => {
+    expect(proxyUrl('base', 'space', { brandCode: 'kakao' })).toBe(
+      '/api/proxy?to=base&path=space&brandCode=kakao',
+    )
+    expect(proxyUrl('svc', 'venus/customer/sign-in')).toBe(
+      '/api/proxy?to=svc&path=venus%2Fcustomer%2Fsign-in',
+    )
   })
 
   it('cart and order payloads use production field names', () => {

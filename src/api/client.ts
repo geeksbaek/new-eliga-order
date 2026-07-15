@@ -1,11 +1,8 @@
 /**
  * Eliga HTTP client — paths match eliga-api.sh / api-reference.md.
  *
- * Auth (same as eliga-api.sh): HttpOnly AccessToken cookie on .eligaorder.com.
- * Browser must call via same-origin proxy so cookies are first-party:
- *   /__eliga-base → https://base.eligaorder.com
- *   /__eliga-svc  → https://svc.eligaorder.com
- * (Vite dev proxy or `node server.mjs`)
+ * Production (Vercel): same-origin `/api/proxy?to=base|svc&path=...`
+ * Local: Vite/server.mjs map the same path shape to upstream hosts.
  */
 import {
   clearTokens,
@@ -25,25 +22,34 @@ export const WEBAPP_ORIGIN = 'https://webapp.eligaorder.com'
 export const CDN_URL =
   'https://eliga-ordercdn.object.ncloudstorage.com/'
 
-export const PROXY_BASE = '/__eliga-base'
-export const PROXY_SVC = '/__eliga-svc'
+/** Single Vercel-safe proxy entry (no multi-segment catch-all). */
+export const PROXY_ENTRY = '/api/proxy'
 
 /**
- * Always prefer same-origin proxy. Direct host calls cannot use HttpOnly
- * AccessToken cookies across sites (GitHub Pages → eligaorder.com is third-party).
+ * Always prefer same-origin proxy so HttpOnly AccessToken cookies are first-party.
  */
 export function useApiProxy(): boolean {
   if (import.meta.env.VITE_USE_PROXY === 'false') return false
   return true
 }
 
-export function baseApiRoot(): string {
-  return useApiProxy() ? PROXY_BASE : BASE_HOST
-}
-
-export function svcApiRoot(space: string): string {
-  const root = useApiProxy() ? PROXY_SVC : SVC_HOST
-  return `${root}/${space}`
+/** Build proxy URL: /api/proxy?to=base&path=space&brandCode=kakao */
+export function proxyUrl(
+  to: 'base' | 'svc',
+  path: string,
+  query?: Record<string, string | number | undefined | null>,
+): string {
+  const clean = path.replace(/^\/+/, '')
+  const sp = new URLSearchParams()
+  sp.set('to', to)
+  sp.set('path', clean)
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v == null || v === '') continue
+      sp.set(k, String(v))
+    }
+  }
+  return `${PROXY_ENTRY}?${sp.toString()}`
 }
 
 export class ApiError extends Error {
@@ -106,10 +112,7 @@ const SPACE_RE = /^[a-zA-Z0-9._-]+$/
 function networkErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (/Failed to fetch|NetworkError|Load failed|404/i.test(msg)) {
-    return (
-      'API 프록시에 연결하지 못했습니다. 로컬에서 `npm run dev` 또는 `npm run build && npm start` 로 실행하세요. ' +
-      '(GitHub Pages 단독 호스팅은 엘리가 쿠키 인증을 지원하지 않습니다.)'
-    )
+    return 'API 프록시에 연결하지 못했습니다. 잠시 후 다시 시도하거나 배포 상태를 확인해 주세요.'
   }
   return msg || '네트워크 오류'
 }
@@ -118,12 +121,7 @@ function networkErrorMessage(err: unknown): string {
 export function extractTokensFromSignInBody(data: unknown): AuthTokens | null {
   if (!data || typeof data !== 'object') return null
   const root = data as Record<string, unknown>
-  const candidates: unknown[] = [
-    root.content,
-    root.data,
-    root.result,
-    root,
-  ]
+  const candidates: unknown[] = [root.content, root.data, root.result, root]
   for (const c of candidates) {
     if (!c || typeof c !== 'object') continue
     const o = c as Record<string, unknown>
@@ -143,7 +141,6 @@ export function extractTokensFromSignInBody(data: unknown): AuthTokens | null {
         tokenType: typeof o.tokenType === 'string' ? o.tokenType : 'Bearer',
       }
     }
-    // nested token object
     if (o.token && typeof o.token === 'object') {
       const nested = extractTokensFromSignInBody({ content: o.token })
       if (nested) return nested
@@ -157,7 +154,9 @@ export async function resolveSpace(force = false): Promise<string> {
     const cached = loadSpaceUrl()
     if (cached && SPACE_RE.test(cached)) return cached
   }
-  const url = `${baseApiRoot()}/space?brandCode=${encodeURIComponent(BRAND_CODE)}`
+  const url = useApiProxy()
+    ? proxyUrl('base', 'space', { brandCode: BRAND_CODE })
+    : `${BASE_HOST}/space?brandCode=${encodeURIComponent(BRAND_CODE)}`
   let res: Response
   try {
     res = await fetch(url, {
@@ -205,6 +204,11 @@ function authHeaders(includeAuth: boolean): Record<string, string> {
   return headers
 }
 
+function svcPath(space: string, path: string): string {
+  const p = path.startsWith('/') ? path.slice(1) : path
+  return `${space}/${p}`
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: RequestOptions = {},
@@ -216,7 +220,10 @@ export async function apiRequest<T = unknown>(
     headers['Content-Type'] = 'application/json'
   }
 
-  const url = `${svcApiRoot(space)}${path.startsWith('/') ? path : `/${path}`}`
+  const url = useApiProxy()
+    ? proxyUrl('svc', svcPath(space, path))
+    : `${SVC_HOST}/${svcPath(space, path)}`
+
   let res: Response
   try {
     res = await fetch(url, {
@@ -257,7 +264,10 @@ export async function signIn(
   password: string,
 ): Promise<AuthTokens | { cookieSession: true }> {
   const space = await resolveSpace()
-  const url = `${svcApiRoot(space)}/customer/sign-in`
+  const url = useApiProxy()
+    ? proxyUrl('svc', `${space}/customer/sign-in`)
+    : `${SVC_HOST}/${space}/customer/sign-in`
+
   let res: Response
   try {
     res = await fetch(url, {
@@ -290,7 +300,6 @@ export async function signIn(
     throw new ApiError(msg, res.status, data)
   }
 
-  // Prefer JSON tokens when present (proxy may inject AccessToken from Set-Cookie)
   const tokens = extractTokensFromSignInBody(data)
   if (tokens?.accessToken) {
     setAuthTokens(tokens)
@@ -298,16 +307,13 @@ export async function signIn(
     return tokens
   }
 
-  // Official web/CLI path: HttpOnly AccessToken cookie only — no body token
   setSessionAuthed(true)
   try {
     await assertSessionWorks()
   } catch (e) {
     setSessionAuthed(false)
     throw new ApiError(
-      '로그인 응답은 왔지만 세션 쿠키가 유지되지 않았습니다. ' +
-        '`npm run dev` 또는 `npm start`(API 프록시)로 실행해야 합니다. ' +
-        'GitHub Pages 정적 호스팅만으로는 엘리가 쿠키 인증이 동작하지 않습니다.',
+      '로그인 응답은 왔지만 세션이 유지되지 않았습니다. 새로고침 후 다시 시도해 주세요.',
       401,
       e,
     )
@@ -315,10 +321,11 @@ export async function signIn(
   return { cookieSession: true }
 }
 
-/** Confirm session with /customer/me (cookie and/or Bearer). */
 async function assertSessionWorks(): Promise<void> {
   const space = await resolveSpace()
-  const url = `${svcApiRoot(space)}/customer/me`
+  const url = useApiProxy()
+    ? proxyUrl('svc', `${space}/customer/me`)
+    : `${SVC_HOST}/${space}/customer/me`
   const res = await fetch(url, {
     headers: authHeaders(true),
     credentials: 'include',

@@ -38,10 +38,22 @@ const MIME = {
   '.map': 'application/json',
 }
 
-function proxy(req, res, upstreamOrigin, stripPrefix) {
+function proxyQuery(req, res) {
   const u = new URL(req.url || '/', `http://${req.headers.host}`)
-  const upstreamPath = u.pathname.replace(stripPrefix, '') + u.search
-  const target = new URL(upstreamPath || '/', upstreamOrigin)
+  const to = u.searchParams.get('to')
+  const path = (u.searchParams.get('path') || '').replace(/^\/+/, '')
+  const upstream =
+    to === 'base' ? BASE_UPSTREAM : to === 'svc' ? SVC_UPSTREAM : null
+  if (!upstream || !path) {
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'query.to and query.path required' }))
+    return
+  }
+  u.searchParams.delete('to')
+  u.searchParams.delete('path')
+  const qs = u.searchParams.toString()
+  const targetUrl = `${upstream}/${path}${qs ? `?${qs}` : ''}`
+  const target = new URL(targetUrl)
 
   const headers = {
     accept: req.headers.accept || 'application/json',
@@ -49,15 +61,9 @@ function proxy(req, res, upstreamOrigin, stripPrefix) {
     origin: WEBAPP_ORIGIN,
     referer: `${WEBAPP_ORIGIN}/`,
   }
-  if (req.headers['content-type']) {
-    headers['content-type'] = req.headers['content-type']
-  }
-  if (req.headers.authorization) {
-    headers.authorization = req.headers.authorization
-  }
-  if (req.headers.cookie) {
-    headers.cookie = req.headers.cookie
-  }
+  if (req.headers['content-type']) headers['content-type'] = req.headers['content-type']
+  if (req.headers.authorization) headers.authorization = req.headers.authorization
+  if (req.headers.cookie) headers.cookie = req.headers.cookie
 
   const chunks = []
   req.on('data', (c) => chunks.push(c))
@@ -65,18 +71,12 @@ function proxy(req, res, upstreamOrigin, stripPrefix) {
     const body = Buffer.concat(chunks)
     const opts = {
       method: req.method,
-      headers: {
-        ...headers,
-        'content-length': body.length,
-      },
+      headers: { ...headers, 'content-length': body.length },
     }
-
     const lib = target.protocol === 'https:' ? https : http
     const up = lib.request(target, opts, (upRes) => {
       const setCookies = upRes.headers['set-cookie']
       const outHeaders = { ...upRes.headers }
-
-      // First-party cookie rewrite (drop Domain=.eligaorder.com)
       if (setCookies) {
         outHeaders['set-cookie'] = setCookies.map((c) =>
           c
@@ -85,8 +85,6 @@ function proxy(req, res, upstreamOrigin, stripPrefix) {
             .concat('; SameSite=Lax; Path=/'),
         )
       }
-
-      // Do not force CORS; same-origin browser → this server
       delete outHeaders['access-control-allow-origin']
       delete outHeaders['access-control-allow-credentials']
 
@@ -99,7 +97,6 @@ function proxy(req, res, upstreamOrigin, stripPrefix) {
         return
       }
 
-      // Buffer sign-in body and inject accessToken from Set-Cookie when missing
       const bufs = []
       upRes.on('data', (d) => bufs.push(d))
       upRes.on('end', () => {
@@ -110,7 +107,6 @@ function proxy(req, res, upstreamOrigin, stripPrefix) {
           const m = /^AccessToken=([^;]+)/i.exec(c)
           if (m) accessFromCookie = decodeURIComponent(m[1])
         }
-
         if (accessFromCookie && upRes.statusCode === 200) {
           try {
             const json = raw ? JSON.parse(raw) : {}
@@ -127,20 +123,17 @@ function proxy(req, res, upstreamOrigin, stripPrefix) {
               outHeaders['content-length'] = Buffer.byteLength(raw)
             }
           } catch {
-            // keep raw body
+            /* keep */
           }
         }
-
         res.writeHead(upRes.statusCode || 502, outHeaders)
         res.end(raw)
       })
     })
-
     up.on('error', (err) => {
       res.writeHead(502, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: 'upstream failed', message: String(err) }))
     })
-
     if (body.length) up.write(body)
     up.end()
   })
@@ -174,11 +167,8 @@ function tryStatic(req, res) {
 
 const server = http.createServer((req, res) => {
   const url = req.url || '/'
-  if (url.startsWith('/__eliga-base')) {
-    return proxy(req, res, BASE_UPSTREAM, /^\/__eliga-base/)
-  }
-  if (url.startsWith('/__eliga-svc')) {
-    return proxy(req, res, SVC_UPSTREAM, /^\/__eliga-svc/)
+  if (url.startsWith('/api/proxy')) {
+    return proxyQuery(req, res)
   }
   if (!tryStatic(req, res)) {
     res.writeHead(404, { 'content-type': 'text/plain' })
@@ -193,5 +183,5 @@ if (!fs.existsSync(path.join(DIST, 'index.html'))) {
 
 server.listen(PORT, HOST, () => {
   console.log(`new 엘리가오더  http://${HOST}:${PORT}/`)
-  console.log('API proxy: /__eliga-base → base.eligaorder.com, /__eliga-svc → svc.eligaorder.com')
+  console.log('API proxy: /api/proxy?to=base|svc&path=...')
 })

@@ -2,11 +2,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/__eliga-base/(.*)", "destination": "/api/eliga-base/$1" },
-    { "source": "/__eliga-base", "destination": "/api/eliga-base" },
-    { "source": "/__eliga-svc/(.*)", "destination": "/api/eliga-svc/$1" },
-    { "source": "/__eliga-svc", "destination": "/api/eliga-svc" },
-    { "source": "/((?!api/|__eliga-|assets/).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/|assets/).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
