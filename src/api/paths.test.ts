@@ -5,6 +5,7 @@ import {
   BRAND_CODE,
   PROXY_ENTRY,
   proxyUrl,
+  splitPathQuery,
 } from './client'
 import {
   buildCartAddBody,
@@ -26,6 +27,21 @@ describe('API contract wiring', () => {
     expect(proxyUrl('svc', 'venus/customer/sign-in')).toBe(
       '/api/proxy?to=svc&path=venus%2Fcustomer%2Fsign-in',
     )
+  })
+
+  it('splits path and query so proxy path never embeds ?', () => {
+    expect(splitPathQuery('/goods/display?shopId=5&categoryId=1')).toEqual({
+      path: 'goods/display',
+      query: { shopId: '5', categoryId: '1' },
+    })
+    const built = proxyUrl(
+      'svc',
+      'venus/goods/display',
+      { shopId: 5, cartType: 'GENERAL' },
+    )
+    expect(built).toContain('path=venus%2Fgoods%2Fdisplay')
+    expect(built).toContain('shopId=5')
+    expect(built).not.toContain('%3F') // no ? inside path
   })
 
   it('cart and order payloads use production field names', () => {

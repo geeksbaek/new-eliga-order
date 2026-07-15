@@ -31,37 +31,28 @@ export function CafeMenuPage() {
     if (Number.isFinite(shopId)) selectShop(shopId)
   }, [shopId, selectShop])
 
+  // Categories once per shop
   useEffect(() => {
+    if (!Number.isFinite(shopId)) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    ;(async () => {
-      try {
-        const cats = await fetchCafeCategories(shopId)
-        if (cancelled) return
-        const mobileCats = cats.filter((c) => c.mobileUseYn)
-        setCategories(mobileCats)
-        const catId = activeCat === 'all' ? undefined : activeCat
-        const items = await fetchCafeMenu(shopId, catId)
-        if (!cancelled) setMenus(items)
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : '메뉴를 불러오지 못했습니다')
-          setMenus([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+    fetchCafeCategories(shopId)
+      .then((cats) => {
+        if (!cancelled) setCategories(cats.filter((c) => c.mobileUseYn))
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([])
+      })
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when cat changes via separate effect below for all
   }, [shopId])
 
+  // Menu when shop or category changes (single fetch — no race)
   useEffect(() => {
+    if (!Number.isFinite(shopId)) return
     let cancelled = false
     setLoading(true)
+    setError(null)
     const catId = activeCat === 'all' ? undefined : activeCat
     fetchCafeMenu(shopId, catId)
       .then((items) => {
@@ -70,6 +61,7 @@ export function CafeMenuPage() {
       .catch((e) => {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : '메뉴를 불러오지 못했습니다')
+          setMenus([])
         }
       })
       .finally(() => {
@@ -81,6 +73,7 @@ export function CafeMenuPage() {
   }, [shopId, activeCat])
 
   useEffect(() => {
+    if (!Number.isFinite(shopId)) return
     fetchRecentOrders(shopId)
       .then(setRecent)
       .catch(() => setRecent(null))
@@ -94,6 +87,10 @@ export function CafeMenuPage() {
     [menus],
   )
 
+  if (!Number.isFinite(shopId)) {
+    return <Empty>잘못된 매장입니다. <Link to="/">매장 목록</Link></Empty>
+  }
+
   return (
     <div>
       <div className="row" style={{ marginBottom: 8 }}>
@@ -102,7 +99,9 @@ export function CafeMenuPage() {
         </Link>
       </div>
       <h1 className="page-title">{shopName}</h1>
-      <p className="page-sub">메뉴를 눌러 옵션을 고르고 담으세요. 품절 메뉴는 주문할 수 없습니다.</p>
+      <p className="page-sub">
+        메뉴를 눌러 옵션을 고르고 담으세요. 품절 메뉴는 주문할 수 없습니다.
+      </p>
 
       <div className="tabs" role="tablist">
         <button
@@ -135,9 +134,6 @@ export function CafeMenuPage() {
             </h2>
             <QuickOrders data={popular} />
           </section>
-          <p className="muted" style={{ fontSize: '0.88rem' }}>
-            빠른 재주문은 메뉴 탭에서 해당 상품을 선택해 옵션을 확인한 뒤 담아 주세요.
-          </p>
         </div>
       )}
 
@@ -169,7 +165,10 @@ export function CafeMenuPage() {
             <Empty>이 카테고리에 메뉴가 없습니다.</Empty>
           )}
           {!loading && menus.length > 0 && (
-            <p className="muted" style={{ marginTop: 0, marginBottom: 10, fontSize: '0.88rem' }}>
+            <p
+              className="muted"
+              style={{ marginTop: 0, marginBottom: 10, fontSize: '0.88rem' }}
+            >
               {menus.length}개 중 주문 가능 {availableCount}개
             </p>
           )}

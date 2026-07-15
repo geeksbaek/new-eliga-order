@@ -87,7 +87,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     try {
       const next = await fetchCart(selectedShopId)
       setCart(next)
-    } catch {
+    } catch (e) {
+      // Keep previous cart only on soft failures; clear when unreadable
+      console.warn('cart refresh failed', e)
       setCart(EMPTY_CART)
     } finally {
       setCartLoading(false)

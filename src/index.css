@@ -136,19 +136,34 @@ img {
 
 .header-nav {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: min(100%, 420px);
 }
 
 .nav-link {
-  padding: 8px 12px;
+  padding: 8px 10px;
   border-radius: 999px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-secondary);
   min-height: 40px;
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .brand span:not(.brand-mark) {
+    font-size: 0.95rem;
+  }
+  .nav-link {
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    min-height: 36px;
+  }
 }
 
 .nav-link:hover,

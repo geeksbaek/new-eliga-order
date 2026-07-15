@@ -1,8 +1,8 @@
 /**
  * Eliga HTTP client — paths match eliga-api.sh / api-reference.md.
  *
- * Production (Vercel): same-origin `/api/proxy?to=base|svc&path=...`
- * Local: Vite/server.mjs map the same path shape to upstream hosts.
+ * Production (Vercel): same-origin `/api/proxy?to=base|svc&path=...&...query`
+ * Local: Vite middleware / server.mjs handle the same entry.
  */
 import {
   clearTokens,
@@ -22,24 +22,20 @@ export const WEBAPP_ORIGIN = 'https://webapp.eligaorder.com'
 export const CDN_URL =
   'https://eliga-ordercdn.object.ncloudstorage.com/'
 
-/** Single Vercel-safe proxy entry (no multi-segment catch-all). */
 export const PROXY_ENTRY = '/api/proxy'
 
-/**
- * Always prefer same-origin proxy so HttpOnly AccessToken cookies are first-party.
- */
 export function useApiProxy(): boolean {
   if (import.meta.env.VITE_USE_PROXY === 'false') return false
   return true
 }
 
-/** Build proxy URL: /api/proxy?to=base&path=space&brandCode=kakao */
+/** Build /api/proxy?to=...&path=...&k=v — path never contains '?'. */
 export function proxyUrl(
   to: 'base' | 'svc',
   path: string,
   query?: Record<string, string | number | undefined | null>,
 ): string {
-  const clean = path.replace(/^\/+/, '')
+  const clean = path.replace(/^\/+/, '').split('?')[0]
   const sp = new URLSearchParams()
   sp.set('to', to)
   sp.set('path', clean)
@@ -50,6 +46,24 @@ export function proxyUrl(
     }
   }
   return `${PROXY_ENTRY}?${sp.toString()}`
+}
+
+/** Split "/goods/display?shopId=5" → path + query map */
+export function splitPathQuery(pathWithQuery: string): {
+  path: string
+  query: Record<string, string>
+} {
+  const raw = pathWithQuery.startsWith('/')
+    ? pathWithQuery.slice(1)
+    : pathWithQuery
+  const qIdx = raw.indexOf('?')
+  if (qIdx < 0) return { path: raw, query: {} }
+  const path = raw.slice(0, qIdx)
+  const query: Record<string, string> = {}
+  new URLSearchParams(raw.slice(qIdx + 1)).forEach((v, k) => {
+    query[k] = v
+  })
+  return { path, query }
 }
 
 export class ApiError extends Error {
@@ -111,13 +125,12 @@ const SPACE_RE = /^[a-zA-Z0-9._-]+$/
 
 function networkErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
-  if (/Failed to fetch|NetworkError|Load failed|404/i.test(msg)) {
-    return 'API 프록시에 연결하지 못했습니다. 잠시 후 다시 시도하거나 배포 상태를 확인해 주세요.'
+  if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+    return '네트워크 오류가 발생했습니다. 연결을 확인한 뒤 다시 시도해 주세요.'
   }
   return msg || '네트워크 오류'
 }
 
-/** Pull access/refresh tokens from various successful sign-in body shapes. */
 export function extractTokensFromSignInBody(data: unknown): AuthTokens | null {
   if (!data || typeof data !== 'object') return null
   const root = data as Record<string, unknown>
@@ -204,13 +217,8 @@ function authHeaders(includeAuth: boolean): Record<string, string> {
   return headers
 }
 
-function svcPath(space: string, path: string): string {
-  const p = path.startsWith('/') ? path.slice(1) : path
-  return `${space}/${p}`
-}
-
 export async function apiRequest<T = unknown>(
-  path: string,
+  pathWithQuery: string,
   options: RequestOptions = {},
 ): Promise<T> {
   const space = await resolveSpace()
@@ -220,9 +228,16 @@ export async function apiRequest<T = unknown>(
     headers['Content-Type'] = 'application/json'
   }
 
+  const { path, query } = splitPathQuery(pathWithQuery)
+  const fullPath = `${space}/${path}`
+
   const url = useApiProxy()
-    ? proxyUrl('svc', svcPath(space, path))
-    : `${SVC_HOST}/${svcPath(space, path)}`
+    ? proxyUrl('svc', fullPath, query)
+    : (() => {
+        const sp = new URLSearchParams(query)
+        const q = sp.toString()
+        return `${SVC_HOST}/${fullPath}${q ? `?${q}` : ''}`
+      })()
 
   let res: Response
   try {
@@ -256,7 +271,14 @@ export async function apiRequest<T = unknown>(
   }
 
   if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  // empty body
+  const text = await res.text()
+  if (!text) return undefined as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new ApiError('응답 JSON 파싱 실패', res.status, text)
+  }
 }
 
 export async function signIn(
@@ -297,6 +319,7 @@ export async function signIn(
       const detail = rec.content ?? rec.message ?? rec.code
       if (typeof detail === 'string' && detail) msg = detail
     }
+    msg = humanizeLoginError(msg)
     throw new ApiError(msg, res.status, data)
   }
 
@@ -313,7 +336,7 @@ export async function signIn(
   } catch (e) {
     setSessionAuthed(false)
     throw new ApiError(
-      '로그인 응답은 왔지만 세션이 유지되지 않았습니다. 새로고침 후 다시 시도해 주세요.',
+      '로그인 응답은 왔지만 세션이 유지되지 않았습니다. 다시 로그인해 주세요.',
       401,
       e,
     )
@@ -362,4 +385,18 @@ export function cdnUrl(path: string | null | undefined): string | null {
   if (!path) return null
   if (path.startsWith('http')) return path
   return `${CDN_URL}${path.replace(/^\//, '')}`
+}
+
+function humanizeLoginError(code: string): string {
+  switch (code) {
+    case 'LOGIN_USER_NOT_FOUND':
+      return '등록되지 않은 계정이거나 이메일 형식이 올바르지 않습니다.'
+    case 'LOGIN_PASSWORD_NOT_MATCHED':
+    case 'LOGIN_PASSWORD_MISMATCH':
+      return '비밀번호가 일치하지 않습니다.'
+    case 'LOGIN_USER_LOCKED':
+      return '잠긴 계정입니다. 엘리가 앱에서 확인해 주세요.'
+    default:
+      return code
+  }
 }
