@@ -21,7 +21,6 @@ export function CartPage() {
     cartTotal,
     cartCount,
     cartCountByShop,
-    cartCountAll,
     selectedShop,
     selectedShopId,
     selectShop,
