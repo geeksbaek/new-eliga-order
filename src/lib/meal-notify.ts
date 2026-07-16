@@ -141,33 +141,64 @@ export function findPeriodForSlot(
   return periods.find((p) => def.pattern.test(p.time || '')) ?? null
 }
 
+/**
+ * Build a glanceable title from dish names only.
+ * App name / URL must not appear — OS already shows the site separately.
+ */
+export function fitMenuTitle(names: string[], maxLen = 48): string {
+  const clean = names.map((n) => n.trim()).filter(Boolean)
+  if (!clean.length) return '오늘 식단'
+
+  const parts: string[] = []
+  for (let i = 0; i < clean.length; i++) {
+    const name = clean[i]
+    const joined = parts.length ? `${parts.join(' · ')} · ${name}` : name
+    if (joined.length > maxLen && parts.length > 0) {
+      const rest = clean.length - parts.length
+      return rest > 0 ? `${parts.join(' · ')} 외 ${rest}` : parts.join(' · ')
+    }
+    parts.push(name)
+    // Cap how many names we try so titles stay scannable
+    if (parts.length >= 4) {
+      const rest = clean.length - parts.length
+      return rest > 0 ? `${parts.join(' · ')} 외 ${rest}` : parts.join(' · ')
+    }
+  }
+  return parts.join(' · ')
+}
+
+/**
+ * Notification copy: menu-first.
+ * - title = dish names (what the user needs at a glance)
+ * - body = course · dish lines (+ meal slot as a quiet prefix, no branding)
+ */
 export function formatMenuBody(period: DiningPeriod | null, label: string): {
   title: string
   body: string
 } {
   if (!period) {
     return {
-      title: `${label} 메뉴`,
-      body: `오늘 ${label} 식단이 없습니다.`,
+      title: `오늘 ${label}`,
+      body: '등록된 식단이 없습니다.',
     }
   }
   const dishes = groupDiningDishes(period.courses)
   if (!dishes.length) {
     return {
-      title: `${label} 메뉴`,
-      body: `오늘 ${label} 식단이 없습니다.`,
+      title: `오늘 ${label}`,
+      body: '등록된 식단이 없습니다.',
     }
   }
-  const lines = dishes.slice(0, 8).map((d) => {
+
+  const title = fitMenuTitle(dishes.map((d) => d.name))
+  const lines = dishes.map((d) => {
     const course =
       d.courseNames.length === 1 ? d.courseNames[0] : d.courseNames.join('/')
     return course ? `${course} · ${d.name}` : d.name
   })
-  const more = dishes.length > 8 ? `\n외 ${dishes.length - 8}개` : ''
-  return {
-    title: `${label} 메뉴 · 엘리가오더`,
-    body: lines.join('\n') + more,
-  }
+  // Meal slot is context only; keep it short so body stays menu-dense
+  const body = [`${label}`, ...lines].join('\n')
+  return { title, body }
 }
 
 export function minutesOfDay(time: string, now = new Date()): number {
@@ -236,14 +267,17 @@ export async function showMealNotification(
 ): Promise<boolean> {
   if (notificationPermission() !== 'granted') return false
 
+  // Visible fields = title + body only. Click target stays in data (not shown).
   const options: NotificationOptions & {
     vibrate?: number[]
     renotify?: boolean
   } = {
     body,
-    icon: '/favicon.svg',
-    badge: '/favicon.svg',
-    tag: `eliga-meal-${url}`,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    // Stable tag per destination so we don't put the path into the tag string
+    // that some UAs surface; url remains click payload only.
+    tag: 'eliga-meal-menu',
     renotify: true,
     data: { url },
     vibrate: [80, 40, 80],
@@ -314,7 +348,7 @@ export async function notifyMealSlot(
   } catch (e) {
     const msg = e instanceof Error ? e.message : '메뉴를 불러오지 못했습니다'
     await showMealNotification(
-      `${meta.label} 알림`,
+      `오늘 ${meta.label}`,
       msg,
       `/dining/${prefs.shopId}?period=${slot}`,
     )

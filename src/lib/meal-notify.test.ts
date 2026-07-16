@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultNotificationPrefs,
   findPeriodForSlot,
+  fitMenuTitle,
   formatMenuBody,
   minutesOfDay,
   normalizeTime,
@@ -66,18 +67,40 @@ describe('findPeriodForSlot', () => {
   })
 })
 
+describe('fitMenuTitle', () => {
+  it('joins dish names without app branding', () => {
+    const title = fitMenuTitle(['제육볶음', '파스타', '미역국'])
+    expect(title).toBe('제육볶음 · 파스타 · 미역국')
+    expect(title).not.toMatch(/엘리가|http|vercel|new-eliga/i)
+  })
+
+  it('truncates with 외 N when over max length', () => {
+    const title = fitMenuTitle(
+      ['아주아주긴메뉴이름하나', '아주아주긴메뉴이름둘', '셋', '넷', '다섯'],
+      30,
+    )
+    expect(title).toMatch(/외 \d+/)
+    expect(title).not.toMatch(/엘리가/)
+  })
+})
+
 describe('formatMenuBody', () => {
-  it('lists dishes with course labels', () => {
+  it('puts dish names in title and courses in body', () => {
     const period = findPeriodForSlot(samplePeriods, 'lunch')
     const { title, body } = formatMenuBody(period, '중식')
-    expect(title).toContain('중식')
+    expect(title).toContain('제육볶음')
+    expect(title).toContain('파스타')
+    expect(title).not.toMatch(/엘리가오더|http|vercel/i)
+    expect(body.startsWith('중식')).toBe(true)
     expect(body).toContain('제육볶음')
     expect(body).toContain('파스타')
   })
 
-  it('handles empty period', () => {
-    const { body } = formatMenuBody(null, '석식')
+  it('handles empty period without branding', () => {
+    const { title, body } = formatMenuBody(null, '석식')
+    expect(title).toBe('오늘 석식')
     expect(body).toMatch(/없습니다/)
+    expect(title).not.toMatch(/엘리가/)
   })
 })
 
