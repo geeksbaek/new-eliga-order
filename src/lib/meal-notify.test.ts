@@ -102,16 +102,18 @@ describe('fitMenuTitle', () => {
 })
 
 describe('formatMenuBody', () => {
-  it('uses meal+dishes title and course lines body without branding', () => {
+  it('puts meal only in title and full menu only in body (no overlap)', () => {
     const period = findPeriodForSlot(samplePeriods, 'lunch')
     const { title, body } = formatMenuBody(period, '중식')
-    expect(title.startsWith('중식')).toBe(true)
-    expect(title).toContain('제육볶음')
-    expect(title).not.toMatch(/엘리가오더|http|vercel|new-eliga/i)
-    // Body is course rows only — not a lone "중식" header line
-    expect(body.startsWith('중식\n')).toBe(false)
+    expect(title).toBe('오늘 중식')
+    expect(title).not.toMatch(/제육|파스타|엘리가|vercel|new-eliga/i)
     expect(body).toContain('한식A · 제육볶음')
     expect(body).toContain('파스타')
+    // Title must not restate body dishes
+    for (const dish of ['제육볶음', '파스타']) {
+      expect(title.includes(dish)).toBe(false)
+      expect(body.includes(dish)).toBe(true)
+    }
   })
 
   it('handles empty period without branding', () => {

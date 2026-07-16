@@ -172,12 +172,8 @@ export function cleanNotifyDishName(name: string): string {
 }
 
 /**
- * Compact title for Chrome's single-line title slot.
- * Prefer short + complete words over packing many names that get ellipsized mid-token.
- *
- * Chrome always inserts the site origin under the title for web notifications
- * (e.g. new-eliga.vercel.app). We cannot hide that line — keep our title short
- * so the menu still reads cleanly above it.
+ * Compact title from dish names (used by tests / callers that want a
+ * menu-only one-liner). Prefer complete words over mid-token ellipsis.
  */
 export function fitMenuTitle(
   names: string[],
@@ -198,7 +194,6 @@ export function fitMenuTitle(
     const candidate = head + core
     if (candidate.length > maxLen && parts.length > 0) break
     if (candidate.length > maxLen && parts.length === 0) {
-      // Single name still too long — hard trim with ellipsis
       const room = Math.max(8, maxLen - head.length - 1)
       parts.push(name.length > room ? `${name.slice(0, room)}…` : name)
       break
@@ -218,44 +213,42 @@ export function fitMenuTitle(
 }
 
 /**
- * Notification copy tuned for Chrome layout:
- *   [title]   중식 · 닭목살간장구이 · 얼큰돈내장국밥
- *   [origin]  new-eliga.vercel.app   ← browser-owned, not ours
+ * Notification copy — title and body never repeat the same menu list.
+ *
+ * Chrome layout:
+ *   [title]   오늘 중식
+ *   [origin]  new-eliga.vercel.app   ← browser-owned
  *   [body]    한식A · 닭목살간장구이
  *             한식B · 얼큰돈내장국밥
  *             …
  *
- * Title = meal + 1–2 cleaned dish names (glance).
- * Body = full course · dish list only (no app name, no lone meal line).
+ * Title = meal slot only (when).
+ * Body  = course · dish lines once (what).
  */
 export function formatMenuBody(period: DiningPeriod | null, label: string): {
   title: string
   body: string
 } {
+  const title = `오늘 ${label}`
+
   if (!period) {
     return {
-      title: `오늘 ${label}`,
+      title,
       body: '등록된 식단이 없습니다.',
     }
   }
   const dishes = groupDiningDishes(period.courses)
   if (!dishes.length) {
     return {
-      title: `오늘 ${label}`,
+      title,
       body: '등록된 식단이 없습니다.',
     }
   }
-
-  const title = fitMenuTitle(
-    dishes.map((d) => d.name),
-    { prefix: label, maxNames: 2, maxLen: 38 },
-  )
 
   const lines = dishes.map((d) => {
     const name = cleanNotifyDishName(d.name) || d.name
     const course =
       d.courseNames.length === 1 ? d.courseNames[0] : d.courseNames.join('/')
-    // Prefer course label when it adds signal; skip empty/duplicate noise
     if (course && course.trim() && course.trim() !== name) {
       return `${course.trim()} · ${name}`
     }
