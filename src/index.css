@@ -68,6 +68,8 @@
   --max: 480px;
   --font: 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui,
     -apple-system, sans-serif;
+  /* rem baseline — “보통”. “크게”는 html.text-size-large */
+  font-size: 16px;
   font-family: var(--font);
   line-height: 1.4;
   font-weight: 400;
@@ -77,6 +79,11 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Settings → 글자 크기: 크게 (~112.5%) */
+html.text-size-large {
+  font-size: 18px;
 }
 
 /**
@@ -2051,6 +2058,11 @@ img {
 
 .segment::-webkit-scrollbar {
   display: none;
+}
+
+.segment-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .segment-3 {
@@ -5237,4 +5249,8 @@ img {
 .settings-logout-btn {
   color: var(--red);
   border-color: rgba(209, 31, 69, 0.22);
+}
+
+.settings-text-size {
+  margin-top: 4px;
 }

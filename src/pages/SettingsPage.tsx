@@ -19,6 +19,11 @@ import { CAFETERIA_SHOP_ID } from '../lib/shop-rules'
 import { useShop } from '../hooks/useShop'
 import { isCafeteriaShop } from '../lib/shop-rules'
 import { useAuth } from '../hooks/useAuth'
+import {
+  loadTextSize,
+  saveTextSize,
+  type TextSize,
+} from '../lib/text-size'
 
 function permissionLabel(p: NotificationPermission | 'unsupported'): string {
   switch (p) {
@@ -48,6 +53,7 @@ export function SettingsPage() {
   const [testBusy, setTestBusy] = useState<MealSlot | null>(null)
   const [testMsg, setTestMsg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [textSize, setTextSize] = useState<TextSize>(() => loadTextSize())
 
   const diningShops = useMemo(() => {
     const live = shops.filter(
@@ -150,8 +156,52 @@ export function SettingsPage() {
       <PageHeader
         back={{ fallbackTo: '/', label: '홈' }}
         title="설정"
-        sub="식단 알림을 켜 두면 설정한 시각에 오늘의 메뉴를 알림으로 받습니다."
+        sub="식단 알림과 화면 표시를 조정합니다."
       />
+
+      <section className="settings-card" aria-labelledby="text-size-title">
+        <div className="settings-card-head">
+          <h2 id="text-size-title" className="settings-card-title">
+            글자 크기
+          </h2>
+          <span className="settings-pill">
+            {textSize === 'large' ? '크게' : '보통'}
+          </span>
+        </div>
+        <p className="settings-card-desc">
+          앱 전체 글자 크기입니다. 지금 크기가 보통입니다.
+        </p>
+        <div
+          className="segment segment-2 settings-text-size"
+          role="radiogroup"
+          aria-label="글자 크기"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={textSize === 'normal'}
+            className={`segment-item${textSize === 'normal' ? ' is-active' : ''}`}
+            onClick={() => {
+              setTextSize('normal')
+              saveTextSize('normal')
+            }}
+          >
+            <span className="segment-label">보통</span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={textSize === 'large'}
+            className={`segment-item${textSize === 'large' ? ' is-active' : ''}`}
+            onClick={() => {
+              setTextSize('large')
+              saveTextSize('large')
+            }}
+          >
+            <span className="segment-label">크게</span>
+          </button>
+        </div>
+      </section>
 
       <section className="settings-card" aria-labelledby="notify-perm-title">
         <div className="settings-card-head">

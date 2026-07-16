@@ -3,7 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { isStandaloneDisplay, subscribeStandaloneDisplay } from './lib/display-mode'
+import { applyTextSize } from './lib/text-size'
 import './index.css'
+
+// Restore text size before first paint of React tree
+applyTextSize()
 
 const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
 
