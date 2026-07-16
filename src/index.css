@@ -688,19 +688,6 @@ img {
   pointer-events: none;
 }
 
-.tabbar-pill::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  width: 14px;
-  height: 3px;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: var(--brand);
-  box-shadow: 0 0 8px rgba(254, 229, 0, 0.55);
-}
-
 .tabbar-item {
   position: relative;
   z-index: 1;
@@ -733,12 +720,6 @@ img {
   color: var(--ink);
   background: transparent;
   box-shadow: none;
-  padding-bottom: 2px;
-}
-
-/* Brand bar lives on sliding pill — no per-item ::before */
-.tabbar-item.is-active::before {
-  display: none;
 }
 
 .tabbar-item.is-active svg {
