@@ -107,9 +107,6 @@ html.text-size-large {
 .detail-checkout,
 .option-choice,
 .variant-btn,
-.shop-pill,
-.chip,
-.cat-chip,
 .ptr-badge,
 .menu-qty,
 .qty-control,
@@ -159,8 +156,6 @@ html.text-size-large {
 .date-sheet-panel::before,
 .quick-order-panel::before,
 .detail-checkout::before,
-.shop-pill::before,
-.chip::before,
 .option-choice::before,
 .variant-btn::before,
 .menu-qty::before,
@@ -196,23 +191,13 @@ html.text-size-large {
   z-index: 1;
 }
 
-/* Pills: text must sit above specular without elevating the whole chip */
-.shop-pill,
-.chip {
-  z-index: 0;
-}
-
 /* Selected / active solids punch through glass */
-.shop-pill.is-active,
-.chip.is-active,
 .variant-btn.active,
 .tabbar-item.is-active {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-.shop-pill.is-active::before,
-.chip.is-active::before,
 .variant-btn.active::before {
   opacity: 0.15;
 }
@@ -257,8 +242,6 @@ html.text-size-large {
   .menu-row,
   .tabbar,
   .cart-dock-btn,
-  .shop-pill,
-  .chip,
   .date-sheet-panel,
   .quick-order-panel,
   .option-choice,
@@ -286,8 +269,6 @@ html.text-size-large {
   .date-sheet-panel::before,
   .quick-order-panel::before,
   .detail-checkout::before,
-  .shop-pill::before,
-  .chip::before,
   .option-choice::before,
   .variant-btn::before,
   .menu-qty::before,
@@ -1818,6 +1799,7 @@ img {
   padding-bottom: var(--chip-gap);
 }
 
+/* Shop / category chips sit inside glass sticky stack — solid, not glass */
 .shop-pill {
   flex: 0 0 auto;
   height: 34px;
@@ -1825,21 +1807,20 @@ img {
   max-height: 34px;
   padding-inline: 12px;
   border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-solid);
+  box-shadow: none;
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--ink-2);
   white-space: nowrap;
-  /* glass from shared recipe */
 }
 
 .shop-pill.is-active {
-  background-color: var(--ink) !important;
-  background-image: none !important;
-  border-color: var(--ink) !important;
+  background: var(--ink);
+  border-color: var(--ink);
   color: #fff;
-  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.2) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.18);
 }
 
 /* ── Recent rail (horizontal only) ── */
@@ -3506,6 +3487,9 @@ img {
   max-height: 34px;
   padding-inline: 12px;
   border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-solid);
+  box-shadow: none;
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--ink-2);
@@ -3513,13 +3497,10 @@ img {
 }
 
 .chip.is-active {
-  background-color: var(--ink) !important;
-  background-image: none !important;
-  border-color: var(--ink) !important;
+  background: var(--ink);
+  border-color: var(--ink);
   color: #fff;
-  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.2) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.18);
 }
 
 .menu-dense {
@@ -4378,7 +4359,7 @@ img {
 }
 
 .shop-pill:not(.is-active) .shop-pill-count {
-  background: var(--surface-2);
+  background: rgba(18, 24, 40, 0.08);
   color: var(--ink-2);
 }
 
