@@ -356,9 +356,16 @@ export function mapDiningMenu(raw: unknown): DiningPeriod[] {
 function mapGoodsOrderLine(item: Record<string, unknown>): OrderLineView {
   const opts: string[] = []
   for (const opt of asArray<Record<string, unknown>>(item.goodsOrderItemOptions)) {
-    const optName = localizeName(opt.optionName)
-    for (const menu of asArray<Record<string, unknown>>(opt.optionMenus)) {
-      const menuName = localizeName(menu.name)
+    const optName = localizeName(opt.optionName).trim()
+    const menus = asArray<Record<string, unknown>>(opt.optionMenus)
+    if (!menus.length) {
+      // Option group present but no menu picks — skip (avoids empty "()")
+      continue
+    }
+    for (const menu of menus) {
+      const menuName = localizeName(menu.name).trim()
+      // Empty menu pick → no label (prevents "()" or bare option names)
+      if (!menuName) continue
       opts.push(optName ? `${optName}: ${menuName}` : menuName)
     }
   }

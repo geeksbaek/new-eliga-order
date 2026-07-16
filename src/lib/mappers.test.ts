@@ -7,6 +7,7 @@ import {
   mapCafeMenuDetail,
   mapCart,
   mapCartRestoreLines,
+  mapOrderHistory,
   mapPaymentReasons,
   mapShops,
 } from './mappers'
@@ -377,5 +378,44 @@ describe('mappers from skill-shaped API fixtures', () => {
       ],
     }
     expect(mapPaymentReasons(raw)).toEqual([{ id: 13, reason: '개인결제' }])
+  })
+
+  it('omits empty order-line options (no blank parentheses)', () => {
+    const raw = {
+      content: [
+        {
+          id: 1,
+          displayId: 100,
+          shopId: 5,
+          shopName: { ko: 'kafé 5F' },
+          shopType: 'CAFE',
+          status: 'COMPLETE',
+          orderedAt: '2026-07-16T12:00:00',
+          totalPaidPrice: 500,
+          goodsOrderItems: [
+            {
+              name: { ko: '쿠키' },
+              goodsQty: 1,
+              paidPrice: 500,
+              // Empty option groups / empty menu names must not become labels
+              goodsOrderItemOptions: [
+                { optionName: { ko: '' }, optionMenus: [] },
+                {
+                  optionName: { ko: '컵' },
+                  optionMenus: [{ name: { ko: '' } }],
+                },
+                {
+                  optionName: { ko: '컵' },
+                  optionMenus: [{ name: { ko: '일회용컵' } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const hist = mapOrderHistory(raw)
+    expect(hist).toHaveLength(1)
+    expect(hist[0].items[0].options).toEqual(['컵: 일회용컵'])
   })
 })

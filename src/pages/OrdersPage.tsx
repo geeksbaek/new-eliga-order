@@ -213,20 +213,28 @@ function OrderList({
               <p className="muted order-when">{formatDateTime(row.orderedAt)}</p>
             )}
             <ul className="confirm-list order-lines">
-              {row.items.slice(0, 6).map((it, i) => (
-                <li key={i}>
-                  <span>
-                    {it.name}
-                    {it.options.length > 0 && (
-                      <span className="muted"> ({it.options.join(', ')})</span>
+              {row.items.slice(0, 6).map((it, i) => {
+                const optionLabels = (it.options ?? [])
+                  .map((o) => String(o).trim())
+                  .filter(Boolean)
+                return (
+                  <li key={i}>
+                    <span>
+                      {it.name}
+                      {optionLabels.length > 0 && (
+                        <span className="muted">
+                          {' '}
+                          ({optionLabels.join(', ')})
+                        </span>
+                      )}
+                      <span className="muted"> × {it.qty}</span>
+                    </span>
+                    {!compact && it.price > 0 && (
+                      <strong>{formatWon(it.price)}</strong>
                     )}
-                    <span className="muted"> × {it.qty}</span>
-                  </span>
-                  {!compact && it.price > 0 && (
-                    <strong>{formatWon(it.price)}</strong>
-                  )}
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
             {!compact && row.totalPaid > 0 && (
               <div className="order-total">
