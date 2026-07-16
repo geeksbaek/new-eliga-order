@@ -1186,8 +1186,8 @@ img {
 /* ── Page enter (home ↔ dining ↔ …) ── */
 
 .page-view {
+  /* Opacity-only: transform/will-change break position:sticky descendants */
   animation: page-view-enter 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
-  will-change: opacity, transform;
 }
 
 .page-view .page-header {
@@ -1206,11 +1206,9 @@ img {
 @keyframes page-view-enter {
   from {
     opacity: 0;
-    transform: translateY(12px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 
@@ -1730,36 +1728,72 @@ img {
   display: none;
 }
 
-/* Cafe: sticky shop + category strips.
-   Vertical pad matches chip gap so stuck bars don’t look cramped. */
+/* Cafe: one sticky stack (GNB + shop pills + category chips) */
 .cafe {
   --chip-gap: 6px;
   --cafe-chip-h: 34px;
-  /* full sticky band: pad + chip + pad */
   --cafe-shop-stick-h: calc(var(--cafe-chip-h) + var(--chip-gap) * 2);
   --cafe-cat-stick-h: calc(var(--cafe-chip-h) + var(--chip-gap) * 2);
 }
 
+.cafe-sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: calc(-12px - var(--safe-t)) -16px 12px;
+  padding: 0 0 6px;
+  border-radius: 0 0 22px 22px;
+  border: 1px solid var(--glass-border);
+  border-top: none;
+  background-color: var(--glass-bg-strong);
+  background-image: var(--glass-bg-tint);
+  box-shadow: var(--shadow-glass-float);
+  -webkit-backdrop-filter: saturate(var(--glass-saturate))
+    blur(calc(var(--glass-blur) + 8px));
+  backdrop-filter: saturate(var(--glass-saturate))
+    blur(calc(var(--glass-blur) + 8px));
+}
+
+.cafe-sticky-top .page-header {
+  /* Nested: stack is sticky, header is static inside */
+  position: relative;
+  top: auto;
+  z-index: auto;
+  margin: 0;
+  padding: calc(10px + var(--safe-t)) 14px 10px;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.cafe-sticky-top .page-header::before {
+  display: none;
+}
+
 .cafe-shop-pills {
   height: var(--cafe-shop-stick-h);
-  margin-bottom: var(--chip-gap);
+  margin-bottom: 0;
   padding-block: var(--chip-gap);
   align-items: center;
   flex-wrap: nowrap;
   box-sizing: border-box;
-  position: sticky;
-  /* Sit under sticky glass GNB */
-  top: var(--gnb-stick-h);
-  z-index: 20;
-  background: rgba(220, 228, 242, 0.5);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(22px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(22px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+  position: relative;
+  top: auto;
+  z-index: auto;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Horizontal inset + same vertical pad (overrides shop-pills-scroll padding) */
 .cafe-shop-pills.shop-pills-scroll {
-  margin: 0 -16px var(--chip-gap);
+  margin: 0;
   padding: var(--chip-gap) 16px;
 }
 
@@ -3385,14 +3419,20 @@ img {
   scrollbar-width: none;
 }
 
-/* Sit under sticky GNB + cafe shop pills */
-.cafe .chip-strip {
-  top: calc(var(--gnb-stick-h) + var(--cafe-shop-stick-h, 46px));
+/* Inside cafe sticky stack — not independently sticky */
+.cafe-sticky-top .chip-strip {
+  position: relative;
+  top: auto;
+  z-index: auto;
   height: var(--cafe-cat-stick-h, 46px);
-  margin: 0 -16px var(--chip-gap, 6px);
-  padding: var(--chip-gap, 6px) 16px;
+  margin: 0;
+  padding: var(--chip-gap, 6px) 16px 4px;
   box-sizing: border-box;
-  z-index: 19;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .chip-strip::-webkit-scrollbar {

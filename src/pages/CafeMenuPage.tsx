@@ -825,52 +825,91 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
 
   return (
       <div className="cafe">
-        <PageHeader
-          title={shopName}
-          trailing={
-            <CafeHeaderActions active={isFavView ? 'fav' : null} />
-          }
-        />
+        {/* One sticky stack: GNB + shop pills + category chips (no offset math) */}
+        <div className="cafe-sticky-top">
+          <PageHeader
+            title={shopName}
+            trailing={
+              <CafeHeaderActions active={isFavView ? 'fav' : null} />
+            }
+          />
 
-        <div
-          className="shop-pills shop-pills-scroll cafe-shop-pills"
-          role="list"
-          data-hscroll
-        >
-          {cafeShops.map((s) => (
-            <button
-              key={s.shopId}
-              type="button"
-              role="listitem"
-              className={`shop-pill${
-                !isFavView && s.shopId === shopId ? ' is-active' : ''
-              }`}
-              ref={(el) => {
-                const k = String(s.shopId)
-                if (el) shopPillRefs.current.set(k, el)
-                else shopPillRefs.current.delete(k)
-              }}
-              onPointerEnter={() => schedulePrefetchCafe(s.shopId)}
-              onFocus={() => schedulePrefetchCafe(s.shopId)}
-              onClick={() => {
-                if (!isFavView && s.shopId === shopId) return
-                selectShop(s.shopId)
-                navigate(`/cafe/${s.shopId}`)
-              }}
+          <div
+            className="shop-pills shop-pills-scroll cafe-shop-pills"
+            role="list"
+            data-hscroll
+          >
+            {cafeShops.map((s) => (
+              <button
+                key={s.shopId}
+                type="button"
+                role="listitem"
+                className={`shop-pill${
+                  !isFavView && s.shopId === shopId ? ' is-active' : ''
+                }`}
+                ref={(el) => {
+                  const k = String(s.shopId)
+                  if (el) shopPillRefs.current.set(k, el)
+                  else shopPillRefs.current.delete(k)
+                }}
+                onPointerEnter={() => schedulePrefetchCafe(s.shopId)}
+                onFocus={() => schedulePrefetchCafe(s.shopId)}
+                onClick={() => {
+                  if (!isFavView && s.shopId === shopId) return
+                  selectShop(s.shopId)
+                  navigate(`/cafe/${s.shopId}`)
+                }}
+              >
+                {s.name}
+                {(() => {
+                  const h = getCafeHours(s.shopId)
+                  if (h.reason === 'unknown') return null
+                  if (h.orderable) return null
+                  return (
+                    <span className="shop-pill-closed" aria-label="영업 종료">
+                      마감
+                    </span>
+                  )
+                })()}
+              </button>
+            ))}
+          </div>
+
+          {!isFavView && (
+            <div
+              className="chip-strip"
+              role="tablist"
+              aria-label="카테고리"
+              data-hscroll
             >
-              {s.name}
-              {(() => {
-                const h = getCafeHours(s.shopId)
-                if (h.reason === 'unknown') return null
-                if (h.orderable) return null
-                return (
-                  <span className="shop-pill-closed" aria-label="영업 종료">
-                    마감
-                  </span>
-                )
-              })()}
-            </button>
-          ))}
+              <button
+                type="button"
+                className={`chip${activeCat === 'all' ? ' is-active' : ''}`}
+                ref={(el) => {
+                  if (el) catChipRefs.current.set('all', el)
+                  else catChipRefs.current.delete('all')
+                }}
+                onClick={() => setActiveCat('all')}
+              >
+                전체
+              </button>
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`chip${activeCat === c.id ? ' is-active' : ''}`}
+                  ref={(el) => {
+                    const k = String(c.id)
+                    if (el) catChipRefs.current.set(k, el)
+                    else catChipRefs.current.delete(k)
+                  }}
+                  onClick={() => setActiveCat(c.id)}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {!isFavView && shopHours && !shopHours.orderable && (
@@ -942,42 +981,6 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
               )}
             </div>
           </section>
-        )}
-
-        {!isFavView && (
-          <div
-            className="chip-strip"
-            role="tablist"
-            aria-label="카테고리"
-            data-hscroll
-          >
-            <button
-              type="button"
-              className={`chip${activeCat === 'all' ? ' is-active' : ''}`}
-              ref={(el) => {
-                if (el) catChipRefs.current.set('all', el)
-                else catChipRefs.current.delete('all')
-              }}
-              onClick={() => setActiveCat('all')}
-            >
-              전체
-            </button>
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`chip${activeCat === c.id ? ' is-active' : ''}`}
-                ref={(el) => {
-                  const k = String(c.id)
-                  if (el) catChipRefs.current.set(k, el)
-                  else catChipRefs.current.delete(k)
-                }}
-                onClick={() => setActiveCat(c.id)}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
         )}
 
         {error && <ErrorBox>{error}</ErrorBox>}
