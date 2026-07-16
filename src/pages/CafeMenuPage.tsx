@@ -1041,6 +1041,9 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
               >
                 <div className="menu-row-thumb-wrap" aria-hidden>
                   <div className="menu-row-thumb is-empty" />
+                  <span className="menu-row-price menu-row-price-overlay">
+                    <span className="cafe-skel-line cafe-skel-price" />
+                  </span>
                 </div>
                 <div className="menu-row-main">
                   <div className="menu-row-title">
@@ -1051,9 +1054,6 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
                   </p>
                 </div>
                 <div className="menu-row-side">
-                  <span className="menu-row-price">
-                    <span className="cafe-skel-line cafe-skel-price" />
-                  </span>
                   <div className="menu-qty" aria-hidden>
                     <span className="menu-qty-btn" />
                     <span className="menu-qty-val">0</span>
@@ -1132,6 +1132,9 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
                             loading="eager"
                             decoding="sync"
                           />
+                          <span className="menu-row-price menu-row-price-overlay">
+                            {formatWon(item.price)}
+                          </span>
                         </button>
                         <button
                           type="button"
@@ -1168,9 +1171,6 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
                         </p>
                       </button>
                       <div className="menu-row-side">
-                        <span className="menu-row-price">
-                          {formatWon(item.price)}
-                        </span>
                         {item.soldOut ? (
                           <span className="menu-qty is-disabled" aria-hidden>
                             품절
