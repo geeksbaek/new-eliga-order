@@ -61,6 +61,8 @@
   --tabbar-h: 58px;
   --tabbar-float-gap: 10px;
   --cart-dock-h: 64px;
+  /* Sticky GNB height budget (padding + title row); used by secondary sticky strips */
+  --gnb-stick-h: calc(58px + var(--safe-t));
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
   --max: 480px;
@@ -110,7 +112,9 @@
 .back-btn,
 .menu-fav-btn,
 .tabbar,
-.cart-dock-btn {
+.cart-dock-btn,
+.page-header,
+.login-top {
   position: relative;
   isolation: isolate;
   background-color: var(--glass-bg);
@@ -127,7 +131,9 @@
 .date-sheet-panel,
 .quick-order-panel,
 .page-header-icon-btn,
-.menu-fav-btn {
+.menu-fav-btn,
+.page-header,
+.login-top {
   background-color: var(--glass-bg-strong);
   box-shadow: var(--shadow-glass-float);
   -webkit-backdrop-filter: saturate(var(--glass-saturate))
@@ -152,7 +158,9 @@
 .option-choice::before,
 .variant-btn::before,
 .menu-qty::before,
-.ptr-badge::before {
+.ptr-badge::before,
+.page-header::before,
+.login-top::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -175,7 +183,9 @@
 .detail-checkout > *,
 .option-choice > *,
 .variant-btn > *,
-.menu-qty > * {
+.menu-qty > *,
+.page-header > *,
+.login-top > * {
   position: relative;
   z-index: 1;
 }
@@ -252,6 +262,8 @@
   .menu-fav-btn,
   .menu-qty,
   .page-header-icon-btn,
+  .page-header,
+  .login-top,
   .error-box,
   .info-box {
     -webkit-backdrop-filter: none !important;
@@ -273,7 +285,9 @@
   .option-choice::before,
   .variant-btn::before,
   .menu-qty::before,
-  .ptr-badge::before {
+  .ptr-badge::before,
+  .page-header::before,
+  .login-top::before {
     display: none;
   }
 }
@@ -1135,11 +1149,26 @@ img {
   text-align: right;
 }
 
-/* ── Page header (shared — one shell for every route) ── */
+/* ── GNB / page header (sticky liquid glass) ── */
 
 .page-header {
-  margin: 0 0 16px;
+  /* Stick under status bar; bleed to shell edges for full GNB glass */
+  position: sticky;
+  top: 0;
+  z-index: 30;
   min-width: 0;
+  margin: -12px -16px 14px;
+  padding: calc(10px + var(--safe-t)) 14px 12px;
+  border-radius: 0 0 22px 22px;
+  border-top: none;
+  /* glass material from shared .page-header recipe */
+}
+
+/* When main already pads safe-t, avoid double inset on non-first paint */
+.app-main > .page-header:first-child,
+.app-main > * > .page-header:first-child {
+  margin-top: calc(-12px - var(--safe-t));
+  padding-top: calc(10px + var(--safe-t));
 }
 
 .page-header-row {
@@ -1232,14 +1261,13 @@ img {
   width: 36px;
   height: 36px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--ink-2);
-  background: none;
-  border: none;
+  /* glass chip from shared recipe */
 }
 
 .page-header-action-icon:active {
-  background: var(--surface-2);
+  filter: brightness(0.96);
 }
 
 .page-header-link {
@@ -1600,12 +1628,13 @@ img {
   flex-wrap: nowrap;
   box-sizing: border-box;
   position: sticky;
-  top: 0;
-  z-index: 11;
-  background: rgba(220, 228, 242, 0.45);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(20px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+  /* Sit under sticky glass GNB */
+  top: var(--gnb-stick-h);
+  z-index: 20;
+  background: rgba(220, 228, 242, 0.5);
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(22px);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(22px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 /* Horizontal inset + same vertical pad (overrides shop-pills-scroll padding) */
@@ -2002,28 +2031,27 @@ img {
   background: var(--surface-2);
 }
 
-/* ── Back control ── */
+/* ── Back control (glass chip inside GNB) ── */
 
 .back-btn {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin: 0 0 0 -8px;
-  padding: 6px 10px 6px 6px;
-  border: none;
+  margin: 0;
+  padding: 6px 12px 6px 8px;
   border-radius: 999px;
-  background: transparent;
   color: var(--ink-2);
   font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.2;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: filter 0.12s ease, color 0.12s ease;
+  /* glass from shared recipe */
 }
 
 .back-btn:hover {
-  background: var(--surface-2);
   color: var(--ink);
+  filter: brightness(1.02);
 }
 
 .back-btn:active {
@@ -3237,13 +3265,14 @@ img {
   scrollbar-width: none;
 }
 
-/* Sit under sticky cafe shop pills; pad matches chip gap */
+/* Sit under sticky GNB + cafe shop pills */
 .cafe .chip-strip {
-  top: var(--cafe-shop-stick-h, 46px);
+  top: calc(var(--gnb-stick-h) + var(--cafe-shop-stick-h, 46px));
   height: var(--cafe-cat-stick-h, 46px);
   margin: 0 -16px var(--chip-gap, 6px);
   padding: var(--chip-gap, 6px) 16px;
   box-sizing: border-box;
+  z-index: 19;
 }
 
 .chip-strip::-webkit-scrollbar {
@@ -3450,23 +3479,23 @@ img {
   border: none;
 }
 
-/* Header icon actions (즐겨찾기 / 장바구니) */
+/* Header icon actions (즐겨찾기 / 장바구니) — glass chips */
 .page-header-icon-btn {
   position: relative;
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: 14px;
   color: var(--ink-2);
   text-decoration: none;
   flex: 0 0 auto;
-  /* room for badge that sits on the outer corner */
   overflow: visible;
+  /* glass from shared recipe */
 }
 
 .page-header-icon-btn:active {
-  background: var(--surface-2);
+  filter: brightness(0.97);
 }
 
 .page-header-icon-btn.is-active.is-fav,
@@ -3475,7 +3504,8 @@ img {
 }
 
 .page-header-icon-btn.is-active.is-fav {
-  background: #fffbeb;
+  background-color: rgba(255, 251, 235, 0.72) !important;
+  border-color: rgba(217, 119, 6, 0.28) !important;
 }
 
 .page-header-icon-btn.is-active.is-cart,
@@ -3484,7 +3514,8 @@ img {
 }
 
 .page-header-icon-btn.is-active.is-cart {
-  background: var(--blue-soft);
+  background-color: rgba(234, 241, 255, 0.72) !important;
+  border-color: rgba(26, 109, 255, 0.22) !important;
 }
 
 /*
@@ -4368,13 +4399,20 @@ img {
     calc(12px + var(--safe-t))
     20px
     calc(20px + var(--safe-b));
-  background: var(--bg);
+  background: transparent;
   box-sizing: border-box;
 }
 
 .login-top {
   flex: 0 0 auto;
-  padding: 8px 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: calc(-12px - var(--safe-t)) -20px 16px;
+  padding: calc(12px + var(--safe-t)) 20px 14px;
+  border-radius: 0 0 22px 22px;
+  border-top: none;
+  /* glass material from shared .login-top recipe */
 }
 
 .login-brand {
