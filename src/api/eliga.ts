@@ -182,7 +182,7 @@ export async function clearCart(shopId: number): Promise<Cart> {
 
 /**
  * Isolate checkout to a single goods line:
- * snapshot → clear → add qty 1 → re-fetch and hard-assert isolation.
+ * snapshot → clear → add target line → re-fetch and hard-assert isolation.
  *
  * There is no cart-less order API; this is the only safe way to guarantee
  * existing cart lines are never co-paid with a "바로 주문" cup.
@@ -191,7 +191,10 @@ export async function prepareIsolatedQuickOrder(params: {
   shopId: number
   goodsId: number
   options?: SelectedOption[]
+  /** Defaults to 1 (list quick-order). Detail page may pass selected qty. */
+  qty?: number
 }): Promise<{ cart: Cart; stashed: StashedCartLine[] }> {
+  const qty = Math.max(1, Math.trunc(params.qty ?? 1))
   const raw = await apiRequest(
     `/goods/cart?shopId=${params.shopId}&cartType=GENERAL`,
   )
@@ -208,14 +211,14 @@ export async function prepareIsolatedQuickOrder(params: {
   await addToCart({
     shopId: params.shopId,
     goodsId: params.goodsId,
-    qty: 1,
+    qty,
     options: params.options ?? [],
   })
 
   const cart = await fetchCart(params.shopId)
   assertQuickOrderCartIsolated(cart, {
     goodsId: params.goodsId,
-    qty: 1,
+    qty,
   })
   return { cart, stashed }
 }

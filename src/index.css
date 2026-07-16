@@ -1765,6 +1765,34 @@ img {
   margin-bottom: 8px;
 }
 
+.detail-checkout-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Primary CTA: buy now (dark ink) sits above quieter cart add */
+.detail-buy-btn {
+  min-height: 52px;
+  font-size: 1rem;
+  font-weight: 850;
+  box-shadow: 0 4px 14px rgba(18, 18, 18, 0.18);
+}
+
+.detail-cart-btn {
+  min-height: 46px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.detail-buy-hint {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
 /* Detail title: BEST/NEW chip on the same line as product name */
 .detail-title-row {
   display: inline-flex;

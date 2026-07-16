@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { addToCart, fetchCafeMenuDetail } from '../api/eliga'
+import {
+  addToCart,
+  fetchCafeMenuDetail,
+  prepareIsolatedQuickOrder,
+} from '../api/eliga'
 import { Empty, ErrorBox, Loading } from '../components/UiState'
 import { ImagePreview, type PreviewImage } from '../components/ImagePreview'
 import { PageHeader } from '../components/PageHeader'
@@ -14,6 +18,8 @@ import {
   isExclusiveMultiGroup,
   selectionsToOptions,
 } from '../lib/menu-options'
+import { saveQuickOrderSession } from '../lib/quick-order'
+import { baseMenuTitle } from '../lib/temp-variants'
 import { isFavorite, toggleFavorite } from '../lib/cafe-favorites'
 import { soldOutBlocksOrder } from '../lib/shop-rules'
 import { useShop } from '../hooks/useShop'
@@ -25,7 +31,7 @@ export function MenuDetailPage() {
   const shopId = Number(shopIdParam)
   const displayId = Number(searchParams.get('d') || searchParams.get('displayId'))
   const navigate = useNavigate()
-  const { refreshCart, selectShop, getCafeHours } = useShop()
+  const { refreshCart, selectShop, getCafeHours, setCartLocal } = useShop()
 
   const [detail, setDetail] = useState<MenuDetail | null>(null)
   const [variantId, setVariantId] = useState<number | null>(null)
@@ -34,6 +40,8 @@ export function MenuDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** 'add' | 'buy' — which checkout action is in flight */
+  const [busyAction, setBusyAction] = useState<'add' | 'buy' | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewImage | null>(null)
   /** Letterbox fill sampled from image edges (fallback white). */
@@ -172,7 +180,7 @@ export function MenuDetailPage() {
   }
 
   async function onAdd() {
-    if (!variant || blocked) return
+    if (!variant || blocked || busy) return
     if (hoursBlocked) {
       setError(hours.message)
       return
@@ -182,6 +190,7 @@ export function MenuDetailPage() {
       return
     }
     setBusy(true)
+    setBusyAction('add')
     setError(null)
     setToast(null)
     try {
@@ -201,6 +210,59 @@ export function MenuDetailPage() {
       setError(e instanceof Error ? e.message : '담기에 실패했습니다')
     } finally {
       setBusy(false)
+      setBusyAction(null)
+    }
+  }
+
+  /**
+   * Isolated checkout: stash/clear cart, put only this line, go to confirm.
+   * Existing cart items are never co-paid (restored if user cancels confirm).
+   */
+  async function onBuyNow() {
+    if (!variant || blocked || busy) return
+    if (hoursBlocked) {
+      setError(hours.message)
+      return
+    }
+    if (missingRequired.length) {
+      setError(`필수 옵션을 선택해 주세요: ${missingRequired.join(', ')}`)
+      return
+    }
+    setBusy(true)
+    setBusyAction('buy')
+    setError(null)
+    setToast(null)
+    try {
+      selectShop(shopId)
+      const { cart: isolated, stashed } = await prepareIsolatedQuickOrder({
+        shopId,
+        goodsId: variant.goodsId,
+        options: selectedOptions,
+        qty,
+      })
+      setCartLocal(isolated, shopId)
+      const menuName =
+        baseMenuTitle(variant.name) ||
+        baseMenuTitle(detail?.variants[0]?.name ?? titleName)
+      saveQuickOrderSession({
+        shopId,
+        expectedGoodsId: variant.goodsId,
+        expectedQty: qty,
+        stashed,
+        menuName,
+        createdAt: Date.now(),
+      })
+      navigate('/order/confirm', {
+        state: { quickOrder: true, shopId },
+      })
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : '바로 주문 준비에 실패했습니다',
+      )
+      await refreshCart({ force: true, shopId, silent: true })
+    } finally {
+      setBusy(false)
+      setBusyAction(null)
     }
   }
 
@@ -375,7 +437,7 @@ export function MenuDetailPage() {
               type="button"
               className="icon-btn"
               aria-label="수량 감소"
-              disabled={qty <= 1}
+              disabled={qty <= 1 || busy}
               onClick={() => setQty((q) => Math.max(1, q - 1))}
             >
               −
@@ -385,6 +447,7 @@ export function MenuDetailPage() {
               type="button"
               className="icon-btn"
               aria-label="수량 증가"
+              disabled={busy}
               onClick={() => setQty((q) => q + 1)}
             >
               +
@@ -398,25 +461,37 @@ export function MenuDetailPage() {
           <span className="muted">합계</span>
           <strong style={{ fontSize: '1.2rem' }}>{formatWon(line)}</strong>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-block"
-          style={{ marginTop: 16 }}
-          disabled={blocked || busy || missingRequired.length > 0}
-          onClick={() => void onAdd()}
-        >
-          {hoursBlocked
-            ? hours.statusLabel.includes('마감') || hours.reason === 'closed'
-              ? '운영시간 외 · 담기 불가'
-              : hours.statusLabel
-            : blocked && soldOutBlocksOrder(variant?.soldOut)
-              ? '품절된 메뉴입니다'
-              : missingRequired.length
-                ? '옵션을 선택해 주세요'
-                : busy
-                  ? '담는 중…'
-                  : '장바구니에 담기'}
-        </button>
+        <div className="detail-checkout-actions">
+          <button
+            type="button"
+            className="btn btn-accent btn-block detail-buy-btn"
+            disabled={blocked || busy || missingRequired.length > 0}
+            onClick={() => void onBuyNow()}
+          >
+            {hoursBlocked
+              ? hours.statusLabel.includes('마감') || hours.reason === 'closed'
+                ? '운영시간 외 · 주문 불가'
+                : hours.statusLabel
+              : blocked && soldOutBlocksOrder(variant?.soldOut)
+                ? '품절된 메뉴입니다'
+                : missingRequired.length
+                  ? '옵션을 선택해 주세요'
+                  : busyAction === 'buy'
+                    ? '주문 준비 중…'
+                    : `바로 주문 · ${formatWon(line)}`}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-block detail-cart-btn"
+            disabled={blocked || busy || missingRequired.length > 0}
+            onClick={() => void onAdd()}
+          >
+            {busyAction === 'add' ? '담는 중…' : '장바구니에 담기'}
+          </button>
+          <p className="detail-buy-hint muted">
+            바로 주문은 이 메뉴만 결제합니다. 기존 장바구니는 포함되지 않습니다.
+          </p>
+        </div>
       </div>
 
       <ImagePreview image={preview} onClose={() => setPreview(null)} />
