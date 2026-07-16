@@ -1735,7 +1735,11 @@ img {
   display: none;
 }
 
-/* Cafe: one sticky stack (GNB + shop pills + category chips) */
+/*
+  Cafe family sticky chrome (menu / favorites / cart):
+  One stack = page header + optional shop pills + optional category chips.
+  Never nest independent sticky tops — offsets get out of sync.
+*/
 .cafe {
   --chip-gap: 6px;
   --cafe-chip-h: 34px;
@@ -1781,6 +1785,11 @@ img {
   display: none;
 }
 
+/* Header-only stack (e.g. cart empty edge cases): keep bottom padding */
+.cafe-sticky-top > .page-header:last-child {
+  padding-bottom: 12px;
+}
+
 .cafe-shop-pills {
   height: var(--cafe-shop-stick-h);
   margin-bottom: 0;
@@ -1799,9 +1808,15 @@ img {
 }
 
 /* Horizontal inset + same vertical pad (overrides shop-pills-scroll padding) */
-.cafe-shop-pills.shop-pills-scroll {
+.cafe-shop-pills.shop-pills-scroll,
+.cafe-sticky-top .cafe-shop-pills.shop-pills-scroll {
   margin: 0;
   padding: var(--chip-gap) 16px;
+}
+
+/* When pills are last in the stack (favorites / cart), a bit more bottom air */
+.cafe-sticky-top > .cafe-shop-pills:last-child {
+  padding-bottom: calc(var(--chip-gap) + 2px);
 }
 
 .shop-pill {
@@ -4278,10 +4293,6 @@ img {
 
 /* ── Cart ── */
 
-.cart-shop-pills {
-  margin-bottom: 12px;
-}
-
 .shop-pill-closed {
   margin-left: 4px;
   font-size: 0.68rem;
@@ -4496,11 +4507,6 @@ img {
   /* Reserve space so empty→filled doesn't jump the page bottom */
   min-height: 140px;
   box-sizing: border-box;
-}
-
-.cart-page .cafe-shop-pills {
-  /* Match cafe menu strip spacing under shared header */
-  margin-top: 0;
 }
 
 .checkout-bar-sum {

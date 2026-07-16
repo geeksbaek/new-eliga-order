@@ -80,10 +80,12 @@ export function CartPage() {
   if (!canOrder && selectedShopId != null) {
     return (
       <div className="cart-page cafe">
-        <PageHeader
-          title="장바구니"
-          trailing={<CafeHeaderActions active="cart" />}
-        />
+        <div className="cafe-sticky-top">
+          <PageHeader
+            title="장바구니"
+            trailing={<CafeHeaderActions active="cart" />}
+          />
+        </div>
         <Empty>
           식당 매장은 장바구니를 지원하지 않습니다.{' '}
           <Link to="/cafe/5">카페 매장</Link>을 선택해 주세요.
@@ -94,60 +96,58 @@ export function CartPage() {
 
   return (
     <div className="cart-page cafe">
-      <PageHeader
-        title="장바구니"
-        sub={
-          cartCountAll > 0
-            ? `전체 ${cartCountAll}개 · 주문은 매장별로`
-            : '매장별로 따로 담깁니다'
-        }
-        trailing={<CafeHeaderActions active="cart" />}
-      />
+      {/* Same sticky stack as cafe menu / favorites */}
+      <div className="cafe-sticky-top">
+        <PageHeader
+          title="장바구니"
+          trailing={<CafeHeaderActions active="cart" />}
+        />
 
-      {cafeShops.length > 0 && (
-        <div
-          className="shop-pills shop-pills-scroll cafe-shop-pills cart-shop-pills"
-          role="list"
-          data-hscroll
-        >
-          {cafeShops.map((s) => {
-            const n = cartCountByShop[s.shopId] ?? 0
-            const active = s.shopId === selectedShopId
-            return (
-              <button
-                key={s.shopId}
-                type="button"
-                role="listitem"
-                className={`shop-pill${active ? ' is-active' : ''}`}
-                ref={(el) => {
-                  if (el) pillRefs.current.set(s.shopId, el)
-                  else pillRefs.current.delete(s.shopId)
-                }}
-                onClick={() => {
-                  setError(null)
-                  selectShop(s.shopId)
-                }}
-              >
-                {s.name}
-                {n > 0 ? (
-                  <span className="shop-pill-count" aria-label={`${n}개`}>
-                    {n}
-                  </span>
-                ) : null}
-                {(() => {
-                  const h = getCafeHours(s.shopId)
-                  if (h.reason === 'unknown' || h.orderable) return null
-                  return (
-                    <span className="shop-pill-closed" aria-label="영업 종료">
-                      마감
+        {cafeShops.length > 0 && (
+          <div
+            className="shop-pills shop-pills-scroll cafe-shop-pills"
+            role="list"
+            data-hscroll
+          >
+            {cafeShops.map((s) => {
+              const n = cartCountByShop[s.shopId] ?? 0
+              const active = s.shopId === selectedShopId
+              return (
+                <button
+                  key={s.shopId}
+                  type="button"
+                  role="listitem"
+                  className={`shop-pill${active ? ' is-active' : ''}`}
+                  ref={(el) => {
+                    if (el) pillRefs.current.set(s.shopId, el)
+                    else pillRefs.current.delete(s.shopId)
+                  }}
+                  onClick={() => {
+                    setError(null)
+                    selectShop(s.shopId)
+                  }}
+                >
+                  {s.name}
+                  {n > 0 ? (
+                    <span className="shop-pill-count" aria-label={`${n}개`}>
+                      {n}
                     </span>
-                  )
-                })()}
-              </button>
-            )
-          })}
-        </div>
-      )}
+                  ) : null}
+                  {(() => {
+                    const h = getCafeHours(s.shopId)
+                    if (h.reason === 'unknown' || h.orderable) return null
+                    return (
+                      <span className="shop-pill-closed" aria-label="영업 종료">
+                        마감
+                      </span>
+                    )
+                  })()}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {error && <ErrorBox>{error}</ErrorBox>}
 
