@@ -1,47 +1,66 @@
 /* ─────────────────────────────────────────────────────────────
-   엘리가오더 — Liquid Glass mobile shell
-   Frosted translucent surfaces + ambient wash.
-   Yellow remains CTA/active mark only.
+   엘리가오더 — CSS Liquid Glass imitation (web)
+   Specular edge + frost blur + ambient wash.
+   Not Apple system material — CSS mock of Liquid Glass.
    ───────────────────────────────────────────────────────────── */
 
 :root {
   color-scheme: light;
-  /* Ambient canvas (not flat grey) */
-  --bg: #e9eef6;
-  --bg-deep: #dfe6f2;
-  --surface: rgba(255, 255, 255, 0.58);
-  --surface-2: rgba(255, 255, 255, 0.38);
+  --bg: #dce4f2;
+  --bg-deep: #cfd9ec;
+  --surface: rgba(255, 255, 255, 0.48);
+  --surface-2: rgba(255, 255, 255, 0.32);
   --surface-solid: #ffffff;
   --ink: #121212;
-  --ink-2: #3d3d3d;
-  --muted: #6e7280;
-  --line: rgba(255, 255, 255, 0.55);
-  --line-strong: rgba(18, 18, 18, 0.1);
+  --ink-2: #3a3f4a;
+  --muted: #6a7180;
+  --line: rgba(255, 255, 255, 0.62);
+  --line-strong: rgba(18, 24, 40, 0.1);
   --brand: #fee500;
   --brand-ink: #191600;
   --blue: #1a6dff;
-  --blue-soft: rgba(234, 241, 255, 0.72);
+  --blue-soft: rgba(234, 241, 255, 0.7);
   --green: #0f8a5f;
-  --green-soft: rgba(231, 247, 240, 0.72);
+  --green-soft: rgba(231, 247, 240, 0.7);
   --amber: #b86e00;
-  --amber-soft: rgba(255, 244, 224, 0.78);
+  --amber-soft: rgba(255, 244, 224, 0.76);
   --red: #d11f45;
-  --red-soft: rgba(255, 236, 239, 0.78);
-  --radius: 16px;
+  --red-soft: rgba(255, 236, 239, 0.76);
+  --radius: 18px;
   --radius-sm: 12px;
-  --shadow: 0 1px 2px rgba(18, 18, 18, 0.04), 0 10px 28px rgba(18, 18, 18, 0.06);
+  --shadow: 0 1px 2px rgba(18, 24, 40, 0.04), 0 12px 32px rgba(18, 24, 40, 0.07);
+  /* Liquid glass material */
+  --glass-bg: rgba(255, 255, 255, 0.42);
+  --glass-bg-strong: rgba(255, 255, 255, 0.58);
+  --glass-bg-soft: rgba(255, 255, 255, 0.28);
+  --glass-bg-tint: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.28) 42%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  --glass-border: rgba(255, 255, 255, 0.78);
+  --glass-border-dim: rgba(18, 24, 40, 0.08);
+  --glass-blur: 28px;
+  --glass-saturate: 1.75;
+  --glass-specular: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.12) 40%,
+    rgba(255, 255, 255, 0) 70%
+  );
   --shadow-glass:
-    0 1px 0 rgba(255, 255, 255, 0.72) inset,
-    0 8px 28px rgba(18, 18, 18, 0.07);
-  --glass-bg: rgba(255, 255, 255, 0.52);
-  --glass-bg-strong: rgba(255, 255, 255, 0.72);
-  --glass-bg-soft: rgba(255, 255, 255, 0.36);
-  --glass-border: rgba(255, 255, 255, 0.72);
-  --glass-border-dim: rgba(18, 18, 18, 0.08);
-  --glass-blur: 22px;
-  --glass-saturate: 1.55;
-  --tabbar-h: 56px;
-  --cart-dock-h: 60px;
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 -1px 0 rgba(255, 255, 255, 0.2) inset,
+    0 10px 36px rgba(18, 24, 40, 0.1),
+    0 2px 8px rgba(18, 24, 40, 0.04);
+  --shadow-glass-float:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 12px 40px rgba(18, 24, 40, 0.16),
+    0 2px 10px rgba(18, 24, 40, 0.06);
+  --tabbar-h: 58px;
+  --tabbar-float-gap: 10px;
+  --cart-dock-h: 64px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
   --max: 480px;
@@ -58,15 +77,21 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Shared frosted material */
+/**
+ * Liquid glass recipe (apply to any panel)
+ * - translucent fill + backdrop blur/saturation
+ * - bright rim + specular top wash (::before)
+ * - soft depth shadow
+ */
 .glass,
+.glass-strong,
 .card,
 .panel,
 .menu-row,
 .info-box,
-.error-box,
-.empty-box,
+.empty,
 .login-card,
+.login-panel,
 .settings-page .card,
 .date-sheet-panel,
 .quick-order-panel,
@@ -74,39 +99,139 @@
 .option-choice,
 .variant-btn,
 .shop-pill,
+.chip,
 .cat-chip,
-.ptr-badge {
-  background: var(--glass-bg);
+.ptr-badge,
+.menu-qty,
+.qty-control,
+.confirm-check,
+.page-header-action-icon,
+.page-header-icon-btn,
+.back-btn,
+.menu-fav-btn,
+.tabbar,
+.cart-dock-btn {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--glass-bg);
+  background-image: var(--glass-bg-tint);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-glass);
   -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
   backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
 }
 
-/* Stronger glass for chrome that floats over content */
 .glass-strong,
 .tabbar,
-.page-header-action-icon,
+.cart-dock-btn,
+.date-sheet-panel,
+.quick-order-panel,
+.page-header-icon-btn,
 .menu-fav-btn {
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
+  background-color: var(--glass-bg-strong);
+  box-shadow: var(--shadow-glass-float);
   -webkit-backdrop-filter: saturate(var(--glass-saturate))
-    blur(calc(var(--glass-blur) + 6px));
+    blur(calc(var(--glass-blur) + 10px));
   backdrop-filter: saturate(var(--glass-saturate))
-    blur(calc(var(--glass-blur) + 6px));
+    blur(calc(var(--glass-blur) + 10px));
 }
 
-/* Accessibility / weak GPUs: drop blur, keep light surfaces */
+/* Specular highlight strip (liquid glass rim light) */
+.glass::before,
+.glass-strong::before,
+.card::before,
+.panel::before,
+.menu-row::before,
+.tabbar::before,
+.cart-dock-btn::before,
+.date-sheet-panel::before,
+.quick-order-panel::before,
+.detail-checkout::before,
+.shop-pill::before,
+.chip::before,
+.option-choice::before,
+.variant-btn::before,
+.menu-qty::before,
+.ptr-badge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: var(--glass-specular);
+  opacity: 0.38;
+  mix-blend-mode: soft-light;
+}
+
+/* Keep interactive content above specular layer */
+.card > *,
+.panel > *,
+.menu-row > *,
+.tabbar > *,
+.cart-dock-btn > *,
+.date-sheet-panel > *,
+.quick-order-panel > *,
+.detail-checkout > *,
+.option-choice > *,
+.variant-btn > *,
+.menu-qty > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Pills: text must sit above specular without elevating the whole chip */
+.shop-pill,
+.chip {
+  z-index: 0;
+}
+
+/* Selected / active solids punch through glass */
+.shop-pill.is-active,
+.chip.is-active,
+.variant-btn.active,
+.tabbar-item.is-active {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.shop-pill.is-active::before,
+.chip.is-active::before,
+.variant-btn.active::before {
+  opacity: 0.15;
+}
+
+/* Error / info keep tint, still frosted */
+.error-box {
+  background-color: var(--red-soft) !important;
+  background-image: none !important;
+  border-color: rgba(209, 31, 69, 0.22) !important;
+  color: var(--red);
+  box-shadow: var(--shadow-glass);
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(18px);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(18px);
+}
+
+.info-box {
+  background-color: var(--blue-soft) !important;
+  background-image: none !important;
+  border-color: rgba(26, 109, 255, 0.2) !important;
+  color: var(--blue);
+}
+
+/* Accessibility / weak GPUs */
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --surface: #ffffff;
     --surface-2: #f0f0ed;
     --glass-bg: #ffffff;
-    --glass-bg-strong: #ffffff;
+    --glass-bg-strong: #fafbfd;
     --glass-bg-soft: #f4f5f7;
+    --glass-bg-tint: none;
     --line: #e6e6e2;
     --line-strong: #d4d4ce;
     --shadow-glass: var(--shadow);
+    --shadow-glass-float: var(--shadow);
   }
 
   .glass,
@@ -117,16 +242,39 @@
   .tabbar,
   .cart-dock-btn,
   .shop-pill,
-  .cat-chip,
+  .chip,
   .date-sheet-panel,
   .quick-order-panel,
   .option-choice,
   .variant-btn,
   .detail-checkout,
   .ptr-badge,
-  .menu-fav-btn {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+  .menu-fav-btn,
+  .menu-qty,
+  .page-header-icon-btn,
+  .error-box,
+  .info-box {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .glass::before,
+  .glass-strong::before,
+  .card::before,
+  .panel::before,
+  .menu-row::before,
+  .tabbar::before,
+  .cart-dock-btn::before,
+  .date-sheet-panel::before,
+  .quick-order-panel::before,
+  .detail-checkout::before,
+  .shop-pill::before,
+  .chip::before,
+  .option-choice::before,
+  .variant-btn::before,
+  .menu-qty::before,
+  .ptr-badge::before {
+    display: none;
   }
 }
 
@@ -156,28 +304,32 @@ body,
 
 body {
   min-width: 320px;
-  /* Liquid wash — brand yellow + cool blue/green glows */
+  /* Deeper ambient so frosted panels can “refract” something */
   background-color: var(--bg);
   background-image:
     radial-gradient(
-      900px 520px at 8% -8%,
-      rgba(254, 229, 0, 0.28),
+      980px 560px at 6% -12%,
+      rgba(254, 229, 0, 0.38),
       transparent 58%
     ),
     radial-gradient(
-      780px 480px at 100% 12%,
-      rgba(26, 109, 255, 0.14),
-      transparent 55%
+      820px 520px at 108% 8%,
+      rgba(88, 140, 255, 0.28),
+      transparent 54%
     ),
     radial-gradient(
-      700px 420px at 70% 100%,
-      rgba(15, 138, 95, 0.1),
-      transparent 50%
+      720px 460px at 40% 110%,
+      rgba(56, 200, 150, 0.16),
+      transparent 52%
     ),
-    linear-gradient(180deg, #f4f7fc 0%, var(--bg) 42%, var(--bg-deep) 100%);
+    radial-gradient(
+      600px 400px at 80% 60%,
+      rgba(255, 255, 255, 0.35),
+      transparent 60%
+    ),
+    linear-gradient(165deg, #eef3fb 0%, var(--bg) 45%, var(--bg-deep) 100%);
   background-attachment: fixed;
   -webkit-text-size-adjust: 100%;
-  /* Native-app feel: no text selection / long-press callout */
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -211,13 +363,8 @@ body.is-standalone {
   overscroll-behavior-y: none;
 }
 
-@media (display-mode: standalone),
-  (display-mode: fullscreen),
-  (display-mode: minimal-ui) {
-  .tabbar {
-    padding-bottom: max(var(--safe-b), 0px);
-  }
-}
+/* Floating tabbar already clears the home indicator via bottom offset;
+   do not re-pad the island height in standalone. */
 
 /* ── Pull-to-refresh (standalone only; see usePullToRefresh) ── */
 
@@ -460,9 +607,12 @@ img {
   width: 100%;
   max-width: var(--max);
   margin: 0 auto;
-  /* Always reserve dock + tabbar; extra bottom air so last content isn't tight */
+  /* Floating tabbar + dock clearance */
   padding: calc(12px + var(--safe-t)) 16px
-    calc(var(--tabbar-h) + var(--cart-dock-h) + var(--safe-b) + 28px);
+    calc(
+      var(--tabbar-h) + var(--tabbar-float-gap) + var(--cart-dock-h) +
+        var(--safe-b) + 36px
+    );
 }
 
 /* Sub pages (detail / confirm): more bottom room under CTA */
@@ -473,61 +623,70 @@ img {
   padding-bottom: 24px;
 }
 
-/* ── Tab bar ── */
+/* ── Tab bar (floating liquid glass island) ── */
 
 .tabbar {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 50%;
+  right: auto;
+  bottom: calc(var(--tabbar-float-gap) + var(--safe-b));
   z-index: 60;
-  height: calc(var(--tabbar-h) + var(--safe-b));
-  padding: 0 4px var(--safe-b);
+  width: min(calc(100% - 24px), calc(var(--max) - 24px));
+  height: var(--tabbar-h);
+  padding: 4px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  background: var(--glass-bg-strong);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate))
-    blur(calc(var(--glass-blur) + 8px));
-  backdrop-filter: saturate(var(--glass-saturate))
-    blur(calc(var(--glass-blur) + 8px));
-  border-top: 1px solid var(--glass-border);
-  box-shadow: 0 -8px 28px rgba(18, 18, 18, 0.06);
+  gap: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  /* material from shared glass-strong */
+  overflow: hidden;
 }
 
 .tabbar-item {
   position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  min-height: var(--tabbar-h);
-  font-size: 0.68rem;
-  font-weight: 600;
+  gap: 2px;
+  min-height: calc(var(--tabbar-h) - 8px);
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--muted);
-  transition: color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .tabbar-item svg {
-  opacity: 0.85;
+  opacity: 0.88;
 }
 
 .tabbar-item.is-active {
   color: var(--ink);
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 4px 14px rgba(18, 24, 40, 0.08);
 }
 
 .tabbar-item.is-active::before {
   content: '';
   position: absolute;
-  top: 0;
+  top: 5px;
   left: 50%;
-  width: 28px;
-  height: 2px;
+  width: 18px;
+  height: 3px;
   transform: translateX(-50%);
-  border-radius: 0 0 2px 2px;
+  border-radius: 999px;
   background: var(--brand);
-  box-shadow: 0 0 0 1px rgba(25, 22, 0, 0.06);
+  box-shadow: 0 0 10px rgba(254, 229, 0, 0.65);
 }
 
 .tabbar-item.is-active svg {
@@ -563,13 +722,15 @@ img {
   transform: scale(1);
 }
 
-/* ── Cart dock (above tabbar, fixed height slot) ── */
+/* ── Cart dock (floating glass above tab island) ── */
 
 .cart-dock {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(var(--tabbar-h) + var(--safe-b));
+  bottom: calc(
+    var(--tabbar-h) + var(--tabbar-float-gap) + var(--safe-b) + 8px
+  );
   z-index: 55;
   height: var(--cart-dock-h);
   padding: 0 12px 8px;
@@ -594,24 +755,30 @@ img {
 
 .cart-dock-btn {
   width: 100%;
-  max-width: var(--max);
+  max-width: calc(var(--max) - 24px);
   margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 12px;
   min-height: 52px;
   height: 52px;
-  padding: 8px 10px 8px 8px;
-  border-radius: 16px;
-  /* Keep solid ink CTA; slight glass rim for liquid chrome */
-  background: rgba(18, 18, 18, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 8px 12px 8px 8px;
+  border-radius: 999px;
+  /* Dark liquid glass CTA */
+  background-color: rgba(18, 22, 32, 0.62) !important;
+  background-image: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.04) 45%,
+    rgba(0, 0, 0, 0.12) 100%
+  ) !important;
+  border: 1px solid rgba(255, 255, 255, 0.28) !important;
   color: #fff;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.1) inset,
-    0 12px 32px rgba(18, 18, 18, 0.28);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  backdrop-filter: blur(12px) saturate(1.2);
+    0 1px 0 rgba(255, 255, 255, 0.28) inset,
+    0 14px 40px rgba(18, 24, 40, 0.28) !important;
+  -webkit-backdrop-filter: saturate(1.6) blur(24px) !important;
+  backdrop-filter: saturate(1.6) blur(24px) !important;
   text-align: left;
 }
 
@@ -1435,9 +1602,10 @@ img {
   position: sticky;
   top: 0;
   z-index: 11;
-  background: rgba(233, 238, 246, 0.55);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(16px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(16px);
+  background: rgba(220, 228, 242, 0.45);
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(20px);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 /* Horizontal inset + same vertical pad (overrides shop-pills-scroll padding) */
@@ -1453,24 +1621,21 @@ img {
   max-height: 34px;
   padding-inline: 12px;
   border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--ink-2);
   white-space: nowrap;
-  box-shadow: var(--shadow-glass);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
+  /* glass from shared recipe */
 }
 
 .shop-pill.is-active {
-  background: var(--ink);
-  border-color: var(--ink);
+  background-color: var(--ink) !important;
+  background-image: none !important;
+  border-color: var(--ink) !important;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(18, 18, 18, 0.18);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.2) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /* ── Recent rail (horizontal only) ── */
@@ -2007,24 +2172,20 @@ img {
   max-height: 40px;
   padding-inline: 14px;
   border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--ink-2);
   white-space: nowrap;
-  box-shadow: var(--shadow-glass);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
 }
 
 .variant-btn.active {
-  background: var(--ink);
-  border-color: var(--ink);
+  background-color: var(--ink) !important;
+  background-image: none !important;
+  border-color: var(--ink) !important;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(18, 18, 18, 0.18);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.2) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 .variant-btn:disabled {
@@ -2051,23 +2212,19 @@ img {
   min-height: 48px;
   padding: 10px 14px;
   border-radius: 14px;
-  border: 1.5px solid var(--glass-border);
-  background: var(--glass-bg);
   text-align: left;
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--ink);
-  box-shadow: var(--shadow-glass);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
 }
 
 .option-choice.selected {
-  border-color: rgba(18, 18, 18, 0.45);
-  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(18, 24, 40, 0.4) !important;
+  background-color: rgba(255, 255, 255, 0.78) !important;
+  background-image: none !important;
   box-shadow:
-    inset 0 0 0 1px rgba(18, 18, 18, 0.35),
-    0 4px 16px rgba(18, 18, 18, 0.06);
+    inset 0 0 0 1px rgba(18, 24, 40, 0.28),
+    0 4px 16px rgba(18, 24, 40, 0.06) !important;
 }
 
 .option-choice:active {
@@ -2152,18 +2309,10 @@ img {
 .date-sheet-panel {
   width: 100%;
   max-width: var(--max);
-  background: var(--glass-bg-strong);
-  border: 1px solid var(--glass-border);
   border-bottom: none;
-  border-radius: 22px 22px 0 0;
+  border-radius: 28px 28px 0 0;
   padding: 8px 16px calc(16px + var(--safe-b));
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.75) inset,
-    0 -12px 40px rgba(18, 18, 18, 0.14);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate))
-    blur(calc(var(--glass-blur) + 10px));
-  backdrop-filter: saturate(var(--glass-saturate))
-    blur(calc(var(--glass-blur) + 10px));
+  /* liquid glass from shared recipe (strong) */
 }
 
 .date-sheet-handle {
@@ -3080,9 +3229,10 @@ img {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(233, 238, 246, 0.55);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(16px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(16px);
+  background: rgba(220, 228, 242, 0.45);
+  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(20px);
+  backdrop-filter: saturate(var(--glass-saturate)) blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
@@ -3107,24 +3257,20 @@ img {
   max-height: 34px;
   padding-inline: 12px;
   border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--ink-2);
   white-space: nowrap;
-  box-shadow: var(--shadow-glass);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
-  backdrop-filter: saturate(var(--glass-saturate)) blur(14px);
 }
 
 .chip.is-active {
-  background: var(--ink);
-  border-color: var(--ink);
+  background-color: var(--ink) !important;
+  background-image: none !important;
+  border-color: var(--ink) !important;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(18, 18, 18, 0.18);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  box-shadow: 0 4px 14px rgba(18, 24, 40, 0.2) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 .menu-dense {
@@ -3149,12 +3295,8 @@ img {
   box-sizing: border-box;
   text-align: left;
   padding: 8px 12px;
-  border-radius: 16px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  box-shadow: var(--shadow-glass);
-  -webkit-backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
-  backdrop-filter: saturate(var(--glass-saturate)) blur(var(--glass-blur));
+  border-radius: 18px;
+  /* glass material from shared recipe; keep overflow visible for fav badge */
   overflow: visible;
 }
 
@@ -3667,10 +3809,9 @@ img {
   gap: 0;
   height: 32px;
   width: 96px;
-  border-radius: 10px;
-  border: 1px solid var(--line-strong);
-  background: var(--surface);
+  border-radius: 12px;
   overflow: hidden;
+  /* glass from shared recipe */
 }
 
 .menu-qty.is-disabled {

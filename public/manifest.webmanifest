@@ -10,7 +10,7 @@
   "display": "standalone",
   "display_override": ["standalone", "browser"],
   "orientation": "portrait-primary",
-  "background_color": "#e9eef6",
+  "background_color": "#dce4f2",
   "theme_color": "#fee500",
   "categories": ["food", "utilities"],
   "icons": [
