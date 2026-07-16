@@ -109,11 +109,33 @@ describe('formatMenuBody', () => {
     expect(title).not.toMatch(/제육|파스타|엘리가|vercel|new-eliga/i)
     expect(body).toContain('한식A · 제육볶음')
     expect(body).toContain('파스타')
-    // Title must not restate body dishes
     for (const dish of ['제육볶음', '파스타']) {
       expect(title.includes(dish)).toBe(false)
       expect(body.includes(dish)).toBe(true)
     }
+  })
+
+  it('merges the same dish across 한식B / 팝업A into one body line', () => {
+    const period: DiningPeriod = {
+      time: '중식',
+      startTime: '11:00:00',
+      endTime: '14:00:00',
+      courses: [
+        course('한식B', '닭목살간장구이'),
+        course('팝업A', '닭목살간장구이'),
+        course('한식A', '미역국 [밸런스바이츠]'),
+        course('팝업B', '미역국'),
+      ],
+    }
+    const { body } = formatMenuBody(period, '중식')
+    const lines = body.split('\n')
+    // 닭목살: exact-name merge via groupDiningDishes
+    expect(lines.filter((l) => l.includes('닭목살간장구이'))).toHaveLength(1)
+    expect(body).toContain('한식B · 팝업A · 닭목살간장구이')
+    // 미역국: tag-stripped second-pass merge
+    expect(lines.filter((l) => l.includes('미역국'))).toHaveLength(1)
+    expect(body).toMatch(/한식A · 팝업B · 미역국|팝업B · 한식A · 미역국/)
+    expect(body).not.toContain('[밸런스')
   })
 
   it('handles empty period without branding', () => {

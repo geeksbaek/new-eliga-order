@@ -3,7 +3,10 @@
  * Prefs live in localStorage; firing uses Notification API (+ optional SW).
  */
 import { fetchDiningMenu } from '../api/eliga'
-import { groupDiningDishes } from './dining-group'
+import {
+  groupDiningDishes,
+  type GroupedDiningDish,
+} from './dining-group'
 import { todayISODate } from './format'
 import { CAFETERIA_SHOP_ID } from './shop-rules'
 import type { DiningPeriod } from './types'
@@ -213,17 +216,70 @@ export function fitMenuTitle(
 }
 
 /**
+ * Second-pass merge for notifications (same idea as home `groupDiningDishes`).
+ * Collapses rows that only differ by tags/notes after cleanNotifyDishName,
+ * and merges course labels (한식B + 팝업A → one line).
+ */
+export function mergeDishesForNotify(
+  dishes: GroupedDiningDish[],
+): Array<{ name: string; courseNames: string[] }> {
+  const map = new Map<string, { name: string; courseNames: string[] }>()
+  const order: string[] = []
+
+  for (const d of dishes) {
+    const display = cleanNotifyDishName(d.name) || d.name.trim()
+    const key = display.replace(/\s+/g, ' ').toLowerCase()
+    if (!key) continue
+
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, {
+        name: display,
+        courseNames: d.courseNames.map((c) => c.trim()).filter(Boolean),
+      })
+      order.push(key)
+      continue
+    }
+    for (const c of d.courseNames) {
+      const course = c.trim()
+      if (course && !existing.courseNames.includes(course)) {
+        existing.courseNames.push(course)
+      }
+    }
+  }
+
+  return order.map((k) => map.get(k)!)
+}
+
+/** One body line: `한식B · 팝업A · 메뉴명` (home courseLabel · name style). */
+export function formatNotifyDishLine(dish: {
+  name: string
+  courseNames: string[]
+}): string {
+  const name = cleanNotifyDishName(dish.name) || dish.name.trim()
+  const courses: string[] = []
+  for (const c of dish.courseNames) {
+    const t = c.trim()
+    if (t && !courses.includes(t)) courses.push(t)
+  }
+  const courseLabel = courses.join(' · ')
+  if (courseLabel && courseLabel !== name) {
+    return `${courseLabel} · ${name}`
+  }
+  return name
+}
+
+/**
  * Notification copy — title and body never repeat the same menu list.
  *
  * Chrome layout:
  *   [title]   오늘 중식
  *   [origin]  new-eliga.vercel.app   ← browser-owned
- *   [body]    한식A · 닭목살간장구이
- *             한식B · 얼큰돈내장국밥
- *             …
+ *   [body]    한식A · 팝업A · 삼계탕     ← same dish across courses = 1 line
+ *             한식B · 마늘보쌈
  *
  * Title = meal slot only (when).
- * Body  = course · dish lines once (what).
+ * Body  = deduped course · dish lines (what), same grouping spirit as home.
  */
 export function formatMenuBody(period: DiningPeriod | null, label: string): {
   title: string
@@ -237,7 +293,9 @@ export function formatMenuBody(period: DiningPeriod | null, label: string): {
       body: '등록된 식단이 없습니다.',
     }
   }
-  const dishes = groupDiningDishes(period.courses)
+  // Pass 1: home grouping (exact menu name across 한식A / 팝업A)
+  // Pass 2: tag-stripped name merge for notify display
+  const dishes = mergeDishesForNotify(groupDiningDishes(period.courses))
   if (!dishes.length) {
     return {
       title,
@@ -245,16 +303,7 @@ export function formatMenuBody(period: DiningPeriod | null, label: string): {
     }
   }
 
-  const lines = dishes.map((d) => {
-    const name = cleanNotifyDishName(d.name) || d.name
-    const course =
-      d.courseNames.length === 1 ? d.courseNames[0] : d.courseNames.join('/')
-    if (course && course.trim() && course.trim() !== name) {
-      return `${course.trim()} · ${name}`
-    }
-    return name
-  })
-
+  const lines = dishes.map(formatNotifyDishLine)
   return { title, body: lines.join('\n') }
 }
 
