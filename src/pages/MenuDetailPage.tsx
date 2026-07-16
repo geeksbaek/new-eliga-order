@@ -19,7 +19,11 @@ import {
   selectionsToOptions,
 } from '../lib/menu-options'
 import { saveQuickOrderSession } from '../lib/quick-order'
-import { baseMenuTitle } from '../lib/temp-variants'
+import {
+  baseMenuTitle,
+  pickDefaultVariant,
+  rememberTempFromVariant,
+} from '../lib/temp-variants'
 import { isFavorite, toggleFavorite } from '../lib/cafe-favorites'
 import { soldOutBlocksOrder } from '../lib/shop-rules'
 import { useShop } from '../hooks/useShop'
@@ -79,8 +83,7 @@ export function MenuDetailPage() {
       .then((d) => {
         if (cancelled) return
         setDetail(d)
-        const firstAvail =
-          d.variants.find((v) => !v.soldOut) ?? d.variants[0] ?? null
+        const firstAvail = pickDefaultVariant(d.variants)
         setVariantId(firstAvail?.goodsId ?? null)
         if (firstAvail) {
           setSelected(defaultSelections(firstAvail))
@@ -194,6 +197,7 @@ export function MenuDetailPage() {
     setError(null)
     setToast(null)
     try {
+      rememberTempFromVariant(variant)
       await addToCart({
         shopId,
         goodsId: variant.goodsId,
@@ -233,6 +237,7 @@ export function MenuDetailPage() {
     setError(null)
     setToast(null)
     try {
+      rememberTempFromVariant(variant)
       selectShop(shopId)
       const { cart: isolated, stashed } = await prepareIsolatedQuickOrder({
         shopId,
@@ -380,6 +385,7 @@ export function MenuDetailPage() {
                 className={`variant-btn${variantId === v.goodsId ? ' active' : ''}`}
                 disabled={v.soldOut}
                 onClick={() => {
+                  rememberTempFromVariant(v)
                   setVariantId(v.goodsId)
                   setSelected(defaultSelections(v))
                   setError(null)

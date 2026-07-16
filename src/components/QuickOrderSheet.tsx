@@ -7,7 +7,11 @@ import {
   isExclusiveMultiGroup,
   selectionsToOptions,
 } from '../lib/menu-options'
-import { classifyTemp } from '../lib/temp-variants'
+import {
+  classifyTemp,
+  pickDefaultVariant,
+  rememberTempFromVariant,
+} from '../lib/temp-variants'
 import type {
   GoodsOption,
   GoodsVariant,
@@ -25,22 +29,6 @@ type Props = {
   willReplaceCart?: boolean
   onConfirm: (variant: GoodsVariant, options: SelectedOption[]) => void
   onClose: () => void
-}
-
-function pickInitialVariant(
-  detail: MenuDetail,
-  preferredGoodsId?: number | null,
-): GoodsVariant | null {
-  const avail = detail.variants.filter((v) => !v.soldOut)
-  const pool = avail.length ? avail : detail.variants
-  if (!pool.length) return null
-  if (preferredGoodsId != null) {
-    const hit = pool.find((v) => v.goodsId === preferredGoodsId)
-    if (hit) return hit
-  }
-  // Prefer ICE when both exist (common cafe default); else first available
-  const ice = pool.find((v) => classifyTemp(v) === 'ice')
-  return ice ?? pool[0]
 }
 
 function missingRequiredLabels(
@@ -74,7 +62,7 @@ export function QuickOrderSheet({
 
   useEffect(() => {
     if (!open) return
-    const v = pickInitialVariant(detail, preferredGoodsId)
+    const v = pickDefaultVariant(detail.variants, preferredGoodsId)
     setVariantId(v?.goodsId ?? null)
     setSelected(v ? defaultSelections(v) : {})
   }, [open, detail, preferredGoodsId])
@@ -111,6 +99,7 @@ export function QuickOrderSheet({
 
   function selectVariant(v: GoodsVariant) {
     if (v.soldOut || busy) return
+    rememberTempFromVariant(v)
     setVariantId(v.goodsId)
     setSelected(defaultSelections(v))
   }
@@ -276,6 +265,7 @@ export function QuickOrderSheet({
               disabled={!canSubmit}
               onClick={() => {
                 if (!variant || !canSubmit) return
+                rememberTempFromVariant(variant)
                 onConfirm(variant, selectedOptions)
               }}
             >

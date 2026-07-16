@@ -1,12 +1,40 @@
-import { describe, expect, it } from 'vitest'
+/**
+ * @vitest-environment jsdom
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   baseMenuTitle,
   classifyTemp,
+  loadLastTempPref,
   needsTempPick,
   pickDefaultVariant,
+  saveLastTempPref,
   tempPickOptions,
 } from './temp-variants'
 import type { GoodsVariant } from './types'
+
+const mem = new Map<string, string>()
+
+beforeEach(() => {
+  mem.clear()
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        mem.set(k, String(v))
+      },
+      removeItem: (k: string) => {
+        mem.delete(k)
+      },
+      clear: () => mem.clear(),
+    },
+  })
+})
+
+afterEach(() => {
+  mem.clear()
+})
 
 function v(
   partial: Partial<GoodsVariant> & Pick<GoodsVariant, 'goodsId' | 'name'>,
@@ -57,13 +85,13 @@ describe('temp-variants', () => {
     expect(needsTempPick(iceSoldOut)).toBe(false)
   })
 
-  it('picks preferred goodsId when available', () => {
+  it('picks preferred goodsId when no temp pref', () => {
     const variants = [
       v({ goodsId: 10, name: 'HOT', displayName: 'HOT' }),
       v({ goodsId: 20, name: 'ICE', displayName: 'ICE' }),
     ]
-    expect(pickDefaultVariant(variants, 20)?.goodsId).toBe(20)
-    expect(pickDefaultVariant(variants, 99)?.goodsId).toBe(10)
+    expect(pickDefaultVariant(variants, 20, null)?.goodsId).toBe(20)
+    expect(pickDefaultVariant(variants, 99, null)?.goodsId).toBe(10)
     expect(
       pickDefaultVariant(
         [
@@ -71,8 +99,21 @@ describe('temp-variants', () => {
           v({ goodsId: 2, name: 'ICE' }),
         ],
         1,
+        null,
       )?.goodsId,
     ).toBe(2)
+  })
+
+  it('prefers last saved ICE/HOT over goodsId', () => {
+    const variants = [
+      v({ goodsId: 10, name: 'HOT', displayName: 'HOT' }),
+      v({ goodsId: 20, name: 'ICE', displayName: 'ICE' }),
+    ]
+    saveLastTempPref('hot')
+    expect(loadLastTempPref()).toBe('hot')
+    expect(pickDefaultVariant(variants, 20)?.goodsId).toBe(10)
+    saveLastTempPref('ice')
+    expect(pickDefaultVariant(variants, 10)?.goodsId).toBe(20)
   })
 
   it('strips trailing temp from title', () => {
