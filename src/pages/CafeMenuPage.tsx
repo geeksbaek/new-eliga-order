@@ -21,21 +21,11 @@ import { PageHeader } from '../components/PageHeader'
 import { formatWon } from '../lib/format'
 import { MenuThumb } from '../components/MenuThumb'
 import { CafeHeaderActions } from '../components/CafeHeaderActions'
-import { TempPickSheet } from '../components/TempPickSheet'
+import { QuickOrderSheet } from '../components/QuickOrderSheet'
 import { IconStar } from '../components/Icons'
-import {
-  defaultCartOptions,
-  hasCompleteSingleDefaults,
-} from '../lib/menu-options'
 import { saveQuickOrderSession } from '../lib/quick-order'
-import {
-  baseMenuTitle,
-  needsTempPick,
-  pickDefaultVariant,
-  tempPickOptions,
-  type TempPickOption,
-} from '../lib/temp-variants'
-import type { GoodsVariant } from '../lib/types'
+import { baseMenuTitle } from '../lib/temp-variants'
+import type { GoodsVariant, MenuDetail, SelectedOption } from '../lib/types'
 import {
   cacheIsFresh,
   cachePeek,
@@ -145,11 +135,12 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
   })
   const [actionError, setActionError] = useState<string | null>(null)
   const [quickBusyKey, setQuickBusyKey] = useState<string | null>(null)
-  const [tempPick, setTempPick] = useState<{
+  const [quickOrder, setQuickOrder] = useState<{
     shopId: number
     menuName: string
     displayId: number
-    options: TempPickOption[]
+    detail: MenuDetail
+    preferredGoodsId: number | null
     willReplaceCart: boolean
   } | null>(null)
 
@@ -745,14 +736,8 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
       displayId: number,
       menuName: string,
       variant: GoodsVariant,
+      options: SelectedOption[],
     ) => {
-      if (!hasCompleteSingleDefaults(variant)) {
-        setTempPick(null)
-        setQuickBusyKey(null)
-        navigate(`/cafe/${shopIdArg}/menu?d=${displayId}`)
-        return
-      }
-
       const busyKey = `${shopIdArg}:${displayId}`
       setQuickBusyKey(busyKey)
       setActionError(null)
@@ -761,7 +746,7 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
         const { cart: isolated, stashed } = await prepareIsolatedQuickOrder({
           shopId: shopIdArg,
           goodsId: variant.goodsId,
-          options: defaultCartOptions(variant),
+          options,
         })
         setCartLocal(isolated, shopIdArg)
         saveQuickOrderSession({
@@ -772,7 +757,7 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
           menuName,
           createdAt: Date.now(),
         })
-        setTempPick(null)
+        setQuickOrder(null)
         navigate('/order/confirm', {
           state: { quickOrder: true, shopId: shopIdArg },
         })
@@ -799,42 +784,28 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
     const busyKey = `${item.shopId}:${item.displayId}`
     setQuickBusyKey(busyKey)
     setActionError(null)
-    setTempPick(null)
+    setQuickOrder(null)
 
     try {
       const detail = await fetchCafeMenuDetail(item.displayId)
-      const title =
-        baseMenuTitle(item.name) ||
-        baseMenuTitle(detail.variants[0]?.name ?? item.name)
-
-      if (needsTempPick(detail.variants)) {
-        const options = tempPickOptions(detail.variants)
-        const existing = getCart(item.shopId)
-        setTempPick({
-          shopId: item.shopId,
-          menuName: title,
-          displayId: item.displayId,
-          options,
-          // Any non-empty cart is stashed/cleared before the 1-cup line is added
-          willReplaceCart: existing.items.length > 0,
-        })
-        setQuickBusyKey(null)
-        return
-      }
-
-      const variant = pickDefaultVariant(detail.variants, item.goodsId)
-      if (!variant) {
+      if (!detail.variants.length) {
         setActionError('주문 가능한 옵션이 없습니다')
         setQuickBusyKey(null)
         return
       }
-
-      await runIsolatedQuickOrder(
-        item.shopId,
-        item.displayId,
-        title,
-        variant,
-      )
+      const title =
+        baseMenuTitle(item.name) ||
+        baseMenuTitle(detail.variants[0]?.name ?? item.name)
+      const existing = getCart(item.shopId)
+      setQuickOrder({
+        shopId: item.shopId,
+        menuName: title,
+        displayId: item.displayId,
+        detail,
+        preferredGoodsId: item.goodsId,
+        willReplaceCart: existing.items.length > 0,
+      })
+      setQuickBusyKey(null)
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : '메뉴 정보를 불러오지 못했습니다',
@@ -843,13 +814,17 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
     }
   }
 
-  async function onTempPicked(opt: TempPickOption) {
-    if (!tempPick) return
-    await runIsolatedQuickOrder(
-      tempPick.shopId,
-      tempPick.displayId,
-      tempPick.menuName,
-      opt.variant,
+  function onQuickOrderConfirm(
+    variant: GoodsVariant,
+    options: SelectedOption[],
+  ) {
+    if (!quickOrder) return
+    void runIsolatedQuickOrder(
+      quickOrder.shopId,
+      quickOrder.displayId,
+      quickOrder.menuName,
+      variant,
+      options,
     )
   }
 
@@ -1243,18 +1218,21 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
         </div>
 
         <ImagePreview image={preview} onClose={() => setPreview(null)} />
-        <TempPickSheet
-          open={tempPick != null}
-          menuName={tempPick?.menuName ?? ''}
-          options={tempPick?.options ?? []}
-          busy={quickBusyKey != null}
-          willReplaceCart={tempPick?.willReplaceCart ?? false}
-          onPick={(opt) => void onTempPicked(opt)}
-          onClose={() => {
-            if (quickBusyKey != null) return
-            setTempPick(null)
-          }}
-        />
+        {quickOrder && (
+          <QuickOrderSheet
+            open
+            menuName={quickOrder.menuName}
+            detail={quickOrder.detail}
+            preferredGoodsId={quickOrder.preferredGoodsId}
+            busy={quickBusyKey != null}
+            willReplaceCart={quickOrder.willReplaceCart}
+            onConfirm={onQuickOrderConfirm}
+            onClose={() => {
+              if (quickBusyKey != null) return
+              setQuickOrder(null)
+            }}
+          />
+        )}
       </div>
   )
 }
