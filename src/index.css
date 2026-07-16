@@ -688,19 +688,24 @@ img {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
     0 4px 14px rgba(18, 24, 40, 0.08);
+  /* room for brand bar under the label */
+  padding-bottom: 2px;
 }
 
+/* Brand bar under label — never over the icon */
 .tabbar-item.is-active::before {
   content: '';
   position: absolute;
-  top: 5px;
+  top: auto;
+  bottom: 5px;
   left: 50%;
-  width: 18px;
+  width: 16px;
   height: 3px;
   transform: translateX(-50%);
   border-radius: 999px;
   background: var(--brand);
-  box-shadow: 0 0 10px rgba(254, 229, 0, 0.65);
+  box-shadow: 0 0 8px rgba(254, 229, 0, 0.55);
+  z-index: 2;
 }
 
 .tabbar-item.is-active svg {
@@ -3721,12 +3726,33 @@ img {
   margin-top: 0;
 }
 
+/* Same chip layout as menu detail (.option-group) */
+.quick-order-section.option-group {
+  margin-top: 14px;
+}
+
 .quick-order-section-title {
   margin: 0 0 8px;
   font-size: 0.88rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--ink);
+}
+
+/* Selected chips inside sheet: solid ink like detail page */
+.quick-order-panel .option-group .option-choice.selected {
+  border-color: var(--ink) !important;
+  background-color: var(--ink) !important;
+  background-image: none !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.quick-order-panel .option-group .option-choice.selected .option-choice-price {
+  opacity: 0.88;
+  color: #fff;
 }
 
 .quick-order-empty {

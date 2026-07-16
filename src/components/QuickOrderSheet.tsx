@@ -206,7 +206,10 @@ export function QuickOrderSheet({
             variant.options.map((opt) => {
               const exclusive = isExclusiveMultiGroup(opt)
               return (
-                <section key={opt.optionId} className="quick-order-section">
+                <section
+                  key={opt.optionId}
+                  className="quick-order-section option-group"
+                >
                   <h3 className="quick-order-section-title">
                     {opt.name}
                     {!opt.multiSelect || exclusive ? ' (택 1)' : ' (선택)'}
