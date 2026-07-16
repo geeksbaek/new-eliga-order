@@ -1724,7 +1724,12 @@ img {
 
 .shop-pills-scroll {
   flex-wrap: nowrap;
+  /* Must set both axes: overflow-x:auto alone makes overflow-y compute to auto */
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  touch-action: pan-x;
   margin: 0 -16px 12px;
   padding: 0 16px 2px;
   -webkit-overflow-scrolling: touch;
@@ -1763,6 +1768,8 @@ img {
     blur(calc(var(--glass-blur) + 8px));
   backdrop-filter: saturate(var(--glass-saturate))
     blur(calc(var(--glass-blur) + 8px));
+  /* Stack itself must not become a vertical scroller */
+  overflow: visible;
 }
 
 .cafe-sticky-top .page-header {
@@ -1791,7 +1798,9 @@ img {
 }
 
 .cafe-shop-pills {
+  /* Fixed band height — never grow / never vertical-scroll */
   height: var(--cafe-shop-stick-h);
+  max-height: var(--cafe-shop-stick-h);
   margin-bottom: 0;
   padding-block: var(--chip-gap);
   align-items: center;
@@ -1805,6 +1814,11 @@ img {
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  touch-action: pan-x;
 }
 
 /* Horizontal inset + same vertical pad (overrides shop-pills-scroll padding) */
@@ -1812,11 +1826,13 @@ img {
 .cafe-sticky-top .cafe-shop-pills.shop-pills-scroll {
   margin: 0;
   padding: var(--chip-gap) 16px;
+  /* Keep total height = --cafe-shop-stick-h (do not add extra bottom pad) */
+  box-sizing: border-box;
 }
 
-/* When pills are last in the stack (favorites / cart), a bit more bottom air */
+/* Favorites / cart: last strip — no extra padding that would overflow height */
 .cafe-sticky-top > .cafe-shop-pills:last-child {
-  padding-bottom: calc(var(--chip-gap) + 2px);
+  padding-bottom: var(--chip-gap);
 }
 
 .shop-pill {
