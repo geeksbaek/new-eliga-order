@@ -595,11 +595,6 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
     return menus.filter((m) => m.categoryId === activeCat)
   }, [menus, activeCat, isFavView, favEntries])
 
-  const availableCount = useMemo(
-    () => visibleMenus.filter((m) => !m.soldOut).length,
-    [visibleMenus],
-  )
-
   /**
    * Per-shop list: 즐겨찾기 → BEST → NEW → 전체 메뉴.
    * Favorited items appear only in the 즐겨찾기 block (no duplicate below).
@@ -828,25 +823,10 @@ export function CafeMenuPage({ listActive = true }: CafeMenuPageProps) {
     )
   }
 
-  const headerSub = (() => {
-    if (isFavView) {
-      return loading && menus.length === 0
-        ? '메뉴 불러오는 중'
-        : `${visibleMenus.length}개 · 매장별 운영시간에 주문`
-    }
-    if (loading && menus.length === 0) return '메뉴 불러오는 중'
-    const count = `${visibleMenus.length}개 · 주문 가능 ${availableCount}`
-    if (shopHours && shopHours.hoursLabel) {
-      return `${count} · ${shopHours.statusLabel}`
-    }
-    return count
-  })()
-
   return (
       <div className="cafe">
         <PageHeader
           title={shopName}
-          sub={headerSub}
           trailing={
             <CafeHeaderActions active={isFavView ? 'fav' : null} />
           }
