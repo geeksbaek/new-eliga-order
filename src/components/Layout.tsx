@@ -21,7 +21,7 @@ import {
 } from '../lib/shop-rules'
 import { MealNotifyRunner } from './MealNotifyRunner'
 import { PullToRefreshIndicator } from './PullToRefresh'
-import { IconCup, IconHome, IconReceipt, IconUtensils } from './Icons'
+import { IconBag, IconCup, IconHome, IconReceipt, IconUtensils } from './Icons'
 
 export function Layout() {
   const {
@@ -128,8 +128,8 @@ export function Layout() {
   const tabIdx = mainTabIndex(tab)
   const viewKey = `${pageViewKey(path)}::${contentKey}`
 
-  // Tab badge: all shops (hint that another cafe has items)
-  const tabBadge = cartCountAll
+  // Cart tab badge: all cafe carts
+  const cartTabBadge = cartCountAll
 
   return (
     <div className="app-shell" data-tab={tab}>
@@ -169,12 +169,13 @@ export function Layout() {
       </div>
 
       <nav
-        className="tabbar"
+        className="tabbar tabbar-5"
         aria-label="주요 메뉴"
         data-active={tab}
         style={
           {
             ['--tab-index' as string]: String(tabIdx),
+            ['--tab-count' as string]: '5',
           } as React.CSSProperties
         }
       >
@@ -199,16 +200,23 @@ export function Layout() {
           to={cafePath}
           className={() => `tabbar-item${tab === 'cafe' ? ' is-active' : ''}`}
         >
+          <IconCup />
+          <span>카페</span>
+        </NavLink>
+        <NavLink
+          to="/cart"
+          className={() => `tabbar-item${tab === 'cart' ? ' is-active' : ''}`}
+        >
           <span className="tabbar-icon-wrap">
-            <IconCup />
+            <IconBag />
             <span
-              className={`tabbar-badge${tabBadge > 0 ? ' is-on' : ''}`}
-              aria-hidden={tabBadge <= 0}
+              className={`tabbar-badge${cartTabBadge > 0 ? ' is-on' : ''}`}
+              aria-hidden={cartTabBadge <= 0}
             >
-              {tabBadge > 9 ? '9+' : tabBadge || ''}
+              {cartTabBadge > 9 ? '9+' : cartTabBadge || ''}
             </span>
           </span>
-          <span>카페</span>
+          <span>장바구니</span>
         </NavLink>
         <NavLink
           to="/orders"

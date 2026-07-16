@@ -82,7 +82,7 @@ export function CartPage() {
         <div className="cafe-sticky-top">
           <PageHeader
             title="장바구니"
-            trailing={<CafeHeaderActions active="cart" />}
+            trailing={<CafeHeaderActions />}
           />
         </div>
         <Empty>
@@ -99,7 +99,7 @@ export function CartPage() {
       <div className="cafe-sticky-top">
         <PageHeader
           title="장바구니"
-          trailing={<CafeHeaderActions active="cart" />}
+          trailing={<CafeHeaderActions />}
         />
 
         {cafeShops.length > 0 && (

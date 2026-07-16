@@ -11,7 +11,8 @@ describe('route-motion', () => {
     expect(mainTabFromPath('/dining/7')).toBe('dining')
     expect(mainTabFromPath('/cafe/5')).toBe('cafe')
     expect(mainTabFromPath('/cafe/5/menu')).toBe('cafe')
-    expect(mainTabFromPath('/cart')).toBe('cafe')
+    expect(mainTabFromPath('/cart')).toBe('cart')
+    expect(mainTabFromPath('/order/confirm')).toBe('cart')
     expect(mainTabFromPath('/orders')).toBe('orders')
   })
 
@@ -25,6 +26,7 @@ describe('route-motion', () => {
     expect(mainTabIndex('home')).toBe(0)
     expect(mainTabIndex('dining')).toBe(1)
     expect(mainTabIndex('cafe')).toBe(2)
-    expect(mainTabIndex('orders')).toBe(3)
+    expect(mainTabIndex('cart')).toBe(3)
+    expect(mainTabIndex('orders')).toBe(4)
   })
 })

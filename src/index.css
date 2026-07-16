@@ -648,16 +648,17 @@ img {
 
 .tabbar {
   --tab-index: 0;
+  --tab-count: 5;
   position: fixed;
   left: 50%;
   right: auto;
   bottom: calc(var(--tabbar-float-gap) + var(--safe-b));
   z-index: 60;
-  width: min(calc(100% - 24px), calc(var(--max) - 24px));
+  width: min(calc(100% - 20px), calc(var(--max) - 16px));
   height: var(--tabbar-h);
   padding: 4px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--tab-count), 1fr);
   gap: 2px;
   transform: translateX(-50%);
   border-radius: 999px;
@@ -666,21 +667,23 @@ img {
   overflow: hidden;
 }
 
-/* Sliding active pill (moves home → dining → cafe → orders) */
+/* Sliding active pill (home → dining → cafe → cart → orders) */
 .tabbar-pill {
   position: absolute;
   z-index: 0;
   top: 4px;
   bottom: 4px;
   left: 4px;
-  width: calc((100% - 8px - 6px) / 4);
+  /* gaps: (n-1)*2px between n cells */
+  width: calc(
+    (100% - 8px - (var(--tab-count) - 1) * 2px) / var(--tab-count)
+  );
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.75);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.95) inset,
     0 4px 16px rgba(18, 24, 40, 0.1);
-  /* gap 2px between 4 cells → step = cell + gap */
   transform: translateX(calc(var(--tab-index) * (100% + 2px)));
   transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
@@ -709,9 +712,9 @@ img {
   gap: 2px;
   min-height: calc(var(--tabbar-h) - 8px);
   border-radius: 999px;
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   color: var(--muted);
   background: transparent;
   transition:
