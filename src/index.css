@@ -3446,9 +3446,14 @@ img {
   display: flex;
   gap: 6px;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
+  touch-action: pan-x;
   margin: 0 -16px 10px;
   padding: 0 16px;
   height: 42px;
+  max-height: 42px;
   box-sizing: border-box;
   align-items: center;
   position: sticky;
@@ -3468,14 +3473,19 @@ img {
   top: auto;
   z-index: auto;
   height: var(--cafe-cat-stick-h, 46px);
+  max-height: var(--cafe-cat-stick-h, 46px);
   margin: 0;
-  padding: var(--chip-gap, 6px) 16px 4px;
+  /* Symmetric pad so height stays exact (uneven bottom pad caused y-scroll) */
+  padding: var(--chip-gap, 6px) 16px;
   box-sizing: border-box;
   background: transparent;
   border: none;
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x;
 }
 
 .chip-strip::-webkit-scrollbar {
