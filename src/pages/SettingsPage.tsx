@@ -344,7 +344,10 @@ export function SettingsPage() {
           : '원하는 식사 알림을 켜 보세요. 기본 시각은 중식 10:40, 석식 17:00입니다.'}
       </p>
 
-      <section className="settings-card" aria-labelledby="account-title">
+      <section
+        className="settings-card settings-card-account"
+        aria-labelledby="account-title"
+      >
         <div className="settings-card-head">
           <h2 id="account-title" className="settings-card-title">
             계정
