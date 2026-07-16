@@ -5228,3 +5228,13 @@ img {
   font-weight: 500;
   line-height: 1.45;
 }
+
+.settings-account-id {
+  margin-bottom: 12px !important;
+  word-break: break-all;
+}
+
+.settings-logout-btn {
+  color: var(--red);
+  border-color: rgba(209, 31, 69, 0.22);
+}

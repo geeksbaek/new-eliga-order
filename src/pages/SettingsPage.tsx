@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ErrorBox, InfoBox } from '../components/UiState'
 import { PageHeader } from '../components/PageHeader'
 import {
@@ -17,6 +18,7 @@ import {
 import { CAFETERIA_SHOP_ID } from '../lib/shop-rules'
 import { useShop } from '../hooks/useShop'
 import { isCafeteriaShop } from '../lib/shop-rules'
+import { useAuth } from '../hooks/useAuth'
 
 function permissionLabel(p: NotificationPermission | 'unsupported'): string {
   switch (p) {
@@ -34,6 +36,8 @@ function permissionLabel(p: NotificationPermission | 'unsupported'): string {
 }
 
 export function SettingsPage() {
+  const navigate = useNavigate()
+  const { userId, logout } = useAuth()
   const { shops } = useShop()
   const [prefs, setPrefs] = useState<NotificationPrefs>(() =>
     loadNotificationPrefs(),
@@ -289,6 +293,27 @@ export function SettingsPage() {
           ? '알림은 하루에 식사 종류마다 한 번만 보냅니다. 시각 이후 약 15분 안에 앱이 실행 중이면 발송됩니다.'
           : '원하는 식사 알림을 켜 보세요. 기본 시각은 중식 10:40, 석식 17:00입니다.'}
       </p>
+
+      <section className="settings-card" aria-labelledby="account-title">
+        <div className="settings-card-head">
+          <h2 id="account-title" className="settings-card-title">
+            계정
+          </h2>
+        </div>
+        {userId ? (
+          <p className="settings-card-desc settings-account-id">{userId}</p>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-ghost btn-block settings-logout-btn"
+          onClick={() => {
+            logout()
+            navigate('/login', { replace: true })
+          }}
+        >
+          로그아웃
+        </button>
+      </section>
     </div>
   )
 }

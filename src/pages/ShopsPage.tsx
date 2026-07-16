@@ -140,7 +140,7 @@ export function ShopsPage() {
     selectShop,
     refreshShops,
   } = useShop()
-  const { userId, logout } = useAuth()
+  const { userId } = useAuth()
   const navigate = useNavigate()
   useScrollRestore()
 
@@ -341,26 +341,14 @@ export function ShopsPage() {
         kicker={todayISODate()}
         title={shortName || '엘리가오더'}
         trailing={
-          <>
-            <button
-              type="button"
-              className="page-header-action-icon"
-              aria-label="설정"
-              onClick={() => navigate('/settings')}
-            >
-              <IconSettings size={20} />
-            </button>
-            <button
-              type="button"
-              className="page-header-action"
-              onClick={() => {
-                logout()
-                navigate('/login', { replace: true })
-              }}
-            >
-              로그아웃
-            </button>
-          </>
+          <button
+            type="button"
+            className="page-header-action-icon"
+            aria-label="설정"
+            onClick={() => navigate('/settings')}
+          >
+            <IconSettings size={20} />
+          </button>
         }
       />
 
