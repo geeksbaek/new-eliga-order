@@ -35,7 +35,7 @@ export function CartPage() {
 
   const cafeShops = useMemo(() => listCafeShops(shops), [shops])
 
-  const { changeLineQty, removeLine } = useCartMutations({
+  const { changeLineQty, removeLine, clearAllLines } = useCartMutations({
     onError: (err) => {
       setError(
         err.error instanceof Error
@@ -44,6 +44,26 @@ export function CartPage() {
       )
     },
   })
+  const [clearing, setClearing] = useState(false)
+
+  const handleClearCart = async () => {
+    if (clearing || cart.items.length === 0) return
+    const shopLabel = selectedShop?.name ?? '이 매장'
+    if (
+      !window.confirm(
+        `${shopLabel} 장바구니를 모두 비울까요?\n담긴 메뉴 ${cart.items.length}개가 삭제됩니다.`,
+      )
+    ) {
+      return
+    }
+    setError(null)
+    setClearing(true)
+    try {
+      await clearAllLines()
+    } finally {
+      setClearing(false)
+    }
+  }
 
   // Ensure a cafe is selected when landing on cart
   useEffect(() => {
@@ -203,81 +223,97 @@ export function CartPage() {
       )}
 
       {!showInitialLoading && cart.items.length > 0 && (
-        <div className="cart-line-list">
-          {cart.items.map((item) => (
-            <article key={item.cartItemId} className="cart-line">
-              <div className="cart-line-thumb" aria-hidden>
-                <MenuThumb
-                  src={item.thumbnailUrl}
-                  width={56}
-                  height={56}
-                />
-              </div>
-              <div className="cart-line-main">
-                <p className="cart-line-name">{item.name}</p>
-                {item.options.length > 0 ? (
-                  <p className="cart-line-opts">
-                    {item.options
-                      .map((o) => `${o.option}: ${o.value}`)
-                      .join(' · ')}
-                  </p>
-                ) : (
-                  <p className="cart-line-opts cart-line-unit">
-                    {formatWon(item.price)} / 개
-                  </p>
-                )}
-              </div>
-              <div className="cart-line-side">
-                <strong className="cart-line-total">
-                  {formatWon(lineTotal(item))}
-                </strong>
-                <div className="menu-qty">
+        <>
+          <div className="cart-toolbar">
+            <button
+              type="button"
+              className="cart-clear-btn"
+              disabled={clearing}
+              onClick={() => void handleClearCart()}
+            >
+              <IconTrash size={15} />
+              <span>{clearing ? '비우는 중…' : '장바구니 비우기'}</span>
+            </button>
+          </div>
+
+          <div className="cart-line-list">
+            {cart.items.map((item) => (
+              <article key={item.cartItemId} className="cart-line">
+                <div className="cart-line-thumb" aria-hidden>
+                  <MenuThumb
+                    src={item.thumbnailUrl}
+                    width={56}
+                    height={56}
+                  />
+                </div>
+                <div className="cart-line-main">
+                  <p className="cart-line-name">{item.name}</p>
+                  {item.options.length > 0 ? (
+                    <p className="cart-line-opts">
+                      {item.options
+                        .map((o) => `${o.option}: ${o.value}`)
+                        .join(' · ')}
+                    </p>
+                  ) : (
+                    <p className="cart-line-opts cart-line-unit">
+                      {formatWon(item.price)} / 개
+                    </p>
+                  )}
+                </div>
+                <div className="cart-line-side">
+                  <strong className="cart-line-total">
+                    {formatWon(lineTotal(item))}
+                  </strong>
+                  <div className="menu-qty">
+                    <button
+                      type="button"
+                      className="menu-qty-btn"
+                      aria-label={`${item.name} 수량 감소`}
+                      onClick={() => {
+                        setError(null)
+                        changeLineQty(item.cartItemId, item.qty - 1)
+                      }}
+                    >
+                      −
+                    </button>
+                    <span className="menu-qty-val" aria-live="polite">
+                      {item.qty}
+                    </span>
+                    <button
+                      type="button"
+                      className="menu-qty-btn menu-qty-btn-plus"
+                      aria-label={`${item.name} 수량 증가`}
+                      disabled={hoursBlockOrder}
+                      onClick={() => {
+                        if (hoursBlockOrder) {
+                          setError(
+                            hours?.message ?? '지금은 주문할 수 없습니다',
+                          )
+                          return
+                        }
+                        setError(null)
+                        changeLineQty(item.cartItemId, item.qty + 1)
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="menu-qty-btn"
-                    aria-label={`${item.name} 수량 감소`}
+                    className="cart-line-remove"
+                    aria-label={`${item.name} 삭제`}
                     onClick={() => {
                       setError(null)
-                      changeLineQty(item.cartItemId, item.qty - 1)
+                      void removeLine(item.cartItemId)
                     }}
                   >
-                    −
-                  </button>
-                  <span className="menu-qty-val" aria-live="polite">
-                    {item.qty}
-                  </span>
-                  <button
-                    type="button"
-                    className="menu-qty-btn menu-qty-btn-plus"
-                    aria-label={`${item.name} 수량 증가`}
-                    disabled={hoursBlockOrder}
-                    onClick={() => {
-                      if (hoursBlockOrder) {
-                        setError(hours?.message ?? '지금은 주문할 수 없습니다')
-                        return
-                      }
-                      setError(null)
-                      changeLineQty(item.cartItemId, item.qty + 1)
-                    }}
-                  >
-                    +
+                    <IconTrash size={16} />
                   </button>
                 </div>
-                <button
-                  type="button"
-                  className="cart-line-remove"
-                  aria-label={`${item.name} 삭제`}
-                  onClick={() => {
-                    setError(null)
-                    void removeLine(item.cartItemId)
-                  }}
-                >
-                  <IconTrash size={16} />
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+              </article>
+            ))}
+          </div>
+        </>
       )}
 
       {cart.items.length > 0 && (
@@ -296,7 +332,7 @@ export function CartPage() {
           <button
             type="button"
             className="btn btn-primary btn-block"
-            disabled={hoursBlockOrder || !isSelectedCafeOpen}
+            disabled={hoursBlockOrder || !isSelectedCafeOpen || clearing}
             onClick={() => {
               if (hoursBlockOrder) {
                 setError(hours?.message ?? '지금은 주문할 수 없습니다')

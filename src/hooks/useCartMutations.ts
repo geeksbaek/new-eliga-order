@@ -6,6 +6,7 @@
 import { useCallback, useRef } from 'react'
 import {
   addToCart,
+  clearCart,
   deleteCartItems,
   fetchCafeMenuDetail,
   fetchCart,
@@ -376,6 +377,48 @@ export function useCartMutations(opts: Options = {}) {
     [changeLineQty],
   )
 
+  /** Drop every line in the shop cart (optimistic, then server clear). */
+  const clearAllLines = useCallback(
+    async (shopIdArg?: number) => {
+      const shopId = shopIdArg ?? selectedShopId
+      if (shopId == null) return
+
+      const current = getCart(shopId)
+      if (current.items.length === 0) return
+
+      // Abandon in-flight / debounced line qty syncs so they cannot re-fill
+      for (const item of current.items) {
+        const timer = lineTimers.current.get(item.cartItemId)
+        if (timer != null) window.clearTimeout(timer)
+        lineTimers.current.delete(item.cartItemId)
+        lineGen.current.set(
+          item.cartItemId,
+          (lineGen.current.get(item.cartItemId) ?? 0) + 1,
+        )
+        targetLineQty.current.delete(item.cartItemId)
+        lineGoods.current.delete(item.cartItemId)
+      }
+
+      setCartLocal(
+        {
+          cartId: current.cartId,
+          shopId,
+          items: [],
+        },
+        shopId,
+      )
+
+      try {
+        const fresh = await clearCart(shopId)
+        setCartLocal({ ...fresh, shopId: fresh.shopId ?? shopId }, shopId)
+      } catch (e) {
+        await refreshCart({ silent: true, shopId, force: true })
+        report({ error: e, code: 'SYNC_FAILED' })
+      }
+    },
+    [selectedShopId, getCart, setCartLocal, refreshCart, report],
+  )
+
   const addFromDetail = useCallback(
     async (params: {
       shopId: number
@@ -426,6 +469,7 @@ export function useCartMutations(opts: Options = {}) {
     bumpMenuQty,
     changeLineQty,
     removeLine,
+    clearAllLines,
     addFromDetail,
   }
 }
