@@ -7,6 +7,11 @@ import { cartGrandTotal } from '../lib/cart-math'
 import { formatWon } from '../lib/format'
 import { cacheInvalidate } from '../lib/query-cache'
 import {
+  mainTabFromPath,
+  mainTabIndex,
+  pageViewKey,
+} from '../lib/route-motion'
+import {
   CAFETERIA_SHOP_ID,
   DEFAULT_CAFE_SHOP_ID,
   canOrderFromShop,
@@ -119,18 +124,9 @@ export function Layout() {
     null
   const cafePath = `/cafe/${cafeShop?.shopId ?? DEFAULT_CAFE_SHOP_ID}`
 
-  const tab =
-    path === '/'
-      ? 'home'
-      : path.startsWith('/dining')
-        ? 'dining'
-        : path.startsWith('/orders')
-          ? 'orders'
-          : path.startsWith('/cafe') ||
-              path.startsWith('/cart') ||
-              path.startsWith('/order')
-            ? 'cafe'
-            : 'home'
+  const tab = mainTabFromPath(path)
+  const tabIdx = mainTabIndex(tab)
+  const viewKey = `${pageViewKey(path)}::${contentKey}`
 
   // Tab badge: all shops (hint that another cafe has items)
   const tabBadge = cartCountAll
@@ -140,7 +136,10 @@ export function Layout() {
       <MealNotifyRunner />
       <PullToRefreshIndicator state={ptr} />
       <main className="app-main">
-        <Outlet key={contentKey} />
+        {/* Keyed shell: re-run enter motion on route change (cafe list/detail share key) */}
+        <div key={viewKey} className="page-view">
+          <Outlet />
+        </div>
       </main>
 
       {/* Fixed overlay: always mounted to avoid layout jump when cart appears */}
@@ -169,7 +168,18 @@ export function Layout() {
         )}
       </div>
 
-      <nav className="tabbar" aria-label="주요 메뉴">
+      <nav
+        className="tabbar"
+        aria-label="주요 메뉴"
+        data-active={tab}
+        style={
+          {
+            ['--tab-index' as string]: String(tabIdx),
+          } as React.CSSProperties
+        }
+      >
+        {/* Sliding liquid glass pill under the active tab */}
+        <span className="tabbar-pill" aria-hidden />
         <NavLink
           to="/"
           end

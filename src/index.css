@@ -637,9 +637,10 @@ img {
   padding-bottom: 24px;
 }
 
-/* ── Tab bar (floating liquid glass island) ── */
+/* ── Tab bar (floating liquid glass island + sliding pill) ── */
 
 .tabbar {
+  --tab-index: 0;
   position: fixed;
   left: 50%;
   right: auto;
@@ -658,6 +659,39 @@ img {
   overflow: hidden;
 }
 
+/* Sliding active pill (moves home → dining → cafe → orders) */
+.tabbar-pill {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px - 6px) / 4);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 4px 16px rgba(18, 24, 40, 0.1);
+  /* gap 2px between 4 cells → step = cell + gap */
+  transform: translateX(calc(var(--tab-index) * (100% + 2px)));
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.tabbar-pill::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 14px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--brand);
+  box-shadow: 0 0 8px rgba(254, 229, 0, 0.55);
+}
+
 .tabbar-item {
   position: relative;
   z-index: 1;
@@ -672,44 +706,39 @@ img {
   font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--muted);
+  background: transparent;
   transition:
-    color 0.15s ease,
-    background 0.18s ease,
-    box-shadow 0.18s ease;
+    color 0.22s ease,
+    opacity 0.22s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .tabbar-item svg {
   opacity: 0.88;
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .tabbar-item.is-active {
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 4px 14px rgba(18, 24, 40, 0.08);
-  /* room for brand bar under the label */
+  background: transparent;
+  box-shadow: none;
   padding-bottom: 2px;
 }
 
-/* Brand bar under label — never over the icon */
+/* Brand bar lives on sliding pill — no per-item ::before */
 .tabbar-item.is-active::before {
-  content: '';
-  position: absolute;
-  top: auto;
-  bottom: 5px;
-  left: 50%;
-  width: 16px;
-  height: 3px;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: var(--brand);
-  box-shadow: 0 0 8px rgba(254, 229, 0, 0.55);
-  z-index: 2;
+  display: none;
 }
 
 .tabbar-item.is-active svg {
   opacity: 1;
+  transform: translateY(-1px) scale(1.06);
+}
+
+.tabbar-item:active {
+  transform: scale(0.96);
 }
 
 .tabbar-icon-wrap {
@@ -1152,6 +1181,92 @@ img {
   height: 22px;
   line-height: 22px;
   text-align: right;
+}
+
+/* ── Page enter (home ↔ dining ↔ …) ── */
+
+.page-view {
+  animation: page-view-enter 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+}
+
+.page-view .page-header {
+  animation: gnb-enter 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.page-view .page-header-title {
+  animation: gnb-title-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.04s both;
+}
+
+.page-view .page-header-sub,
+.page-view .page-header-kicker {
+  animation: gnb-sub-enter 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+@keyframes page-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes gnb-enter {
+  from {
+    opacity: 0.55;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes gnb-title-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes gnb-sub-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-view,
+  .page-view .page-header,
+  .page-view .page-header-title,
+  .page-view .page-header-sub,
+  .page-view .page-header-kicker,
+  .tabbar-pill,
+  .tabbar-item,
+  .tabbar-item svg {
+    animation: none !important;
+    transition: none !important;
+    filter: none !important;
+    transform: none !important;
+  }
+
+  .tabbar-pill {
+    transform: translateX(calc(var(--tab-index) * (100% + 2px))) !important;
+  }
 }
 
 /* ── GNB / page header (sticky liquid glass) ── */
