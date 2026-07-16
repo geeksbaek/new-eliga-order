@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cleanNotifyDishName,
   defaultNotificationPrefs,
   findPeriodForSlot,
   fitMenuTitle,
@@ -67,32 +68,49 @@ describe('findPeriodForSlot', () => {
   })
 })
 
+describe('cleanNotifyDishName', () => {
+  it('strips bracket tags that break mid-title ellipsis', () => {
+    expect(cleanNotifyDishName('곤드레나물밥 [밸런스바이츠]')).toBe(
+      '곤드레나물밥',
+    )
+    expect(cleanNotifyDishName('미역국(HOT)')).toBe('미역국')
+  })
+})
+
 describe('fitMenuTitle', () => {
-  it('joins dish names without app branding', () => {
-    const title = fitMenuTitle(['제육볶음', '파스타', '미역국'])
-    expect(title).toBe('제육볶음 · 파스타 · 미역국')
+  it('keeps meal prefix and at most two cleaned dishes', () => {
+    const title = fitMenuTitle(['제육볶음', '파스타', '미역국'], {
+      prefix: '중식',
+      maxNames: 2,
+    })
+    expect(title.startsWith('중식 · ')).toBe(true)
+    expect(title).toContain('제육볶음')
+    expect(title).toMatch(/외 1/)
     expect(title).not.toMatch(/엘리가|http|vercel|new-eliga/i)
   })
 
-  it('truncates with 외 N when over max length', () => {
-    const title = fitMenuTitle(
-      ['아주아주긴메뉴이름하나', '아주아주긴메뉴이름둘', '셋', '넷', '다섯'],
-      30,
-    )
-    expect(title).toMatch(/외 \d+/)
-    expect(title).not.toMatch(/엘리가/)
+  it('strips tags before fitting', () => {
+    const title = fitMenuTitle(['곤드레나물밥 [밸런스바이츠]', '된장찌개'], {
+      prefix: '중식',
+      maxNames: 2,
+      maxLen: 40,
+    })
+    expect(title).toContain('곤드레나물밥')
+    expect(title).not.toContain('밸런스')
+    expect(title).not.toContain('[')
   })
 })
 
 describe('formatMenuBody', () => {
-  it('puts dish names in title and courses in body', () => {
+  it('uses meal+dishes title and course lines body without branding', () => {
     const period = findPeriodForSlot(samplePeriods, 'lunch')
     const { title, body } = formatMenuBody(period, '중식')
+    expect(title.startsWith('중식')).toBe(true)
     expect(title).toContain('제육볶음')
-    expect(title).toContain('파스타')
-    expect(title).not.toMatch(/엘리가오더|http|vercel/i)
-    expect(body.startsWith('중식')).toBe(true)
-    expect(body).toContain('제육볶음')
+    expect(title).not.toMatch(/엘리가오더|http|vercel|new-eliga/i)
+    // Body is course rows only — not a lone "중식" header line
+    expect(body.startsWith('중식\n')).toBe(false)
+    expect(body).toContain('한식A · 제육볶음')
     expect(body).toContain('파스타')
   })
 

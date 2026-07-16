@@ -142,35 +142,91 @@ export function findPeriodForSlot(
 }
 
 /**
- * Build a glanceable title from dish names only.
- * App name / URL must not appear — OS already shows the site separately.
+ * Strip marketing tags / notes so notification titles don't cut mid-bracket
+ * (e.g. "미역국 [밸런스바이츠]" → "미역국").
  */
-export function fitMenuTitle(names: string[], maxLen = 48): string {
-  const clean = names.map((n) => n.trim()).filter(Boolean)
-  if (!clean.length) return '오늘 식단'
-
-  const parts: string[] = []
-  for (let i = 0; i < clean.length; i++) {
-    const name = clean[i]
-    const joined = parts.length ? `${parts.join(' · ')} · ${name}` : name
-    if (joined.length > maxLen && parts.length > 0) {
-      const rest = clean.length - parts.length
-      return rest > 0 ? `${parts.join(' · ')} 외 ${rest}` : parts.join(' · ')
-    }
-    parts.push(name)
-    // Cap how many names we try so titles stay scannable
-    if (parts.length >= 4) {
-      const rest = clean.length - parts.length
-      return rest > 0 ? `${parts.join(' · ')} 외 ${rest}` : parts.join(' · ')
-    }
+export function cleanNotifyDishName(name: string): string {
+  let s = String(name ?? '')
+  try {
+    s = s.normalize('NFKC')
+  } catch {
+    /* ignore */
   }
-  return parts.join(' · ')
+  // Repeatedly strip bracketed tags (half/full width)
+  let prev = ''
+  while (prev !== s) {
+    prev = s
+    s = s
+      .replace(/\([^()]*\)/g, ' ')
+      .replace(/\[[^[\]]*]/g, ' ')
+      .replace(/\{[^{}]*\}/g, ' ')
+      .replace(/（[^（）]*）/g, ' ')
+      .replace(/【[^【】]*】/g, ' ')
+      .replace(/「[^「」]*」/g, ' ')
+      .replace(/『[^『』]*』/g, ' ')
+  }
+  s = s.replace(/[()[\]{}（）【】「」『』]/g, ' ')
+  s = s.replace(/\*.*$/u, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s || String(name ?? '').trim()
 }
 
 /**
- * Notification copy: menu-first.
- * - title = dish names (what the user needs at a glance)
- * - body = course · dish lines (+ meal slot as a quiet prefix, no branding)
+ * Compact title for Chrome's single-line title slot.
+ * Prefer short + complete words over packing many names that get ellipsized mid-token.
+ *
+ * Chrome always inserts the site origin under the title for web notifications
+ * (e.g. new-eliga.vercel.app). We cannot hide that line — keep our title short
+ * so the menu still reads cleanly above it.
+ */
+export function fitMenuTitle(
+  names: string[],
+  opts?: { maxLen?: number; maxNames?: number; prefix?: string },
+): string {
+  const maxLen = opts?.maxLen ?? 36
+  const maxNames = opts?.maxNames ?? 2
+  const prefix = opts?.prefix?.trim() ?? ''
+  const clean = names.map(cleanNotifyDishName).filter(Boolean)
+  if (!clean.length) return prefix || '오늘 식단'
+
+  const head = prefix ? `${prefix} · ` : ''
+  const parts: string[] = []
+
+  for (let i = 0; i < clean.length && parts.length < maxNames; i++) {
+    const name = clean[i]
+    const core = parts.length ? `${parts.join(' · ')} · ${name}` : name
+    const candidate = head + core
+    if (candidate.length > maxLen && parts.length > 0) break
+    if (candidate.length > maxLen && parts.length === 0) {
+      // Single name still too long — hard trim with ellipsis
+      const room = Math.max(8, maxLen - head.length - 1)
+      parts.push(name.length > room ? `${name.slice(0, room)}…` : name)
+      break
+    }
+    parts.push(name)
+  }
+
+  if (!parts.length) return prefix || '오늘 식단'
+
+  const rest = clean.length - parts.length
+  let title = head + parts.join(' · ')
+  if (rest > 0) {
+    const withRest = `${title} 외 ${rest}`
+    title = withRest.length <= maxLen + 6 ? withRest : `${title} 외${rest}`
+  }
+  return title
+}
+
+/**
+ * Notification copy tuned for Chrome layout:
+ *   [title]   중식 · 닭목살간장구이 · 얼큰돈내장국밥
+ *   [origin]  new-eliga.vercel.app   ← browser-owned, not ours
+ *   [body]    한식A · 닭목살간장구이
+ *             한식B · 얼큰돈내장국밥
+ *             …
+ *
+ * Title = meal + 1–2 cleaned dish names (glance).
+ * Body = full course · dish list only (no app name, no lone meal line).
  */
 export function formatMenuBody(period: DiningPeriod | null, label: string): {
   title: string
@@ -190,15 +246,23 @@ export function formatMenuBody(period: DiningPeriod | null, label: string): {
     }
   }
 
-  const title = fitMenuTitle(dishes.map((d) => d.name))
+  const title = fitMenuTitle(
+    dishes.map((d) => d.name),
+    { prefix: label, maxNames: 2, maxLen: 38 },
+  )
+
   const lines = dishes.map((d) => {
+    const name = cleanNotifyDishName(d.name) || d.name
     const course =
       d.courseNames.length === 1 ? d.courseNames[0] : d.courseNames.join('/')
-    return course ? `${course} · ${d.name}` : d.name
+    // Prefer course label when it adds signal; skip empty/duplicate noise
+    if (course && course.trim() && course.trim() !== name) {
+      return `${course.trim()} · ${name}`
+    }
+    return name
   })
-  // Meal slot is context only; keep it short so body stays menu-dense
-  const body = [`${label}`, ...lines].join('\n')
-  return { title, body }
+
+  return { title, body: lines.join('\n') }
 }
 
 export function minutesOfDay(time: string, now = new Date()): number {
