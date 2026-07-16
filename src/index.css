@@ -5102,11 +5102,15 @@ img {
 /* ── Settings / 옵션 ── */
 
 .settings-card {
-  margin: 0 0 14px;
-  padding: 14px 14px 12px;
+  margin: 0 0 18px;
+  padding: 16px 14px 14px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
+}
+
+.settings-card-account {
+  margin-top: 28px;
 }
 
 .settings-card-head {
@@ -5323,7 +5327,7 @@ img {
 }
 
 .settings-footnote {
-  margin: 8px 2px 0;
+  margin: 4px 2px 0;
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 500;
