@@ -3883,10 +3883,9 @@ img {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  /* Extra bottom pad so option/variant glass shadows aren’t clipped by
-     the scrollport edge (looks cut off against the footer divider). */
-  padding: 2px 4px 22px;
-  margin: 0 -4px;
+  /* Leave room for chip shadows inside the scrollport (not under footer). */
+  padding: 4px 6px 28px;
+  margin: 0 -6px;
 }
 
 .quick-order-section {
@@ -3900,6 +3899,14 @@ img {
 /* Same chip layout as menu detail (.option-group) */
 .quick-order-section.option-group {
   margin-top: 14px;
+}
+
+/* Lighter chips in sheet — deep glass shadow always clips against footer */
+.quick-order-panel .option-choice,
+.quick-order-panel .variant-btn {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 2px 8px rgba(18, 24, 40, 0.06) !important;
 }
 
 .quick-order-section-title {
@@ -3934,17 +3941,28 @@ img {
 .quick-order-footer {
   flex: 0 0 auto;
   position: relative;
-  z-index: 1;
-  padding-top: 14px;
-  margin-top: 0;
-  /* Soft separator — sits above body, doesn’t sit on clipped chip shadows */
-  border-top: 1px solid rgba(18, 24, 40, 0.08);
-  box-shadow: 0 -10px 18px rgba(255, 255, 255, 0.55);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.35) 0%,
-    transparent 100%
-  );
+  /* No z-index / no upward white wash — those sat on top of chip shadows */
+  z-index: auto;
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: none;
+  box-shadow: none;
+  background: none;
+}
+
+/* Divider is inside the footer, not flush against the scroll clip edge */
+.quick-order-footer::before {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 0 0 14px;
+  background: rgba(18, 24, 40, 0.1);
+  /* Don’t inherit glass panel ::before behavior */
+  inset: auto;
+  border-radius: 0;
+  opacity: 1;
+  mix-blend-mode: normal;
+  pointer-events: none;
 }
 
 .quick-order-missing {
