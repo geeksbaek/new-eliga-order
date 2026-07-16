@@ -449,13 +449,13 @@ button {
 /**
  * Chip / pill family — vertical text centering (CJK).
  *
- * Fixed-height chips with only `padding: 0 X` leave Hangul sitting high.
- * Shared rules (do not override with bare `padding: 0 N` later — that
- * wipes optical top padding):
+ * Fixed-height chips with only `padding: 0 X` leave Hangul sitting high
+ * (ascent-heavy metrics in Pretendard / system CJK). Shared rules:
  *  - inline-flex + center both axes
  *  - line-height: 1
  *  - box-sizing: border-box
- *  - use padding-inline for horizontal; keep 1px padding-block-start
+ *  - use padding-inline for horizontal; keep extra padding-block-start
+ *    so glyphs optically sit lower (do not override with bare `padding: 0 N`)
  */
 .chip,
 .shop-pill,
@@ -480,8 +480,8 @@ button {
   box-sizing: border-box;
   line-height: 1;
   vertical-align: middle;
-  /* Optical nudge for Hangul/Pretendard ascent */
-  padding-block-start: 1px;
+  /* Optical nudge: Hangul sits ~1–2px high without this */
+  padding-block-start: 2px;
   padding-block-end: 0;
 }
 
@@ -1802,9 +1802,11 @@ img {
 /* Shop / category chips sit inside glass sticky stack — solid, not glass */
 .shop-pill {
   flex: 0 0 auto;
+  gap: 4px;
   height: 34px;
   min-height: 34px;
   max-height: 34px;
+  /* keep padding-block-start from chip family (CJK optical center) */
   padding-inline: 12px;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
@@ -1814,6 +1816,9 @@ img {
   font-weight: 700;
   color: var(--ink-2);
   white-space: nowrap;
+  /* Kill UA button metrics that lift label on iOS/WebKit */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .shop-pill.is-active {
@@ -3485,6 +3490,7 @@ img {
   height: 34px;
   min-height: 34px;
   max-height: 34px;
+  /* keep padding-block-start from chip family (CJK optical center) */
   padding-inline: 12px;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
@@ -3494,6 +3500,8 @@ img {
   font-weight: 700;
   color: var(--ink-2);
   white-space: nowrap;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .chip.is-active {
@@ -4308,11 +4316,13 @@ img {
 /* ── Cart ── */
 
 .shop-pill-closed {
-  margin-left: 4px;
+  margin-left: 0;
   font-size: 0.68rem;
   font-weight: 700;
   color: var(--red);
   opacity: 0.9;
+  /* optical: small cap sits high without the shared chip nudge */
+  padding-block-start: 1px;
 }
 
 .shop-pill.is-active .shop-pill-closed {
@@ -4349,8 +4359,8 @@ img {
   justify-content: center;
   min-width: 1.15em;
   height: 1.15em;
-  margin-left: 4px;
-  padding: 0 5px;
+  margin-left: 0;
+  padding: 1px 5px 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.22);
   font-size: 0.68rem;
