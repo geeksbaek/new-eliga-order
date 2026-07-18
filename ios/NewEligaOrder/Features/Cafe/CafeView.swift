@@ -20,6 +20,7 @@ struct CafeView: View {
     @State private var isLoadingAllShopMenus = false
     @State private var searchErrorMessage: String?
     @State private var hasAttemptedAllShopMenus = false
+    @State private var allShopMenuLoadGeneration = 0
     @State private var loadedShopIDs: Set<Int> = []
     @State private var menuScrollPosition = ScrollPosition(idType: Int.self)
 
@@ -236,11 +237,16 @@ struct CafeView: View {
 
             ForEach(prioritySections) { section in
                 Section {
+                    CafePrioritySectionHeader(
+                        group: section.group,
+                        count: section.items.count
+                    )
+                    .listRowInsets(.init(top: 0, leading: 16, bottom: 2, trailing: 16))
+                    .listRowSeparator(.hidden)
+
                     ForEach(section.items) { item in
                         menuRow(item, shopID: activeShopID)
                     }
-                } header: {
-                    Label(section.group.title, systemImage: section.group.systemImage)
                 }
             }
         }
@@ -302,11 +308,17 @@ struct CafeView: View {
                 )
                 ForEach(grouped) { section in
                     Section {
+                        CafePrioritySectionHeader(
+                            group: section.group,
+                            count: section.items.count,
+                            shopName: shopSection.shop.name
+                        )
+                        .listRowInsets(.init(top: 0, leading: 16, bottom: 2, trailing: 16))
+                        .listRowSeparator(.hidden)
+
                         ForEach(section.items) { item in
                             menuRow(item, shopID: shopSection.shop.id)
                         }
-                    } header: {
-                        Text("\(shopSection.shop.name) · \(section.group.title)")
                     }
                 }
             }
@@ -413,29 +425,41 @@ struct CafeView: View {
     }
 
     private func loadAllShopMenus(force: Bool = false) async {
-        guard !isLoadingAllShopMenus else { return }
+        allShopMenuLoadGeneration &+= 1
+        let generation = allShopMenuLoadGeneration
         isLoadingAllShopMenus = true
         searchErrorMessage = nil
         defer {
-            isLoadingAllShopMenus = false
-            hasAttemptedAllShopMenus = true
+            if generation == allShopMenuLoadGeneration {
+                isLoadingAllShopMenus = false
+                hasAttemptedAllShopMenus = true
+            }
         }
 
         let targets = store.cafeShops.filter { force || menusByShop[$0.id] == nil }
         let api = store.api
-        let tasks = targets.map { shop in
-            Task { @MainActor in
+        let results = await withTaskGroup(
+            of: CafeShopMenuLoadResult.self,
+            returning: [CafeShopMenuLoadResult].self
+        ) { group in
+            for shop in targets {
+                group.addTask {
                     do {
-                        let items = try await api.fetchCafeMenu(shopID: shop.id, forceRefresh: force)
+                        let items = try await api.fetchCafeMenu(
+                            shopID: shop.id,
+                            forceRefresh: force
+                        )
                         return CafeShopMenuLoadResult(shopID: shop.id, shopName: shop.name, items: items)
                     } catch {
                         return CafeShopMenuLoadResult(shopID: shop.id, shopName: shop.name, items: nil)
                     }
+                }
             }
+            var values: [CafeShopMenuLoadResult] = []
+            for await value in group { values.append(value) }
+            return values
         }
-        var results: [CafeShopMenuLoadResult] = []
-        for task in tasks { results.append(await task.value) }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, generation == allShopMenuLoadGeneration else { return }
 
         var failedShopNames: [String] = []
         for result in results {
@@ -496,14 +520,95 @@ struct CafeView: View {
         actionError = nil
         Task {
             do {
-                if let item = store.cart(for: destinationShopID).items.first(where: { $0.goodsID == goodsID }) {
-                    try await store.setQuantity(shopID: destinationShopID, item: item, quantity: item.quantity + delta)
-                } else if delta > 0 {
-                    try await store.addToCart(shopID: destinationShopID, goodsID: goodsID)
-                }
+                try await store.adjustGoodsQuantity(
+                    shopID: destinationShopID,
+                    goodsID: goodsID,
+                    delta: delta
+                )
             } catch {
                 withAnimation { actionError = error.localizedDescription }
             }
+        }
+    }
+}
+
+private struct CafePrioritySectionHeader: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let group: CafeMenuPriorityGroup
+    let count: Int
+    var shopName: String? = nil
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Divider()
+
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 5) {
+                    headerTitle
+                    Text("메뉴 \(count)개")
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 8) {
+                    headerTitle
+                    Spacer(minLength: 8)
+                    Text("\(count)개")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.primary)
+                }
+            }
+        }
+        .textCase(nil)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("cafe.section.\(group.rawValue)")
+    }
+
+    private var headerTitle: some View {
+        HStack(spacing: 8) {
+            Image(systemName: group.systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(group.tint)
+                .frame(minWidth: 32, minHeight: 32)
+                .background(group.tint.opacity(0.12), in: Circle())
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 1) {
+                if let shopName {
+                    Text(shopName)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(group.title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var accessibilityLabel: String {
+        if let shopName {
+            return "\(shopName), \(group.title), 메뉴 \(count)개"
+        }
+        return "\(group.title), 메뉴 \(count)개"
+    }
+}
+
+private extension CafeMenuPriorityGroup {
+    var tint: Color {
+        switch self {
+        case .favorite: .yellow
+        case .best: .orange
+        case .new: .blue
+        case .standard: .secondary
         }
     }
 }
@@ -546,3 +651,85 @@ private struct CafeShopMenuLoadResult: Sendable {
     let shopName: String
     let items: [CafeMenuItem]?
 }
+
+#if DEBUG
+struct CafePrioritySectionsFixtureView: View {
+    private var sections: [CafeMenuPrioritySection] {
+        let allSections = CafeMenuFilter.prioritySections(
+            from: [
+                Self.fixtureItem(id: 1, name: "즐겨찾는 바닐라 라떼", label: nil),
+                Self.fixtureItem(id: 2, name: "시그니처 아메리카노", label: "BEST"),
+                Self.fixtureItem(id: 3, name: "제주 말차 크림 라떼", label: "NEW"),
+                Self.fixtureItem(id: 4, name: "디카페인 콜드브루", label: nil),
+                Self.fixtureItem(id: 5, name: "품절 테스트 메뉴", label: nil, isSoldOut: true),
+            ],
+            favoriteDisplayIDs: [1]
+        )
+
+        guard
+            let rawGroup = ProcessInfo.processInfo.environment["CAFE_FIXTURE_GROUP"],
+            let group = CafeMenuPriorityGroup(rawValue: rawGroup),
+            let section = allSections.first(where: { $0.group == group })
+        else { return allSections }
+
+        return [CafeMenuPrioritySection(group: section.group, items: Array(section.items.prefix(1)))]
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(sections) { section in
+                    Section {
+                        CafePrioritySectionHeader(
+                            group: section.group,
+                            count: section.items.count
+                        )
+                        .listRowInsets(.init(top: 0, leading: 16, bottom: 2, trailing: 16))
+                        .listRowSeparator(.hidden)
+
+                        ForEach(section.items) { item in
+                            CafeMenuRow(
+                                item: item,
+                                isFavorite: item.displayID == 1,
+                                quantity: item.displayID == 1 ? 2 : 0,
+                                orderState: .open(hours: "08:00–18:00"),
+                                toggleFavorite: {},
+                                decrease: {},
+                                increase: {},
+                                openDetail: {},
+                                quickOrder: {}
+                            )
+                            .listRowInsets(.init(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle("카페 메뉴")
+        }
+    }
+
+    private static func fixtureItem(
+        id: Int,
+        name: String,
+        label: String?,
+        isSoldOut: Bool = false
+    ) -> CafeMenuItem {
+        CafeMenuItem(
+            displayID: id,
+            goodsID: id,
+            name: name,
+            categoryID: 1,
+            category: "음료",
+            price: 4_500,
+            isSoldOut: isSoldOut,
+            description: "부드럽고 균형 잡힌 풍미",
+            calorie: nil,
+            nutrition: nil,
+            label: label,
+            displayName: name,
+            thumbnailURL: nil
+        )
+    }
+}
+#endif

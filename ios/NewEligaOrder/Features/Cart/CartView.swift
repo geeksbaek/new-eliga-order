@@ -31,6 +31,10 @@ struct CartView: View {
 
             if isLoading && cart.items.isEmpty {
                 LoadingContentView(title: "장바구니를 불러오는 중…")
+            } else if let errorMessage, cart.items.isEmpty {
+                FailureContentView(message: errorMessage) {
+                    Task { await refresh() }
+                }
             } else if cart.items.isEmpty {
                 ContentUnavailableView(
                     "장바구니가 비어 있습니다",
@@ -40,8 +44,8 @@ struct CartView: View {
             } else {
                 List {
                     ForEach(cart.items) { item in
-                        CartItemRow(item: item) { quantity in
-                            update(item, quantity: quantity)
+                        CartItemRow(item: item) { delta in
+                            update(item, delta: delta)
                         }
                         .swipeActions {
                             Button("삭제", role: .destructive) { delete(item) }
@@ -60,7 +64,7 @@ struct CartView: View {
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.circle")
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.primary)
                     .padding()
             }
         }
@@ -72,7 +76,7 @@ struct CartView: View {
                         title: "주문 확인 · \(AppFormat.won(cart.total))",
                         systemImage: "checkmark.circle.fill"
                     ) {
-                        router.push(.orderConfirmation(isQuickOrder: false), on: .cart)
+                        router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
                     }
                 }
             }
@@ -96,10 +100,10 @@ struct CartView: View {
         Task { await refresh() }
     }
 
-    private func update(_ item: CartItem, quantity: Int) {
+    private func update(_ item: CartItem, delta: Int) {
         Task {
             do {
-                try await store.setQuantity(shopID: shopID, item: item, quantity: quantity)
+                try await store.adjustQuantity(shopID: shopID, itemID: item.id, delta: delta)
                 feedbackToken += 1
             }
             catch { errorMessage = error.localizedDescription }
@@ -118,37 +122,68 @@ struct CartView: View {
 }
 
 private struct CartItemRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let item: CartItem
-    let updateQuantity: (Int) -> Void
+    let adjustQuantity: (Int) -> Void
 
     var body: some View {
-        HStack(alignment: .top) {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 10) {
+                    itemInformation
+                    HStack {
+                        Spacer()
+                        quantityControl
+                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    itemInformation
+                    Spacer(minLength: 6)
+                    quantityControl
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var itemInformation: some View {
+        HStack(alignment: .top, spacing: 10) {
             RemoteThumbnail(url: item.thumbnailURL)
-            VStack(alignment: .leading) {
-                Text(item.name).font(.headline)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.name)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
                 ForEach(item.options, id: \.self) { option in
-                    Text("\(option.option): \(option.value)").font(.caption).foregroundStyle(.secondary)
+                    Text("\(option.option): \(option.value)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 PriceText(amount: item.lineTotal)
             }
-            Spacer()
-            HStack {
-                Button("수량 감소", systemImage: "minus") { updateQuantity(item.quantity - 1) }
-                    .labelStyle(.iconOnly)
-                    .frame(minWidth: 44, minHeight: 44)
-                Text("\(item.quantity)")
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .frame(minWidth: 22)
-                Button("수량 증가", systemImage: "plus") { updateQuantity(item.quantity + 1) }
-                    .labelStyle(.iconOnly)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .disabled(item.quantity >= 20)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(item.name) 수량 \(item.quantity)개")
         }
+    }
+
+    private var quantityControl: some View {
+        HStack(spacing: 0) {
+            Button("수량 감소", systemImage: "minus") { adjustQuantity(-1) }
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
+            Text("\(item.quantity)")
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .frame(minWidth: 28)
+                .accessibilityLabel("수량 \(item.quantity)개")
+            Button("수량 증가", systemImage: "plus") { adjustQuantity(1) }
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
+                .disabled(item.quantity >= 20)
+        }
+        .buttonStyle(.borderless)
+        .background(.quaternary, in: Capsule())
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(item.name) 수량 \(item.quantity)개")
     }
 }

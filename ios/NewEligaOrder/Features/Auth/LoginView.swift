@@ -60,12 +60,10 @@ struct LoginView: View {
                 Text("엘리가오더")
                     .font(.largeTitle.bold())
                     .accessibilityIdentifier("login.brand")
-                if !dynamicTypeSize.isAccessibilitySize {
-                    Text("식단과 카페 주문을 한곳에서")
-                        .font(.title3)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text("식단과 카페 주문을 한곳에서")
+                    .font(.title3)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .multilineTextAlignment(.center)
             .accessibilityElement(children: .combine)
@@ -79,12 +77,16 @@ struct LoginView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("로그인")
                     .font(.title2.bold())
-                if !dynamicTypeSize.isAccessibilitySize {
-                    Text("엘리가 계정으로 안전하게 계속하세요.")
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                }
+                Text("엘리가 계정으로 안전하게 계속하세요.")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(2)
+                    .layoutPriority(1)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
 
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
@@ -151,7 +153,7 @@ struct LoginView: View {
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.circle.fill")
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.primary)
                     .accessibilityIdentifier("login.error")
                     .accessibilityAddTraits(.updatesFrequently)
             }

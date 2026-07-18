@@ -1,6 +1,28 @@
 import Foundation
 import Observation
 
+private actor ShopMutationGate {
+    private var lockedShopIDs: Set<Int> = []
+    private var waiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+
+    func acquire(shopID: Int) async {
+        if lockedShopIDs.insert(shopID).inserted { return }
+        await withCheckedContinuation { continuation in
+            waiters[shopID, default: []].append(continuation)
+        }
+    }
+
+    func release(shopID: Int) {
+        if var shopWaiters = waiters[shopID], !shopWaiters.isEmpty {
+            let next = shopWaiters.removeFirst()
+            waiters[shopID] = shopWaiters.isEmpty ? nil : shopWaiters
+            next.resume()
+        } else {
+            lockedShopIDs.remove(shopID)
+        }
+    }
+}
+
 enum AuthenticationState: Equatable {
     case signedOut
     case authenticating
@@ -13,6 +35,7 @@ final class AppStore {
     let api: EligaAPI
     private var preferences: PreferencesStore
     private var lastMetadataRefreshAt: Date?
+    private let mutationGate = ShopMutationGate()
 
     private(set) var authenticationState: AuthenticationState
     private(set) var shops: [Shop] = []
@@ -37,6 +60,7 @@ final class AppStore {
         self.selectedShopID = preferences.lastShopID
         self.favorites = preferences.favorites
         self.diningPreferences = preferences.diningPreferences
+        self.quickOrderSession = preferences.quickOrderSession
         api.client.onAuthenticationExpired = { [weak self] in
             self?.handleExpiredAuthentication()
         }
@@ -61,6 +85,7 @@ final class AppStore {
             try await api.client.signIn(userID: trimmed, password: password)
             userIDHint = trimmed
             preferences.rememberedUserID = trimmed
+            quickOrderSession = preferences.quickOrderSession
             authenticationState = .authenticated
         } catch {
             authenticationState = .signedOut
@@ -76,7 +101,12 @@ final class AppStore {
         }
     }
 
-    func logout() {
+    func logout() async {
+        if let session = quickOrderSession,
+           !session.accountID.isEmpty,
+           session.accountID == userIDHint {
+            try? await restoreQuickOrderSession()
+        }
         api.client.signOut()
         globalError = nil
         clearAuthenticatedState()
@@ -107,6 +137,7 @@ final class AppStore {
         isBootstrapping = true
         defer { isBootstrapping = false }
         do {
+            try await recoverQuickOrderIfNeeded()
             let loadedShops = try await api.fetchShops()
             shops = loadedShops.map { shop in
                 if shop.id == 7 { return Shop(id: shop.id, name: shop.name, kind: .cafeteria, isOpen: shop.isOpen) }
@@ -142,14 +173,14 @@ final class AppStore {
         lastMetadataRefreshAt = .now
         for shop in cafeShops {
             guard !Task.isCancelled else { return }
-            async let cartRequest = try? await api.fetchCart(shopID: shop.id)
+            async let cartRequest = try? await refreshCart(shopID: shop.id)
             async let planRequest = try? await api.fetchCafeSalesPlan(
                 shopID: shop.id,
                 forceRefresh: force
             )
             let cart = await cartRequest
             let plan = await planRequest
-            if let cart { cartsByShop[shop.id] = cart }
+            _ = cart
             cafePlansByShop[shop.id] = plan
         }
     }
@@ -191,30 +222,67 @@ final class AppStore {
 
     @discardableResult
     func refreshCart(shopID: Int) async throws -> Cart {
+        try await withCartMutation(shopID: shopID) {
+            try await refreshCartWithoutLock(shopID: shopID)
+        }
+    }
+
+    @discardableResult
+    private func refreshCartWithoutLock(shopID: Int) async throws -> Cart {
         let cart = try await api.fetchCart(shopID: shopID)
         cartsByShop[shopID] = Cart(id: cart.id, shopID: cart.shopID ?? shopID, items: cart.items)
         return cartsByShop[shopID] ?? cart
     }
 
     func addToCart(shopID: Int, goodsID: Int, quantity: Int = 1, options: [SelectedOption] = []) async throws {
-        try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: quantity, options: options)
-        try await refreshCart(shopID: shopID)
+        try await withCartMutation(shopID: shopID) {
+            try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: quantity, options: options)
+            try await refreshCartWithoutLock(shopID: shopID)
+        }
     }
 
     func setQuantity(shopID: Int, item: CartItem, quantity: Int) async throws {
-        guard let cartID = cart(for: shopID).id else { throw OrderValidationError.emptyCart }
-        if quantity <= 0 {
-            try await api.deleteCartItems(cartID: cartID, itemIDs: [item.id])
-        } else {
-            try await api.updateCartQuantity(cartID: cartID, itemID: item.id, quantity: quantity)
+        try await withCartMutation(shopID: shopID) {
+            try await setQuantityWithoutLock(shopID: shopID, itemID: item.id, quantity: quantity)
         }
-        try await refreshCart(shopID: shopID)
+    }
+
+    func adjustQuantity(shopID: Int, itemID: Int, delta: Int) async throws {
+        try await withCartMutation(shopID: shopID) {
+            let current = try await api.fetchCart(shopID: shopID)
+            guard let item = current.items.first(where: { $0.id == itemID }) else { return }
+            cartsByShop[shopID] = current
+            try await setQuantityWithoutLock(
+                shopID: shopID,
+                itemID: itemID,
+                quantity: item.quantity + delta
+            )
+        }
+    }
+
+    func adjustGoodsQuantity(shopID: Int, goodsID: Int, delta: Int) async throws {
+        try await withCartMutation(shopID: shopID) {
+            let current = try await api.fetchCart(shopID: shopID)
+            cartsByShop[shopID] = current
+            if let item = current.items.first(where: { $0.goodsID == goodsID }) {
+                try await setQuantityWithoutLock(
+                    shopID: shopID,
+                    itemID: item.id,
+                    quantity: item.quantity + delta
+                )
+            } else if delta > 0 {
+                try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: delta)
+                try await refreshCartWithoutLock(shopID: shopID)
+            }
+        }
     }
 
     func deleteCartItem(shopID: Int, itemID: Int) async throws {
-        guard let cartID = cart(for: shopID).id else { return }
-        try await api.deleteCartItems(cartID: cartID, itemIDs: [itemID])
-        try await refreshCart(shopID: shopID)
+        try await withCartMutation(shopID: shopID) {
+            guard let cartID = try await api.fetchCart(shopID: shopID).id else { return }
+            try await api.deleteCartItems(cartID: cartID, itemIDs: [itemID])
+            try await refreshCartWithoutLock(shopID: shopID)
+        }
     }
 
     func toggleFavorite(shopID: Int, item: CafeMenuItem) {
@@ -249,52 +317,185 @@ final class AppStore {
     }
 
     func beginQuickOrder(shopID: Int, goodsID: Int, quantity: Int, options: [SelectedOption]) async throws {
-        let snapshot = try await api.fetchCartSnapshot(shopID: shopID)
-        do {
-            if let cartID = snapshot.cart.id, !snapshot.cart.items.isEmpty {
-                try await api.deleteCartItems(cartID: cartID, itemIDs: snapshot.cart.items.map(\.id))
-            }
-            try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: quantity, options: options)
-            let isolated = try await api.fetchCart(shopID: shopID)
-            guard isolated.items.count == 1,
-                  isolated.items.first?.goodsID == goodsID,
-                  isolated.items.first?.quantity == quantity
-            else { throw QuickOrderError.isolationFailed }
-            cartsByShop[shopID] = isolated
-            quickOrderSession = QuickOrderSession(
+        guard !userIDHint.isEmpty else { throw QuickOrderError.accountMismatch }
+        try await withCartMutation(shopID: shopID) {
+            if quickOrderSession != nil { try await restoreQuickOrderSessionResilientWithoutLock() }
+
+            let snapshot = try await api.fetchCartSnapshot(shopID: shopID)
+            var session = QuickOrderSession(
+                id: UUID(),
+                accountID: userIDHint,
                 shopID: shopID,
                 goodsID: goodsID,
                 quantity: quantity,
-                stashedLines: snapshot.restoreLines
+                options: options,
+                stashedLines: snapshot.restoreLines,
+                phase: .stashed
             )
-            selectShop(shopID)
-        } catch {
-            try? await restoreCart(shopID: shopID, lines: snapshot.restoreLines)
-            throw error
+            try persistQuickOrderSession(session)
+
+            do {
+                if let cartID = snapshot.cart.id, !snapshot.cart.items.isEmpty {
+                    try await api.deleteCartItems(cartID: cartID, itemIDs: snapshot.cart.items.map(\.id))
+                }
+                try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: quantity, options: options)
+                let isolated = try await api.fetchCartSnapshot(shopID: shopID)
+                guard Self.matchesIsolatedCart(isolated, session: session) else {
+                    throw QuickOrderError.isolationFailed
+                }
+                session.phase = .isolated
+                try persistQuickOrderSession(session)
+                cartsByShop[shopID] = isolated.cart
+                selectShop(shopID)
+            } catch {
+                try? await restoreQuickOrderSessionResilientWithoutLock()
+                throw error
+            }
         }
     }
 
-    func cancelQuickOrder() async {
+    func cancelQuickOrder() async throws {
         guard let session = quickOrderSession else { return }
-        quickOrderSession = nil
-        try? await restoreCart(shopID: session.shopID, lines: session.stashedLines)
+        try await withCartMutation(shopID: session.shopID) {
+            try await restoreQuickOrderSessionResilientWithoutLock()
+        }
     }
 
-    func completeQuickOrder() {
-        quickOrderSession = nil
+    func completeQuickOrder() async throws {
+        try await cancelQuickOrder()
     }
 
-    private func restoreCart(shopID: Int, lines: [CartRestoreLine]) async throws {
-        try await api.clearCart(shopID: shopID)
-        for line in lines {
-            try await api.addToCart(
+    func placeOrder(
+        shopID: Int,
+        reviewedCart: Cart,
+        paymentReasonID: Int,
+        isQuickOrder: Bool
+    ) async throws -> Int? {
+        try await withCartMutation(shopID: shopID) {
+            let current = try await api.fetchCartSnapshot(shopID: shopID)
+            guard current.cart.id == reviewedCart.id,
+                  current.cart.items == reviewedCart.items
+            else { throw OrderValidationError.cartChanged }
+            if isQuickOrder {
+                guard let session = quickOrderSession,
+                      session.shopID == shopID,
+                      Self.matchesIsolatedCart(current, session: session)
+                else { throw QuickOrderError.isolationFailed }
+                var submitting = session
+                submitting.phase = .submitting
+                try persistQuickOrderSession(submitting)
+            }
+            return try await api.placeOrder(
                 shopID: shopID,
+                cart: current.cart,
+                paymentReasonID: paymentReasonID
+            )
+        }
+    }
+
+    private func recoverQuickOrderIfNeeded() async throws {
+        guard let session = quickOrderSession else { return }
+        guard !session.accountID.isEmpty, session.accountID == userIDHint else {
+            throw QuickOrderError.accountMismatch
+        }
+        try await withCartMutation(shopID: session.shopID) {
+            try await restoreQuickOrderSessionResilientWithoutLock()
+        }
+    }
+
+    private func restoreQuickOrderSession() async throws {
+        guard let session = quickOrderSession else { return }
+        guard !session.accountID.isEmpty, session.accountID == userIDHint else {
+            throw QuickOrderError.accountMismatch
+        }
+        try await withCartMutation(shopID: session.shopID) {
+            try await restoreQuickOrderSessionResilientWithoutLock()
+        }
+    }
+
+    /// 복구는 호출 화면의 Task가 취소되어도 서버 장바구니가 원상태가 될 때까지 계속한다.
+    private func restoreQuickOrderSessionResilientWithoutLock() async throws {
+        let recovery = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await self.restoreQuickOrderSessionWithoutLock()
+        }
+        try await recovery.value
+    }
+
+    private func restoreQuickOrderSessionWithoutLock() async throws {
+        guard var session = quickOrderSession else { return }
+        guard !session.accountID.isEmpty, session.accountID == userIDHint else {
+            throw QuickOrderError.accountMismatch
+        }
+        session.phase = .restoring
+        try persistQuickOrderSession(session)
+        try await api.clearCart(shopID: session.shopID)
+        for line in session.stashedLines {
+            try await api.addToCart(
+                shopID: session.shopID,
                 goodsID: line.goodsID,
                 quantity: line.quantity,
                 options: line.options
             )
         }
-        try await refreshCart(shopID: shopID)
+        let restored = try await api.fetchCartSnapshot(shopID: session.shopID)
+        guard Self.normalized(restored.restoreLines) == Self.normalized(session.stashedLines) else {
+            throw QuickOrderError.restoreFailed
+        }
+        cartsByShop[session.shopID] = restored.cart
+        try persistQuickOrderSession(nil)
+    }
+
+    private func setQuantityWithoutLock(shopID: Int, itemID: Int, quantity: Int) async throws {
+        let current = try await api.fetchCart(shopID: shopID)
+        guard let cartID = current.id else { throw OrderValidationError.emptyCart }
+        if quantity <= 0 {
+            try await api.deleteCartItems(cartID: cartID, itemIDs: [itemID])
+        } else {
+            try await api.updateCartQuantity(cartID: cartID, itemID: itemID, quantity: min(20, quantity))
+        }
+        try await refreshCartWithoutLock(shopID: shopID)
+    }
+
+    private func withCartMutation<Value>(
+        shopID: Int,
+        operation: () async throws -> Value
+    ) async throws -> Value {
+        await mutationGate.acquire(shopID: shopID)
+        do {
+            let value = try await operation()
+            await mutationGate.release(shopID: shopID)
+            return value
+        } catch {
+            await mutationGate.release(shopID: shopID)
+            throw error
+        }
+    }
+
+    private func persistQuickOrderSession(_ session: QuickOrderSession?) throws {
+        try preferences.saveQuickOrderSession(session)
+        quickOrderSession = session
+    }
+
+    private static func matchesIsolatedCart(_ snapshot: CartSnapshot, session: QuickOrderSession) -> Bool {
+        normalized(snapshot.restoreLines) == normalized([
+            CartRestoreLine(
+                goodsID: session.goodsID,
+                quantity: session.quantity,
+                options: session.options
+            )
+        ])
+    }
+
+    private static func normalized(_ lines: [CartRestoreLine]) -> [String] {
+        lines.map { line in
+            let options = line.options
+                .sorted { $0.optionID < $1.optionID }
+                .map { "\($0.optionID):\($0.menuIDs.sorted().map(String.init).joined(separator: ","))" }
+                .joined(separator: "|")
+            return "\(line.goodsID)#\(line.quantity)#\(options)"
+        }
+        .sorted()
     }
 }
 
@@ -305,5 +506,14 @@ enum LoginValidationError: LocalizedError {
 
 enum QuickOrderError: LocalizedError {
     case isolationFailed
-    var errorDescription: String? { "바로 주문용 장바구니를 안전하게 준비하지 못했습니다." }
+    case restoreFailed
+    case accountMismatch
+
+    var errorDescription: String? {
+        switch self {
+        case .isolationFailed: "바로 주문용 장바구니를 안전하게 준비하지 못했습니다."
+        case .restoreFailed: "기존 장바구니를 아직 복구하지 못했습니다. 다음 실행에서 다시 시도합니다."
+        case .accountMismatch: "다른 계정의 장바구니 복구 정보가 남아 있어 바로 주문을 계속할 수 없습니다."
+        }
+    }
 }

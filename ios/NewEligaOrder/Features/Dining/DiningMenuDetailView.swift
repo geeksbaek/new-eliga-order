@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct DiningMenuDetailView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
     let context: DiningMenuDetailContext
     let transitionNamespace: Namespace.ID
 
@@ -24,7 +27,7 @@ struct DiningMenuDetailView: View {
         }
         .navigationTitle(title.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .animation(.smooth, value: displayedSurface)
+        .animation(reduceMotion ? nil : .smooth, value: displayedSurface)
         .task(id: structuringTaskID) {
             await generateDynamicSurface()
         }
@@ -75,6 +78,10 @@ struct DiningMenuDetailView: View {
         resolvedSideDishSummary = sideDishSummary
         let input = dynamicInput(sideDishSummary: sideDishSummary)
         dynamicSurface = DiningDynamicUIFallback.surface(for: input)
+
+        // VoiceOver 탐색 중 블록 트리가 교체되면 포커스가 사라질 수 있어
+        // 검증 가능한 결정적 구조를 유지한다.
+        guard !voiceOverEnabled else { return }
 
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled else { return }

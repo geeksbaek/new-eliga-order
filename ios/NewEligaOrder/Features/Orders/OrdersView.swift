@@ -82,6 +82,8 @@ private struct OrderDaySection: Identifiable {
 }
 
 private struct OrderHistoryRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let order: OrderHistory
 
     private var itemSummary: String {
@@ -101,22 +103,22 @@ private struct OrderHistoryRow: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Label(order.shopName.isEmpty ? "엘리가오더" : order.shopName, systemImage: shopSymbol)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Label(AppFormat.orderStatus(order.status), systemImage: statusSymbol)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(statusColor)
-                        .labelStyle(.titleAndIcon)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        shopLabel
+                        Spacer(minLength: 8)
+                        statusLabel
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        shopLabel
+                        statusLabel
+                    }
                 }
 
                 Text(itemSummary)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
 
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
@@ -134,6 +136,23 @@ private struct OrderHistoryRow: View {
             .accessibilityElement(children: .combine)
         }
         .tint(.secondary)
+    }
+
+    private var shopLabel: some View {
+        Label(order.shopName.isEmpty ? "엘리가오더" : order.shopName, systemImage: shopSymbol)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+    }
+
+    private var statusLabel: some View {
+        Label(AppFormat.orderStatus(order.status), systemImage: statusSymbol)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(statusColor.opacity(0.14), in: Capsule())
     }
 
     private var orderMetadata: some View {

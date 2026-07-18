@@ -227,7 +227,14 @@ private struct DiningMealRow: View {
                 if let calorie = meal.calorie { Text("\(calorie) kcal").font(.caption2).foregroundStyle(.secondary) }
             }
             Spacer()
-            if isSoldOut { Text("품절").font(.caption).foregroundStyle(.red) }
+            if isSoldOut {
+                Text("품절")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.red.opacity(0.14), in: Capsule())
+            }
         }
         .accessibilityElement(children: .combine)
     }

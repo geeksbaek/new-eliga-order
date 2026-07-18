@@ -15,7 +15,7 @@ enum AppRoute: Hashable {
     case cafe(shopID: Int)
     case menu(shopID: Int, displayID: Int)
     case quickOrder(shopID: Int, displayID: Int)
-    case orderConfirmation(isQuickOrder: Bool)
+    case orderConfirmation(shopID: Int, isQuickOrder: Bool)
     case settings
 }
 

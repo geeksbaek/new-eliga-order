@@ -1,5 +1,32 @@
 import Foundation
+import ImageIO
 import UIKit
+
+private actor ImageWorkLimiter {
+    static let shared = ImageWorkLimiter(limit: 6)
+
+    private let limit: Int
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) { self.limit = limit }
+
+    func acquire() async {
+        if active < limit {
+            active += 1
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            active = max(0, active - 1)
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
 
 /// 메모리의 디코딩된 썸네일과 디스크의 원본 응답을 함께 재사용하는 이미지 파이프라인이다.
 @MainActor
@@ -22,6 +49,7 @@ final class ImagePipeline {
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 45
         configuration.waitsForConnectivity = true
+        configuration.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: configuration)
         memoryCache.countLimit = 300
         memoryCache.totalCostLimit = 96 * 1_024 * 1_024
@@ -37,23 +65,17 @@ final class ImagePipeline {
         }
 
         let session = session
-        let task = Task<UIImage?, Never>(priority: .utility) {
-            do {
-                var request = URLRequest(url: url)
-                request.cachePolicy = .returnCacheDataElseLoad
-                let (data, response) = try await session.data(for: request)
-                guard !Task.isCancelled,
-                      let response = response as? HTTPURLResponse,
-                      (200..<300).contains(response.statusCode),
-                      let source = UIImage(data: data, scale: UIScreen.main.scale)
-                else { return nil }
-
-                let scale = UIScreen.main.scale
-                let pixelSize = CGSize(width: targetSize * scale, height: targetSize * scale)
-                return await source.byPreparingThumbnail(ofSize: pixelSize) ?? source
-            } catch {
-                return nil
-            }
+        let scale = UIScreen.main.scale
+        let task = Task.detached(priority: .utility) {
+            await ImageWorkLimiter.shared.acquire()
+            let result = await Self.downloadAndDownsample(
+                url: url,
+                targetSize: targetSize,
+                scale: scale,
+                session: session
+            )
+            await ImageWorkLimiter.shared.release()
+            return result
         }
         inFlight[key] = task
         let result = await task.value
@@ -83,6 +105,37 @@ final class ImagePipeline {
 
     private func cacheKey(url: URL, targetSize: CGFloat) -> String {
         "\(url.absoluteString)|\(Int(targetSize.rounded(.up)))"
+    }
+
+    nonisolated private static func downloadAndDownsample(
+        url: URL,
+        targetSize: CGFloat,
+        scale: CGFloat,
+        session: URLSession
+    ) async -> UIImage? {
+        do {
+            var request = URLRequest(url: url)
+            request.cachePolicy = .returnCacheDataElseLoad
+            let (data, response) = try await session.data(for: request)
+            guard !Task.isCancelled,
+                  let response = response as? HTTPURLResponse,
+                  (200..<300).contains(response.statusCode),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil)
+            else { return nil }
+
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(1, Int((targetSize * scale).rounded(.up))),
+            ]
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                return nil
+            }
+            return UIImage(cgImage: image, scale: scale, orientation: .up)
+        } catch {
+            return nil
+        }
     }
 }
 

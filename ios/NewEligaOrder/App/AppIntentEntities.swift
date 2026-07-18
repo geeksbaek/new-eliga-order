@@ -200,11 +200,16 @@ private extension DiningMealEntity {
 @MainActor
 enum AppIntentSearchIndexer {
     static let indexName = "NewEligaOrder.Content"
+    private static var generation: UInt64 = 0
 
     static func refresh(using store: AppStore) async {
+        guard store.authenticationState == .authenticated else { return }
+        generation &+= 1
+        let refreshGeneration = generation
         var cafeRecords: [CafeMenuIndexRecord] = []
         for shop in store.cafeShops {
             guard let menus = try? await store.api.fetchCafeMenu(shopID: shop.id) else { continue }
+            guard canCommit(refreshGeneration, store: store) else { return }
             cafeRecords.append(contentsOf: menus.compactMap { menu in
                 guard menu.displayID > 0 else { return nil }
                 return CafeMenuIndexRecord(
@@ -220,6 +225,7 @@ enum AppIntentSearchIndexer {
 
         let today = Calendar.current.startOfDay(for: .now)
         let periods = (try? await store.api.fetchDiningMenu(shopID: store.diningShopID, date: today)) ?? []
+        guard canCommit(refreshGeneration, store: store) else { return }
         let diningRecords = DiningMenuFilter.periodsWithMeals(periods).flatMap { period in
             period.courses.flatMap { course in
                 course.menus.map { meal in
@@ -251,23 +257,39 @@ enum AppIntentSearchIndexer {
             }
         }
 
+        guard canCommit(refreshGeneration, store: store) else { return }
         AppIntentEntityRepository.save(cafe: cafeRecords, dining: diningRecords)
 
         let index = CSSearchableIndex(name: indexName)
         do {
             try await index.deleteAllSearchableItems()
+            guard canCommit(refreshGeneration, store: store) else { return }
             try await index.indexAppEntities(cafeRecords.map(CafeMenuEntity.init))
+            guard canCommit(refreshGeneration, store: store) else {
+                try? await index.deleteAllSearchableItems()
+                return
+            }
             try await index.indexAppEntities(diningRecords.map(DiningMealEntity.init))
+            if !canCommit(refreshGeneration, store: store) {
+                try? await index.deleteAllSearchableItems()
+            }
         } catch {
             // The local entity cache still powers Siri and Shortcuts when Spotlight indexing is unavailable.
         }
     }
 
     static func clear() {
+        generation &+= 1
         AppIntentEntityRepository.save(cafe: [], dining: [])
         Task {
             try? await CSSearchableIndex(name: indexName).deleteAllSearchableItems()
         }
+    }
+
+    private static func canCommit(_ refreshGeneration: UInt64, store: AppStore) -> Bool {
+        !Task.isCancelled
+            && generation == refreshGeneration
+            && store.authenticationState == .authenticated
     }
 
     private static func diningIdentifier(date: Date, period: String, course: String, meal: String) -> String {

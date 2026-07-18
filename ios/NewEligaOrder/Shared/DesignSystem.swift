@@ -54,6 +54,16 @@ private struct AppGlassSurfaceModifier: ViewModifier {
                     .regular.tint(tint).interactive(isInteractive),
                     in: .rect(cornerRadius: cornerRadius)
                 )
+        } else if reduceTransparency {
+            content
+                .background(
+                    tint?.opacity(0.16) ?? Color(.secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(.primary.opacity(0.14), lineWidth: 1)
+                }
         } else {
             content
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

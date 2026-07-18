@@ -27,6 +27,7 @@ final class EligaAPI {
     private var recentOrdersCache: [Int: CacheEntry<[CafeQuickItem]>] = [:]
     private var popularOrdersCache: [Int: CacheEntry<[CafeQuickItem]>] = [:]
     private var paymentReasonCache: [Int: CacheEntry<[PaymentReason]>] = [:]
+    private var requestGenerations: [String: UInt64] = [:]
 
     init(client: APIClient = APIClient()) {
         self.client = client
@@ -37,10 +38,15 @@ final class EligaAPI {
             return shopsCache.value
         }
         let stale = shopsCache?.value
+        let generation = beginRequest("shops")
         do {
-            let value = EligaMapper.shops(try await client.request(path: "shop/me"))
-            shopsCache = CacheEntry(value: value, storedAt: .now)
+            let value = EligaMapper.shops(try await client.request(path: "shop/me", forceNetwork: forceRefresh))
+            if isLatestRequest("shops", generation: generation) {
+                shopsCache = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -52,13 +58,19 @@ final class EligaAPI {
             return cached.value
         }
         let stale = cafePlanCache[shopID]?.value
+        let requestKey = "cafe-plan:\(shopID)"
+        let generation = beginRequest(requestKey)
         do {
             let value = EligaMapper.cafeSalesPlan(
-                try await client.request(path: "sales-plan/cafe/\(shopID)"),
+                try await client.request(path: "sales-plan/cafe/\(shopID)", forceNetwork: forceRefresh),
                 fallbackShopID: shopID
             )
-            cafePlanCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            if isLatestRequest(requestKey, generation: generation) {
+                cafePlanCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -70,13 +82,20 @@ final class EligaAPI {
             return cached.value
         }
         let stale = categoryCache[shopID]?.value
+        let requestKey = "categories:\(shopID)"
+        let generation = beginRequest(requestKey)
         do {
             let value = EligaMapper.categories(try await client.request(
                 path: "goods/category",
-                query: [URLQueryItem(name: "shopId", value: String(shopID))]
+                query: [URLQueryItem(name: "shopId", value: String(shopID))],
+                forceNetwork: forceRefresh
             ))
-            categoryCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            if isLatestRequest(requestKey, generation: generation) {
+                categoryCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -89,17 +108,23 @@ final class EligaAPI {
             return cached.value
         }
         let stale = cafeMenuCache[key]?.value
+        let requestKey = "menu:\(shopID):\(categoryID.map(String.init) ?? "all")"
+        let generation = beginRequest(requestKey)
         var query = [URLQueryItem(name: "shopId", value: String(shopID))]
         if let categoryID { query.append(URLQueryItem(name: "categoryId", value: String(categoryID))) }
         do {
             async let categoryRequest = fetchCafeCategories(shopID: shopID, forceRefresh: forceRefresh)
-            async let menuRequest = client.request(path: "goods/display", query: query)
+            async let menuRequest = client.request(path: "goods/display", query: query, forceNetwork: forceRefresh)
             let categories = try await categoryRequest
             let raw = try await menuRequest
             let hiddenIDs = Set(categories.filter { !$0.isVisibleOnMobile }.map(\.id))
             let value = EligaMapper.cafeMenu(raw, hiddenCategoryIDs: hiddenIDs)
-            cafeMenuCache[key] = CacheEntry(value: value, storedAt: .now)
+            if isLatestRequest(requestKey, generation: generation) {
+                cafeMenuCache[key] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -111,10 +136,19 @@ final class EligaAPI {
             return cached.value
         }
         let stale = menuDetailCache[displayID]?.value
+        let requestKey = "detail:\(displayID)"
+        let generation = beginRequest(requestKey)
         do {
-            let value = EligaMapper.menuDetail(try await client.request(path: "goods/display/\(displayID)"))
-            menuDetailCache[displayID] = CacheEntry(value: value, storedAt: .now)
+            let value = EligaMapper.menuDetail(try await client.request(
+                path: "goods/display/\(displayID)",
+                forceNetwork: forceRefresh
+            ))
+            if isLatestRequest(requestKey, generation: generation) {
+                menuDetailCache[displayID] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -128,6 +162,8 @@ final class EligaAPI {
             return cached.value
         }
         let stale = diningCache[cacheKey]?.value
+        let requestKey = "dining:\(cacheKey)"
+        let generation = beginRequest(requestKey)
         do {
             let value = EligaMapper.dining(try await client.request(
                 path: "meal/operation-times-and-courses",
@@ -135,10 +171,15 @@ final class EligaAPI {
                     URLQueryItem(name: "shopId", value: String(shopID)),
                     URLQueryItem(name: "startDate", value: dateString),
                     URLQueryItem(name: "endDate", value: dateString),
-                ]
+                ],
+                forceNetwork: forceRefresh
             ))
-            diningCache[cacheKey] = CacheEntry(value: value, storedAt: .now)
+            if isLatestRequest(requestKey, generation: generation) {
+                diningCache[cacheKey] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -152,7 +193,8 @@ final class EligaAPI {
                 query: [
                     URLQueryItem(name: "shopId", value: String(shopID)),
                     URLQueryItem(name: "cartType", value: "GENERAL"),
-                ]
+                ],
+                forceNetwork: true
             )
         )
     }
@@ -213,13 +255,20 @@ final class EligaAPI {
             return cached.value
         }
         let stale = paymentReasonCache[shopID]?.value
+        let requestKey = "payment-reasons:\(shopID)"
+        let generation = beginRequest(requestKey)
         do {
             let value = EligaMapper.paymentReasons(try await client.request(
                 path: "payment/reason",
-                query: [URLQueryItem(name: "shopId", value: String(shopID))]
+                query: [URLQueryItem(name: "shopId", value: String(shopID))],
+                forceNetwork: forceRefresh
             ))
-            paymentReasonCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            if isLatestRequest(requestKey, generation: generation) {
+                paymentReasonCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -293,10 +342,19 @@ final class EligaAPI {
             return cached.value
         }
         let stale = recentOrdersCache[shopID]?.value
+        let requestKey = "recent:\(shopID)"
+        let generation = beginRequest(requestKey)
         do {
-            let value = EligaMapper.quickItems(try await client.request(path: "goods/order/recent/\(shopID)"))
-            recentOrdersCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            let value = EligaMapper.quickItems(try await client.request(
+                path: "goods/order/recent/\(shopID)",
+                forceNetwork: forceRefresh
+            ))
+            if isLatestRequest(requestKey, generation: generation) {
+                recentOrdersCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -308,10 +366,19 @@ final class EligaAPI {
             return cached.value
         }
         let stale = popularOrdersCache[shopID]?.value
+        let requestKey = "popular:\(shopID)"
+        let generation = beginRequest(requestKey)
         do {
-            let value = EligaMapper.quickItems(try await client.request(path: "goods/order/popular/\(shopID)"))
-            popularOrdersCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            let value = EligaMapper.quickItems(try await client.request(
+                path: "goods/order/popular/\(shopID)",
+                forceNetwork: forceRefresh
+            ))
+            if isLatestRequest(requestKey, generation: generation) {
+                popularOrdersCache[shopID] = CacheEntry(value: value, storedAt: .now)
+            }
             return value
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if let stale, !forceRefresh { return stale }
             throw error
@@ -329,16 +396,28 @@ final class EligaAPI {
         popularOrdersCache.removeAll()
         paymentReasonCache.removeAll()
     }
+
+    private func beginRequest(_ key: String) -> UInt64 {
+        let generation = (requestGenerations[key] ?? 0) &+ 1
+        requestGenerations[key] = generation
+        return generation
+    }
+
+    private func isLatestRequest(_ key: String, generation: UInt64) -> Bool {
+        requestGenerations[key] == generation
+    }
 }
 
 enum OrderValidationError: LocalizedError {
     case emptyCart
     case paymentReasonRequired
+    case cartChanged
 
     var errorDescription: String? {
         switch self {
         case .emptyCart: return "장바구니가 비어 있습니다."
         case .paymentReasonRequired: return "결제 사유를 선택해 주세요."
+        case .cartChanged: return "주문 확인 중 장바구니가 변경되었습니다. 내용을 다시 확인해 주세요."
         }
     }
 }

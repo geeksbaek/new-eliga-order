@@ -117,8 +117,8 @@ private extension View {
                 MenuDetailView(shopID: shopID, displayID: displayID, transitionNamespace: menuTransitionNamespace)
             case .quickOrder(let shopID, let displayID):
                 QuickOrderLaunchView(shopID: shopID, displayID: displayID)
-            case .orderConfirmation(let isQuickOrder):
-                OrderConfirmationView(isQuickOrder: isQuickOrder)
+            case .orderConfirmation(let shopID, let isQuickOrder):
+                OrderConfirmationView(shopID: shopID, isQuickOrder: isQuickOrder)
             case .settings:
                 SettingsView()
             }

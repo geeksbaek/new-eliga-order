@@ -138,7 +138,7 @@ private actor OnDeviceDiningDynamicUIStructurer {
             <원산지>\(String(input.origin.prefix(500)))</원산지>
             """
 
-        return await FoundationModelRequestCoordinator.shared.perform {
+        return try? await FoundationModelRequestCoordinator.shared.perform {
             let session = LanguageModelSession(
                 model: SystemLanguageModel.default,
                 instructions: DiningMenuDynamicUIStructurer.instructions

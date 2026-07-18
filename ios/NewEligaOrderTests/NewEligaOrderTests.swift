@@ -144,37 +144,94 @@ final class NewEligaOrderTests: XCTestCase {
         let coordinator = FoundationModelRequestCoordinator()
         let probe = FoundationModelRequestProbe()
 
-        async let first: Int = coordinator.perform {
+        async let first: Int = try coordinator.perform {
             await probe.begin(1)
             try? await Task.sleep(for: .milliseconds(40))
             await probe.end(1)
             return 1
         }
-        async let second: Int = coordinator.perform {
+        async let second: Int = try coordinator.perform {
             await probe.begin(2)
             try? await Task.sleep(for: .milliseconds(10))
             await probe.end(2)
             return 2
         }
 
-        _ = await (first, second)
+        _ = try? await (first, second)
         let maximumConcurrentRequests = await probe.maximumConcurrentRequests
         XCTAssertEqual(maximumConcurrentRequests, 1)
     }
 
     func testFoundationModelCoordinatorIsolatesInferenceFromCallerCancellation() async {
         let coordinator = FoundationModelRequestCoordinator()
+        let probe = FoundationModelCancellationProbe()
+        let gate = FoundationModelQueueGate()
         let caller = Task {
-            await coordinator.perform {
-                try? await Task.sleep(for: .milliseconds(20))
-                return Task.isCancelled
+            try await coordinator.perform {
+                await probe.markStarted()
+                await gate.blockUntilReleased()
+                await probe.finish(inferenceWasCancelled: Task.isCancelled)
+                return 1
             }
         }
 
+        await gate.waitUntilBlocked()
+        let cancellationReturned = expectation(description: "취소된 호출자 즉시 반환")
+        let observer = Task {
+            do {
+                _ = try await caller.value
+            } catch is CancellationError {
+                // expected
+            } catch {
+                XCTFail("예상하지 못한 오류: \(error)")
+            }
+            cancellationReturned.fulfill()
+        }
         caller.cancel()
+        await fulfillment(of: [cancellationReturned], timeout: 0.1)
+        await gate.release()
+        _ = await observer.result
+        try? await Task.sleep(for: .milliseconds(10))
+        let result = await probe.result
+        XCTAssertEqual(result, false)
+    }
 
-        let inferenceObservedCancellation = await caller.value
-        XCTAssertFalse(inferenceObservedCancellation)
+    func testFoundationModelCoordinatorSkipsCancelledQueuedInference() async {
+        let enqueues = FoundationModelEnqueueProbe()
+        let coordinator = FoundationModelRequestCoordinator {
+            await enqueues.markEnqueued()
+        }
+        let gate = FoundationModelQueueGate()
+        let calls = FoundationModelCallCounter()
+        let first = Task {
+            try await coordinator.perform {
+                await gate.blockUntilReleased()
+                return 1
+            }
+        }
+        await gate.waitUntilBlocked()
+
+        let queued = Task {
+            try await coordinator.perform {
+                await calls.increment()
+                return 2
+            }
+        }
+        await enqueues.wait(for: 2)
+        queued.cancel()
+        await gate.release()
+        _ = try? await first.value
+
+        do {
+            _ = try await queued.value
+            XCTFail("취소된 대기 요청이 실행되면 안 됩니다.")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            XCTFail("예상하지 못한 오류: \(error)")
+        }
+        let callCount = await calls.value
+        XCTAssertEqual(callCount, 0)
     }
 
     func testDiningMenuDetailFallbackBuildsStructuredRows() {
@@ -832,6 +889,44 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertFalse(storage.hasActiveOrders)
     }
 
+    func testQuickOrderRecoveryJournalPersistsBeforeDestructiveIsolation() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.quick-order-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let journalDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quick-order-tests-\(UUID().uuidString)", isDirectory: true)
+        let journalURL = journalDirectory.appendingPathComponent("recovery.json")
+        defer { try? FileManager.default.removeItem(at: journalDirectory) }
+        let preferences = PreferencesStore(defaults: defaults, quickOrderJournalURL: journalURL)
+        let session = QuickOrderSession(
+            id: UUID(),
+            accountID: "tester@example.com",
+            shopID: 5,
+            goodsID: 101,
+            quantity: 2,
+            options: [SelectedOption(optionID: 7, menuIDs: [9, 8])],
+            stashedLines: [
+                CartRestoreLine(goodsID: 202, quantity: 3, options: [])
+            ],
+            phase: .stashed
+        )
+
+        try preferences.saveQuickOrderSession(session)
+
+        defaults.removeObject(forKey: "eliga.quickOrder.recovery")
+        let restored = try XCTUnwrap(
+            PreferencesStore(defaults: defaults, quickOrderJournalURL: journalURL).quickOrderSession
+        )
+        XCTAssertEqual(restored.id, session.id)
+        XCTAssertEqual(restored.accountID, session.accountID)
+        XCTAssertEqual(restored.stashedLines, session.stashedLines)
+        XCTAssertEqual(restored.phase, .stashed)
+
+        try preferences.saveQuickOrderSession(nil)
+        XCTAssertNil(preferences.quickOrderSession)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
+    }
+
     func testOrderMonitoringStoragePrunesExpiredOrders() throws {
         let suiteName = "com.leeari95.NewEligaOrder.monitoring-expiry-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -925,5 +1020,71 @@ private actor FoundationModelRequestProbe {
     func end(_ id: Int) {
         _ = id
         activeRequests -= 1
+    }
+}
+
+private actor FoundationModelCancellationProbe {
+    private(set) var result: Bool?
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func markStarted() {
+        started = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func finish(inferenceWasCancelled: Bool) {
+        result = inferenceWasCancelled
+    }
+}
+
+private actor FoundationModelQueueGate {
+    private var blocked = false
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func blockUntilReleased() async {
+        blocked = true
+        blockedWaiters.forEach { $0.resume() }
+        blockedWaiters.removeAll()
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func waitUntilBlocked() async {
+        if blocked { return }
+        await withCheckedContinuation { blockedWaiters.append($0) }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
+private actor FoundationModelCallCounter {
+    private(set) var value = 0
+    func increment() { value += 1 }
+}
+
+private actor FoundationModelEnqueueProbe {
+    private var count = 0
+    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func markEnqueued() {
+        count += 1
+        let ready = waiters.filter { count >= $0.target }
+        waiters.removeAll { count >= $0.target }
+        ready.forEach { $0.continuation.resume() }
+    }
+
+    func wait(for target: Int) async {
+        if count >= target { return }
+        await withCheckedContinuation { waiters.append((target, $0)) }
     }
 }

@@ -444,7 +444,7 @@ private actor OnDeviceDiningMenuDetailStructurer {
             <영양정보>\(String(nutrition.prefix(2_000)))</영양정보>
             """
 
-        return await FoundationModelRequestCoordinator.shared.perform {
+        return try? await FoundationModelRequestCoordinator.shared.perform {
             let session = LanguageModelSession(
                 model: SystemLanguageModel.default,
                 instructions: DiningMenuDetailStructurer.instructions

@@ -11,6 +11,9 @@ final class APIClient {
     private var tokens: AuthTokens?
     private var cachedSpace: String?
     private var cookieSession = false
+    private var refreshTask: Task<Bool, Never>?
+    private var refreshSuccessors: [UInt64: UInt64] = [:]
+    private(set) var authenticationGeneration: UInt64 = 0
 
     init(keychain: KeychainStore = KeychainStore(), session: URLSession? = nil) {
         let resolvedSession = session ?? Self.makeSession()
@@ -59,10 +62,16 @@ final class APIClient {
         } else {
             cookieSession = true
         }
+        refreshSuccessors.removeAll()
+        authenticationGeneration &+= 1
         _ = try await request(path: "customer/me", allowsRefresh: false)
     }
 
     func signOut() {
+        authenticationGeneration &+= 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshSuccessors.removeAll()
         tokens = nil
         cookieSession = false
         keychain.clear()
@@ -77,8 +86,10 @@ final class APIClient {
         body: JSONValue? = nil,
         requiresAuthentication: Bool = true,
         allowsRefresh: Bool = true,
-        knownSpace: String? = nil
+        knownSpace: String? = nil,
+        forceNetwork: Bool = false
     ) async throws -> JSONValue {
+        let requestGeneration = authenticationGeneration
         let space: String
         if let knownSpace {
             space = knownSpace
@@ -90,24 +101,36 @@ final class APIClient {
             url: url,
             method: method,
             body: body,
-            requiresAuthentication: requiresAuthentication
+            requiresAuthentication: requiresAuthentication,
+            forceNetwork: forceNetwork
         )
 
-        if response.statusCode == 401, requiresAuthentication, allowsRefresh,
-           try await refreshAccessToken() {
-            return try await request(
-                path: path,
-                query: query,
-                method: method,
-                body: body,
-                requiresAuthentication: true,
-                allowsRefresh: false,
-                knownSpace: space
-            )
+        if response.statusCode == 401, requiresAuthentication, allowsRefresh {
+            let refreshed = await refreshAccessTokenSingleFlight(expectedGeneration: requestGeneration)
+            if refreshed || refreshSuccessors[requestGeneration] == authenticationGeneration {
+                return try await request(
+                    path: path,
+                    query: query,
+                    method: method,
+                    body: body,
+                    requiresAuthentication: true,
+                    allowsRefresh: false,
+                    knownSpace: space,
+                    forceNetwork: forceNetwork
+                )
+            }
+        }
+
+        guard !requiresAuthentication || requestGeneration == authenticationGeneration else {
+            throw CancellationError()
         }
 
         guard (200..<300).contains(response.statusCode) else {
-            if response.statusCode == 401, requiresAuthentication { invalidateAuthentication() }
+            if response.statusCode == 401,
+               requiresAuthentication,
+               requestGeneration == authenticationGeneration {
+                invalidateAuthentication()
+            }
             throw APIError.http(
                 status: response.statusCode,
                 message: Self.errorMessage(from: data, status: response.statusCode)
@@ -138,8 +161,25 @@ final class APIClient {
         return space
     }
 
-    private func refreshAccessToken() async throws -> Bool {
-        guard let current = tokens, !current.refreshToken.isEmpty else { return false }
+    private func refreshAccessTokenSingleFlight(expectedGeneration: UInt64) async -> Bool {
+        guard expectedGeneration == authenticationGeneration else { return false }
+        if let refreshTask { return await refreshTask.value }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.performTokenRefresh(expectedGeneration: expectedGeneration)
+        }
+        refreshTask = task
+        let result = await task.value
+        if refreshTask != nil { refreshTask = nil }
+        return result
+    }
+
+    private func performTokenRefresh(expectedGeneration: UInt64) async -> Bool {
+        guard expectedGeneration == authenticationGeneration,
+              let current = tokens,
+              !current.refreshToken.isEmpty
+        else { return false }
         do {
             let json = try await request(
                 path: "customer/refresh-token",
@@ -151,6 +191,7 @@ final class APIClient {
             guard var refreshed = Self.extractTokens(from: json, cookies: authenticationCookies()) else {
                 return false
             }
+            guard expectedGeneration == authenticationGeneration else { return false }
             if refreshed.refreshToken.isEmpty {
                 refreshed = AuthTokens(
                     accessToken: refreshed.accessToken,
@@ -160,6 +201,8 @@ final class APIClient {
             }
             tokens = refreshed
             try keychain.save(tokens: refreshed)
+            authenticationGeneration &+= 1
+            refreshSuccessors[expectedGeneration] = authenticationGeneration
             return true
         } catch {
             return false
@@ -170,10 +213,12 @@ final class APIClient {
         url: URL,
         method: String,
         body: JSONValue?,
-        requiresAuthentication: Bool
+        requiresAuthentication: Bool,
+        forceNetwork: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.httpMethod = method
+        request.cachePolicy = forceNetwork ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {

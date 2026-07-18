@@ -12,12 +12,15 @@ struct NewEligaOrderApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                switch store.authenticationState {
-                case .signedOut, .authenticating:
-                    LoginView()
-                case .authenticated:
-                    AppShellView()
+#if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-sections") {
+                    CafePrioritySectionsFixtureView()
+                } else {
+                    authenticatedRoot
                 }
+#else
+                authenticatedRoot
+#endif
             }
             .environment(store)
             .environment(router)
@@ -47,6 +50,18 @@ struct NewEligaOrderApp: App {
                     break
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var authenticatedRoot: some View {
+        Group {
+                switch store.authenticationState {
+                case .signedOut, .authenticating:
+                    LoginView()
+                case .authenticated:
+                    AppShellView()
+                }
         }
     }
 }

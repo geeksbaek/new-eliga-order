@@ -27,8 +27,9 @@ struct RemoteThumbnail: View {
             loadedImage = nil
             didFinishLoading = url == nil
             guard let url else { return }
-            loadedImage = await ImagePipeline.shared.image(for: url, targetSize: size)
+            let image = await ImagePipeline.shared.image(for: url, targetSize: size)
             guard !Task.isCancelled else { return }
+            loadedImage = image
             didFinishLoading = true
         }
     }
@@ -233,6 +234,7 @@ struct SelectionChip: View {
             }
         }
         .controlSize(.regular)
+        .frame(minHeight: 44)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -249,7 +251,10 @@ struct MenuLabelBadge: View {
     var body: some View {
         Text(text)
             .font(size == .compact ? .caption2.weight(.bold) : .caption.weight(.bold))
-            .foregroundStyle(foregroundColor)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, size == .compact ? 5 : 7)
+            .padding(.vertical, 2)
+            .background(foregroundColor.opacity(0.16), in: Capsule())
             .lineLimit(1)
             .accessibilityLabel("\(text) 배지")
     }
@@ -264,6 +269,8 @@ struct MenuLabelBadge: View {
 }
 
 struct CafeMenuRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let item: CafeMenuItem
     let isFavorite: Bool
     let quantity: Int
@@ -275,52 +282,22 @@ struct CafeMenuRow: View {
     let quickOrder: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: openDetail) {
-                HStack(spacing: 10) {
-                    CafeMenuThumbnail(
-                        url: item.thumbnailURL,
-                        size: 64,
-                        isSoldOut: item.isSoldOut
-                    )
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 5) {
-                            if let label = item.label, !label.isEmpty {
-                                MenuLabelBadge(text: label)
-                            }
-                            Text(item.name)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                            if isFavorite {
-                                Image(systemName: "star.fill")
-                                    .font(.caption2)
-                                    .foregroundStyle(.yellow)
-                                    .accessibilityHidden(true)
-                            }
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    detailButton
+                    if !item.isSoldOut {
+                        HStack {
+                            Spacer()
+                            quantityControl
                         }
-
-                        if let description = item.description, !description.isEmpty {
-                            MenuDescriptionText(text: description)
-                        }
-
-                        Text(AppFormat.won(item.price))
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(.primary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .layoutPriority(1)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(menuAccessibilityLabel)
-            .accessibilityHint("메뉴 상세 정보를 엽니다")
-
-            if !item.isSoldOut {
-                quantityControl
+            } else {
+                HStack(spacing: 10) {
+                    detailButton
+                    if !item.isSoldOut { quantityControl }
+                }
             }
         }
         .frame(minHeight: 64)
@@ -345,6 +322,95 @@ struct CafeMenuRow: View {
             named: Text(isFavorite ? "즐겨찾기 해제" : "즐겨찾기"),
             toggleFavorite
         )
+    }
+
+    private var detailButton: some View {
+        Button(action: openDetail) {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 10) {
+                        menuThumbnail
+                        menuCopy
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        menuThumbnail
+                        menuCopy
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .layoutPriority(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(menuAccessibilityLabel)
+        .accessibilityHint("메뉴 상세 정보를 엽니다")
+    }
+
+    private var menuThumbnail: some View {
+        CafeMenuThumbnail(
+            url: item.thumbnailURL,
+            size: 64,
+            isSoldOut: item.isSoldOut
+        )
+    }
+
+    private var menuCopy: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            menuTitle
+
+            if !dynamicTypeSize.isAccessibilitySize,
+               let description = item.description,
+               !description.isEmpty {
+                MenuDescriptionText(text: description)
+            }
+
+            Text(AppFormat.won(item.price))
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var menuTitle: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    if let label = item.label, !label.isEmpty {
+                        MenuLabelBadge(text: label)
+                    }
+                    if isFavorite { favoriteIcon }
+                }
+                Text(item.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(2)
+            }
+        } else {
+            HStack(spacing: 5) {
+                if let label = item.label, !label.isEmpty {
+                    MenuLabelBadge(text: label)
+                }
+                Text(item.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if isFavorite { favoriteIcon }
+            }
+        }
+    }
+
+    private var favoriteIcon: some View {
+        Image(systemName: "star.fill")
+            .font(.caption2)
+            .foregroundStyle(.yellow)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -389,7 +455,8 @@ struct CafeMenuRow: View {
             HStack(spacing: 0) {
                 Button("수량 감소", systemImage: "minus", action: decrease)
                     .labelStyle(.iconOnly)
-                    .frame(minWidth: 44, minHeight: 44)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
 
                 Text("\(quantity)")
                     .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -399,7 +466,8 @@ struct CafeMenuRow: View {
 
                 Button("수량 증가", systemImage: "plus", action: increase)
                     .labelStyle(.iconOnly)
-                    .frame(minWidth: 44, minHeight: 44)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                     .disabled(!orderState.isOrderable || item.goodsID == nil)
             }
             .buttonStyle(.plain)

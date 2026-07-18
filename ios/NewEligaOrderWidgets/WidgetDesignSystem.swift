@@ -45,7 +45,7 @@ struct WidgetStatusPill: View {
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .foregroundStyle(isEmphasized ? WidgetPalette.orange : .secondary)
+            .foregroundStyle(isEmphasized ? Color.primary : .secondary)
             .background(
                 (isEmphasized ? WidgetPalette.orange : Color.secondary).opacity(0.12),
                 in: Capsule()

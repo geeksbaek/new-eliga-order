@@ -77,14 +77,14 @@ struct SettingsView: View {
             }
 
             if let errorMessage {
-                Section { Label(errorMessage, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
+                Section { Label(errorMessage, systemImage: "exclamationmark.circle").foregroundStyle(.primary) }
             }
 
             Section("계정") {
                 if !store.userIDHint.isEmpty { LabeledContent("로그인 계정", value: store.userIDHint) }
                 Button("로그아웃", role: .destructive) {
                     router.reset()
-                    store.logout()
+                    Task { await store.logout() }
                 }
             }
 
@@ -124,13 +124,10 @@ struct SettingsView: View {
     }
 
     private func updateNotification(_ meal: MealNotificationScheduler.Meal, enabled: Bool, time: Date) {
-        if meal == .lunch {
-            preferences.lunchNotificationEnabled = enabled
-            preferences.lunchTime = time
-        } else {
-            preferences.dinnerNotificationEnabled = enabled
-            preferences.dinnerTime = time
-        }
+        let previousEnabled = meal == .lunch
+            ? preferences.lunchNotificationEnabled
+            : preferences.dinnerNotificationEnabled
+        let previousTime = meal == .lunch ? preferences.lunchTime : preferences.dinnerTime
         Task {
             do {
                 if enabled {
@@ -144,9 +141,28 @@ struct SettingsView: View {
                     guard granted else { throw SettingsError.notificationsDenied }
                 }
                 try await scheduler.schedule(meal, at: time, enabled: enabled)
+                if meal == .lunch {
+                    preferences.lunchNotificationEnabled = enabled
+                    preferences.lunchTime = time
+                } else {
+                    preferences.dinnerNotificationEnabled = enabled
+                    preferences.dinnerTime = time
+                }
                 await load()
             }
-            catch { errorMessage = error.localizedDescription }
+            catch {
+                hasLoaded = false
+                if meal == .lunch {
+                    lunchEnabled = previousEnabled
+                    lunchTime = previousTime
+                } else {
+                    dinnerEnabled = previousEnabled
+                    dinnerTime = previousTime
+                }
+                await Task.yield()
+                hasLoaded = true
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

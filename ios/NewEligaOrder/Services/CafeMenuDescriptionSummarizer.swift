@@ -245,7 +245,7 @@ private actor OnDeviceMenuDescriptionSummarizer {
 
         let source = String(rawValue.prefix(4_000))
 
-        return await FoundationModelRequestCoordinator.shared.perform {
+        return try? await FoundationModelRequestCoordinator.shared.perform {
             let session = LanguageModelSession(
                 model: SystemLanguageModel.default,
                 instructions: mode.instructions

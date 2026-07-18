@@ -122,7 +122,10 @@ struct HomeView: View {
                             if dish.isSoldOut {
                                 Text("품절")
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(.primary)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(.red.opacity(0.14), in: Capsule())
                             }
                         }
                         .padding(.vertical, 10)
@@ -199,6 +202,7 @@ struct HomeView: View {
             Spacer()
             Button(actionTitle, action: action)
                 .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 44)
         }
     }
 
@@ -212,6 +216,7 @@ struct HomeView: View {
             Spacer(minLength: 8)
             Button("다시 시도") { Task { await load() } }
                 .font(.footnote.weight(.semibold))
+                .frame(minWidth: 44, minHeight: 44)
         }
         .padding(14)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -280,16 +285,7 @@ struct HomeView: View {
             date: .now,
             forceRefresh: forceRefresh
         )
-        let api = store.api
-        let shops = store.cafeShops
-        let cafeTasks = shops.map { shop in
-            Task { @MainActor in
-                let items = try? await api.fetchRecentOrders(shopID: shop.id, forceRefresh: forceRefresh)
-                return HomeRecentLoadResult(shop: shop, items: items ?? [])
-            }
-        }
-        var cafeResults: [HomeRecentLoadResult] = []
-        for task in cafeTasks { cafeResults.append(await task.value) }
+        async let cafeRequest = loadCafeRecents(forceRefresh: forceRefresh)
 
         do {
             let loadedPeriods = try await diningRequest
@@ -297,19 +293,48 @@ struct HomeView: View {
         } catch is CancellationError {
             return
         } catch {
-            periods = []
             errorMessage = error.localizedDescription
         }
 
         guard !Task.isCancelled else { return }
+        let cafeResults = await cafeRequest
         let loaded = cafeResults.flatMap { result in
             result.items.prefix(4).map { HomeRecentItem(shop: result.shop, item: $0) }
         }
-        recentItems = loaded
-            .sorted { ($0.item.lastOrderAt ?? "") > ($1.item.lastOrderAt ?? "") }
-            .prefix(12)
-            .map { $0 }
+        if cafeResults.contains(where: \.succeeded) {
+            recentItems = loaded
+                .sorted { ($0.item.lastOrderAt ?? "") > ($1.item.lastOrderAt ?? "") }
+                .prefix(12)
+                .map { $0 }
+        } else if !store.cafeShops.isEmpty {
+            errorMessage = errorMessage ?? "최근 카페 주문을 불러오지 못했습니다."
+        }
         ImagePipeline.shared.preload(recentItems.compactMap(\.item.thumbnailURL), targetSize: 96)
+    }
+
+    private func loadCafeRecents(forceRefresh: Bool) async -> [HomeRecentLoadResult] {
+        let api = store.api
+        return await withTaskGroup(
+            of: HomeRecentLoadResult.self,
+            returning: [HomeRecentLoadResult].self
+        ) { group in
+            for shop in store.cafeShops {
+                group.addTask {
+                    do {
+                        let items = try await api.fetchRecentOrders(
+                            shopID: shop.id,
+                            forceRefresh: forceRefresh
+                        )
+                        return HomeRecentLoadResult(shop: shop, items: items, succeeded: true)
+                    } catch {
+                        return HomeRecentLoadResult(shop: shop, items: [], succeeded: false)
+                    }
+                }
+            }
+            var results: [HomeRecentLoadResult] = []
+            for await result in group { results.append(result) }
+            return results
+        }
     }
 
     private func isPreferred(_ name: String) -> Bool {
@@ -335,4 +360,5 @@ private struct HomeRecentItem: Identifiable {
 private struct HomeRecentLoadResult: Sendable {
     let shop: Shop
     let items: [CafeQuickItem]
+    let succeeded: Bool
 }

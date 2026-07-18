@@ -148,7 +148,10 @@ struct DiningNowWidgetView: View {
                     if let badge = dish.badge, !badge.isEmpty {
                         Text(badge)
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(WidgetPalette.orange)
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(WidgetPalette.orange.opacity(0.14), in: Capsule())
                             .lineLimit(1)
                     }
                     Text(dish.name)

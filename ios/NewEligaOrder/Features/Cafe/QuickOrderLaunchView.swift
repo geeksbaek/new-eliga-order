@@ -50,6 +50,10 @@ struct QuickOrderLaunchView: View {
             let detail = try await store.api.fetchMenuDetail(displayID: displayID)
             await loadedPlan
 
+            guard detail.shopID == nil || detail.shopID == shopID else {
+                throw QuickOrderLaunchError.invalidShop
+            }
+
             guard CafeRules.state(for: store.cafePlansByShop[shopID] ?? nil).isOrderable else {
                 throw QuickOrderLaunchError.shopClosed
             }
@@ -66,9 +70,10 @@ struct QuickOrderLaunchView: View {
                 quantity: 1,
                 options: options
             )
-            guard !Task.isCancelled else { return }
-            router.switchTo(.cafe, route: .orderConfirmation(isQuickOrder: true))
+            try Task.checkCancellation()
+            router.switchTo(.cafe, route: .orderConfirmation(shopID: shopID, isQuickOrder: true))
         } catch is CancellationError {
+            try? await store.cancelQuickOrder()
             return
         } catch {
             errorMessage = error.localizedDescription
@@ -79,11 +84,13 @@ struct QuickOrderLaunchView: View {
 private enum QuickOrderLaunchError: LocalizedError {
     case shopClosed
     case soldOut
+    case invalidShop
 
     var errorDescription: String? {
         switch self {
         case .shopClosed: "지금은 이 카페에서 주문할 수 없습니다."
         case .soldOut: "현재 주문 가능한 메뉴 옵션이 없습니다."
+        case .invalidShop: "선택한 매장과 메뉴 정보가 일치하지 않습니다."
         }
     }
 }

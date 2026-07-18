@@ -20,6 +20,7 @@ struct MenuDetailView: View {
     @State private var pendingAction: PendingAction?
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var actionTask: Task<Void, Never>?
 
     private var variant: GoodsVariant? {
         detail?.variants.first { $0.id == selectedVariantID } ?? detail?.variants.first
@@ -57,16 +58,11 @@ struct MenuDetailView: View {
 
                     if detail.variants.count > 1 {
                         AppMenuDetailSection(title: "온도 / 종류", systemImage: "thermometer.medium") {
-                            Picker("온도 / 종류", selection: Binding(
-                                get: { selectedVariantID ?? variant.id },
-                                set: { selectVariant($0) }
-                            )) {
-                                ForEach(detail.variants) {
-                                    Text($0.displayName.isEmpty ? $0.name : $0.displayName).tag($0.id)
+                            VStack(spacing: 8) {
+                                ForEach(detail.variants) { candidate in
+                                    variantButton(candidate)
                                 }
                             }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
                         }
                     }
 
@@ -95,6 +91,7 @@ struct MenuDetailView: View {
         .navigationTitle(variant?.name ?? "메뉴")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .onDisappear { actionTask?.cancel() }
         .task(id: successMessage) {
             guard successMessage != nil else { return }
             try? await Task.sleep(for: .seconds(2))
@@ -150,13 +147,13 @@ struct MenuDetailView: View {
         if let errorMessage {
             Label(errorMessage, systemImage: "exclamationmark.circle")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.red)
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.updatesFrequently)
         } else if let successMessage {
             Label(successMessage, systemImage: "checkmark.circle.fill")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .accessibilityAddTraits(.updatesFrequently)
@@ -227,6 +224,7 @@ struct MenuDetailView: View {
                             }
                         }
                     }
+                    .frame(minHeight: 44)
                 }
             } else {
                 VStack(spacing: 8) {
@@ -271,6 +269,70 @@ struct MenuDetailView: View {
         }
     }
 
+    private func variantButton(_ candidate: GoodsVariant) -> some View {
+        let isSelected = candidate.id == (selectedVariantID ?? variant?.id)
+        let title = candidate.displayName.isEmpty ? candidate.name : candidate.displayName
+        return Button {
+            selectVariant(candidate.id)
+        } label: {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    variantSelectionIcon(isSelected: isSelected)
+                    Text(title)
+                        .font(.body.weight(isSelected ? .semibold : .regular))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    variantPrice(candidate)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        variantSelectionIcon(isSelected: isSelected)
+                        Text(title)
+                            .font(.body.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+                    }
+                    variantPrice(candidate)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.12) : Color(.tertiarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.55) : .clear, lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(candidate.isSoldOut)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityLabel(candidate.isSoldOut ? "\(title), 품절" : title)
+        .accessibilityValue(AppFormat.won(candidate.price))
+    }
+
+    private func variantSelectionIcon(isSelected: Bool) -> some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .font(.title3)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func variantPrice(_ candidate: GoodsVariant) -> some View {
+        if candidate.isSoldOut {
+            Text("품절")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+        } else {
+            PriceText(amount: candidate.price)
+        }
+    }
+
     private func load(forceRefresh: Bool = false) async {
         isLoading = true
         defer { isLoading = false }
@@ -280,6 +342,9 @@ struct MenuDetailView: View {
             let loaded = try await store.api.fetchMenuDetail(displayID: displayID, forceRefresh: forceRefresh)
             await loadedPlan
             guard !Task.isCancelled else { return }
+            guard loaded.shopID == nil || loaded.shopID == shopID else {
+                throw MenuDetailError.invalidShop
+            }
             detail = loaded
             ImagePipeline.shared.preload(
                 ([loaded.thumbnailURL] + loaded.variants.map(\.thumbnailURL)).compactMap { $0 },
@@ -318,7 +383,8 @@ struct MenuDetailView: View {
         guard let variant, !isSubmitting else { return }
         pendingAction = action
         errorMessage = nil
-        Task {
+        actionTask?.cancel()
+        actionTask = Task {
             defer { pendingAction = nil }
             do {
                 if action == .quickOrder {
@@ -328,7 +394,8 @@ struct MenuDetailView: View {
                         quantity: quantity,
                         options: selectedOptions
                     )
-                    router.push(.orderConfirmation(isQuickOrder: true), on: .cafe)
+                    try Task.checkCancellation()
+                    router.push(.orderConfirmation(shopID: shopID, isQuickOrder: true), on: .cafe)
                 } else {
                     try await store.addToCart(
                         shopID: shopID,
@@ -339,11 +406,20 @@ struct MenuDetailView: View {
                     withAnimation { successMessage = "장바구니에 담았습니다" }
                 }
             } catch is CancellationError {
+                if action == .quickOrder { try? await store.cancelQuickOrder() }
                 return
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+}
+
+private enum MenuDetailError: LocalizedError {
+    case invalidShop
+
+    var errorDescription: String? {
+        "선택한 매장과 메뉴 정보가 일치하지 않습니다. 메뉴 목록에서 다시 선택해 주세요."
     }
 }
 
@@ -371,6 +447,7 @@ private struct MenuQuantitySelector: View {
                 quantity = max(1, quantity - 1)
             }
             .labelStyle(.iconOnly)
+            .frame(minWidth: 44, minHeight: 44)
             .disabled(quantity <= 1)
 
             Text("\(quantity)")
@@ -383,6 +460,7 @@ private struct MenuQuantitySelector: View {
                 quantity = min(20, quantity + 1)
             }
             .labelStyle(.iconOnly)
+            .frame(minWidth: 44, minHeight: 44)
             .disabled(quantity >= 20)
         }
         .buttonStyle(.bordered)

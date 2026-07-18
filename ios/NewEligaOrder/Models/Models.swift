@@ -174,6 +174,7 @@ enum CafeMenuPriorityGroup: String, CaseIterable, Sendable {
         case .standard: "cup.and.saucer"
         }
     }
+
 }
 
 struct CafeMenuPrioritySection: Identifiable, Sendable {
@@ -381,12 +382,12 @@ struct Cart: Hashable, Sendable {
     var itemCount: Int { items.reduce(0) { $0 + $1.quantity } }
 }
 
-struct SelectedOption: Hashable, Sendable {
+struct SelectedOption: Codable, Hashable, Sendable {
     let optionID: Int
     let menuIDs: [Int]
 }
 
-struct CartRestoreLine: Hashable, Sendable {
+struct CartRestoreLine: Codable, Hashable, Sendable {
     let goodsID: Int
     let quantity: Int
     let options: [SelectedOption]
@@ -472,9 +473,20 @@ struct FavoriteMenu: Codable, Hashable, Identifiable, Sendable {
     let name: String
 }
 
-struct QuickOrderSession: Sendable {
+enum QuickOrderPhase: String, Codable, Equatable, Sendable {
+    case stashed
+    case isolated
+    case submitting
+    case restoring
+}
+
+struct QuickOrderSession: Codable, Sendable {
+    let id: UUID
+    let accountID: String
     let shopID: Int
     let goodsID: Int
     let quantity: Int
+    let options: [SelectedOption]
     let stashedLines: [CartRestoreLine]
+    var phase: QuickOrderPhase
 }
