@@ -1,0 +1,108 @@
+name: NewEligaOrder
+options:
+  bundleIdPrefix: com.leeari95
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: RCVFD6XLU9
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+targets:
+  NewEligaOrder:
+    type: application
+    platform: iOS
+    sources:
+      - NewEligaOrder
+    dependencies:
+      - target: NewEligaOrderWidgets
+        embed: true
+    resources:
+      - NewEligaOrder/Resources/Assets.xcassets
+      - NewEligaOrder/Resources/PrivacyInfo.xcprivacy
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leeari95.NewEligaOrder
+        PRODUCT_NAME: NewEligaOrder
+        CURRENT_PROJECT_VERSION: 16
+        MARKETING_VERSION: 1.3.0
+        CODE_SIGN_ENTITLEMENTS: NewEligaOrder/Resources/NewEligaOrder.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: YES
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: NewEligaOrder/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: 엘리가오더
+        CFBundleURLTypes:
+          - CFBundleURLName: com.leeari95.NewEligaOrder.navigation
+            CFBundleURLSchemes:
+              - neweligaorder
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.leeari95.NewEligaOrder.refresh
+        NSSupportsLiveActivities: true
+        UIBackgroundModes:
+          - fetch
+          - remote-notification
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+  NewEligaOrderWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NewEligaOrderWidgets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leeari95.NewEligaOrder.Widgets
+        PRODUCT_NAME: NewEligaOrderWidgets
+        CURRENT_PROJECT_VERSION: 16
+        MARKETING_VERSION: 1.3.0
+        CODE_SIGN_ENTITLEMENTS: NewEligaOrderWidgets/NewEligaOrderWidgets.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: NewEligaOrderWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: 엘리가오더 위젯
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  NewEligaOrderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - NewEligaOrderTests
+    dependencies:
+      - target: NewEligaOrder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leeari95.NewEligaOrderTests
+  NewEligaOrderUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - NewEligaOrderUITests
+    dependencies:
+      - target: NewEligaOrder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leeari95.NewEligaOrderUITests
+schemes:
+  NewEligaOrder:
+    build:
+      targets:
+        NewEligaOrder: all
+        NewEligaOrderWidgets: all
+        NewEligaOrderTests: [test]
+        NewEligaOrderUITests: [test]
+    test:
+      targets:
+        - NewEligaOrderTests
+        - NewEligaOrderUITests

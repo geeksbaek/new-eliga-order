@@ -76,7 +76,8 @@ describe('cafe-hours', () => {
   })
 
   it('blocks when openYn false', () => {
-    const st = evaluateCafeHours(basePlan({ open: false }))
+    const monday = new Date('2026-07-20T12:00:00+09:00')
+    const st = evaluateCafeHours(basePlan({ open: false }), monday)
     expect(st.orderable).toBe(false)
     expect(st.reason).toBe('closed')
     expect(st.message).toContain('09:00–19:00')
