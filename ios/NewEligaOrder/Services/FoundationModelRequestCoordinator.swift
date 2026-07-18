@@ -1,5 +1,25 @@
 import Foundation
 
+enum FoundationModelRuntimePolicy {
+    static var isEnabled: Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        return isSupported(osVersion: ProcessInfo.processInfo.operatingSystemVersion)
+    }
+
+    static func isSupported(osVersion: OperatingSystemVersion) -> Bool {
+        guard osVersion.majorVersion >= 26 else { return false }
+
+        // Foundation Models can trap inside TranscriptWritingAggregator on iOS 27.0,
+        // which cannot be recovered by Swift error handling. Avoid constructing the
+        // model on that runtime and use the deterministic parsers until a fixed OS ships.
+        if osVersion.majorVersion == 27, osVersion.minorVersion == 0 {
+            return false
+        }
+
+        return true
+    }
+}
+
 private final class FoundationModelCancellationFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false

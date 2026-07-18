@@ -313,6 +313,7 @@ actor DiningMenuDetailStructurer {
         if let cached = cache[key] { return cached }
 
         guard #available(iOS 26.0, *) else { return fallback }
+        guard FoundationModelRuntimePolicy.isEnabled else { return fallback }
         guard let generated = await OnDeviceDiningMenuDetailStructurer.shared.details(
             menuName: menuName,
             information: information,
@@ -425,8 +426,6 @@ private struct GeneratedDiningMenuDetailRow: Sendable {
 private actor OnDeviceDiningMenuDetailStructurer {
     static let shared = OnDeviceDiningMenuDetailStructurer()
 
-    private let model = SystemLanguageModel.default
-
     func details(
         menuName: String,
         information: String,
@@ -434,6 +433,8 @@ private actor OnDeviceDiningMenuDetailStructurer {
         nutrition: String,
         sideDishSummary: String
     ) async -> GeneratedDiningMenuDetails? {
+        guard FoundationModelRuntimePolicy.isEnabled else { return nil }
+        let model = SystemLanguageModel.default
         guard model.isAvailable, model.supportsLocale(Locale(identifier: "ko_KR")) else { return nil }
 
         let source = """
@@ -446,7 +447,7 @@ private actor OnDeviceDiningMenuDetailStructurer {
 
         return try? await FoundationModelRequestCoordinator.shared.perform {
             let session = LanguageModelSession(
-                model: SystemLanguageModel.default,
+                model: model,
                 instructions: DiningMenuDetailStructurer.instructions
             )
             do {

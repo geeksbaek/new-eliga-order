@@ -31,6 +31,7 @@ actor DiningMenuDynamicUIStructurer {
         if let cached = cache[key] { return cached }
 
         guard #available(iOS 26.0, *) else { return fallback }
+        guard FoundationModelRuntimePolicy.isEnabled else { return fallback }
         guard let generated = await OnDeviceDiningDynamicUIStructurer.shared.surface(for: input) else {
             return fallback
         }
@@ -113,9 +114,9 @@ private struct GeneratedDiningDynamicItem: Sendable {
 private actor OnDeviceDiningDynamicUIStructurer {
     static let shared = OnDeviceDiningDynamicUIStructurer()
 
-    private let model = SystemLanguageModel.default
-
     func surface(for input: DiningDynamicUIInput) async -> GeneratedDiningDynamicSurface? {
+        guard FoundationModelRuntimePolicy.isEnabled else { return nil }
+        let model = SystemLanguageModel.default
         guard model.isAvailable, model.supportsLocale(Locale(identifier: "ko_KR")) else { return nil }
 
         let verifiedFacts = DiningDynamicUIFallback.surface(for: input).blocks
@@ -140,7 +141,7 @@ private actor OnDeviceDiningDynamicUIStructurer {
 
         return try? await FoundationModelRequestCoordinator.shared.perform {
             let session = LanguageModelSession(
-                model: SystemLanguageModel.default,
+                model: model,
                 instructions: DiningMenuDynamicUIStructurer.instructions
             )
             do {

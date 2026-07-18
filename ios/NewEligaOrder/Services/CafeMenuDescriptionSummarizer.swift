@@ -200,6 +200,7 @@ actor MenuDescriptionSummarizer {
         }
 
         guard #available(iOS 26.0, *) else { return fallback }
+        guard FoundationModelRuntimePolicy.isEnabled else { return fallback }
         guard let generated = await OnDeviceMenuDescriptionSummarizer.shared.summary(
             for: source,
             mode: mode
@@ -235,19 +236,19 @@ actor MenuDescriptionSummarizer {
 private actor OnDeviceMenuDescriptionSummarizer {
     static let shared = OnDeviceMenuDescriptionSummarizer()
 
-    private let model = SystemLanguageModel.default
-
     func summary(
         for rawValue: String,
         mode: MenuDescriptionSummarizationMode
     ) async -> String? {
+        guard FoundationModelRuntimePolicy.isEnabled else { return nil }
+        let model = SystemLanguageModel.default
         guard model.isAvailable, model.supportsLocale(Locale(identifier: "ko_KR")) else { return nil }
 
         let source = String(rawValue.prefix(4_000))
 
         return try? await FoundationModelRequestCoordinator.shared.perform {
             let session = LanguageModelSession(
-                model: SystemLanguageModel.default,
+                model: model,
                 instructions: mode.instructions
             )
             do {

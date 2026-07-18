@@ -140,6 +140,32 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertNil(DiningSideDishRuleParser.summary(from: "배추김치\n멸치볶음"))
     }
 
+    func testFoundationModelRuntimePolicyDisablesKnownCrashingIOSVersion() {
+        XCTAssertTrue(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 4, patchVersion: 0)
+            )
+        )
+        XCTAssertFalse(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+            )
+        )
+        XCTAssertTrue(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 1, patchVersion: 0)
+            )
+        )
+    }
+
+    func testFoundationModelRuntimePolicyRejectsUnsupportedIOSVersion() {
+        XCTAssertFalse(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 25, minorVersion: 9, patchVersion: 0)
+            )
+        )
+    }
+
     func testFoundationModelCoordinatorSerializesRequests() async {
         let coordinator = FoundationModelRequestCoordinator()
         let probe = FoundationModelRequestProbe()
