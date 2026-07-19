@@ -319,6 +319,8 @@ struct DiningMenuDetailContext: Hashable, Sendable {
     let startTime: String
     let endTime: String
     let date: Date
+    var preparedSurface: DiningDynamicUISurface? = nil
+    var personalization: DiningMenuPersonalization? = nil
 
     var isSoldOut: Bool { meal.isSoldOut || courseIsSoldOut }
 

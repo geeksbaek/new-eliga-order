@@ -4,6 +4,7 @@ struct HomeView: View {
     @Environment(AppStore.self) private var store
     @Environment(AppRouter.self) private var router
     @State private var periods: [DiningPeriod] = []
+    @State private var diningPersonalizations: [String: DiningMenuPersonalization] = [:]
     @State private var recentItems: [HomeRecentItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -58,7 +59,13 @@ struct HomeView: View {
             }
         }
         .refreshable { await load(forceRefresh: true) }
-        .task { if periods.isEmpty, recentItems.isEmpty { await load() } }
+        .task(id: store.diningPersonalizationSignature) {
+            if periods.isEmpty, recentItems.isEmpty {
+                await load()
+            } else {
+                await loadDiningPersonalization()
+            }
+        }
     }
 
     private var dateHeader: some View {
@@ -104,19 +111,27 @@ struct HomeView: View {
 
                     ForEach(Array(dishes.prefix(6).enumerated()), id: \.offset) { index, dish in
                         if index > 0 { Divider() }
+                        let personalization = personalization(for: dish)
                         HStack(spacing: 10) {
-                            Image(systemName: isPreferred(dish.titlePresentation.displayName) ? "sparkles" : "fork.knife")
+                            Image(systemName: recommendationIcon(for: personalization.recommendation))
                                 .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(isPreferred(dish.titlePresentation.displayName) ? .orange : .secondary)
+                                .foregroundStyle(recommendationColor(for: personalization.recommendation))
                                 .frame(width: 22)
                                 .accessibilityHidden(true)
-                            HStack(spacing: 5) {
-                                ForEach(Array(dish.titlePresentation.badges.enumerated()), id: \.offset) { _, badge in
-                                    MenuLabelBadge(text: badge)
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 5) {
+                                    ForEach(Array(dish.titlePresentation.badges.enumerated()), id: \.offset) { _, badge in
+                                        MenuLabelBadge(text: badge)
+                                    }
+                                    Text(dish.titlePresentation.displayName)
+                                        .font(.body)
+                                        .lineLimit(2)
                                 }
-                                Text(dish.titlePresentation.displayName)
-                                    .font(.body)
-                                    .lineLimit(2)
+                                if personalization.recommendation != .neutral || personalization.hasAllergyWarning {
+                                    HStack(spacing: 5) {
+                                        DiningPersonalizationLabels(personalization: personalization)
+                                    }
+                                }
                             }
                             Spacer(minLength: 8)
                             if dish.isSoldOut {
@@ -129,6 +144,11 @@ struct HomeView: View {
                             }
                         }
                         .padding(.vertical, 10)
+                        .padding(.horizontal, 8)
+                        .background(
+                            DiningPersonalizationStyle.background(for: personalization.recommendation),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
                         .accessibilityElement(children: .combine)
                     }
 
@@ -280,7 +300,7 @@ struct HomeView: View {
         defer { isLoading = false }
         errorMessage = nil
 
-        async let diningRequest = store.api.fetchDiningMenu(
+        async let diningRequest = store.preparedDiningDay(
             shopID: store.diningShopID,
             date: .now,
             forceRefresh: forceRefresh
@@ -288,8 +308,9 @@ struct HomeView: View {
         async let cafeRequest = loadCafeRecents(forceRefresh: forceRefresh)
 
         do {
-            let loadedPeriods = try await diningRequest
-            periods = DiningMenuFilter.periodsWithMeals(loadedPeriods)
+            let prepared = try await diningRequest
+            periods = prepared.periods
+            diningPersonalizations = Self.personalizationMap(from: prepared)
         } catch is CancellationError {
             return
         } catch {
@@ -337,8 +358,52 @@ struct HomeView: View {
         }
     }
 
-    private func isPreferred(_ name: String) -> Bool {
-        store.diningPreferences.contains { name.localizedCaseInsensitiveContains($0) }
+    private func loadDiningPersonalization() async {
+        guard let prepared = try? await store.preparedDiningDay(shopID: store.diningShopID, date: .now) else {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        periods = prepared.periods
+        diningPersonalizations = Self.personalizationMap(from: prepared)
+    }
+
+    private static func personalizationMap(from prepared: PreparedDiningDay) -> [String: DiningMenuPersonalization] {
+        var values: [String: DiningMenuPersonalization] = [:]
+        for period in prepared.periods {
+            for course in period.courses {
+                for meal in course.menus {
+                    let key = DiningPreparationKey.make(period: period, course: course, meal: meal)
+                    if let personalization = prepared.preparations[key]?.personalization {
+                        values[meal.id] = personalization
+                    }
+                }
+            }
+        }
+        return values
+    }
+
+    private func personalization(for meal: DiningMenuItem) -> DiningMenuPersonalization {
+        diningPersonalizations[meal.id] ?? DiningMenuPersonalization(
+            recommendation: .neutral,
+            reason: nil,
+            hasAllergyWarning: false
+        )
+    }
+
+    private func recommendationIcon(for state: DiningRecommendationState) -> String {
+        switch state {
+        case .recommended: "sparkles"
+        case .notRecommended: "hand.thumbsdown.fill"
+        case .neutral: "fork.knife"
+        }
+    }
+
+    private func recommendationColor(for state: DiningRecommendationState) -> Color {
+        switch state {
+        case .recommended: .green
+        case .notRecommended: .red
+        case .neutral: .secondary
+        }
     }
 
     private func minutes(from time: String) -> Int? {

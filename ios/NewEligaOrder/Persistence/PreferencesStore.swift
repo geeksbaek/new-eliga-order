@@ -7,6 +7,8 @@ struct PreferencesStore: @unchecked Sendable {
         static let lastShopID = "eliga.lastShopId"
         static let favorites = "eliga.cafe.favorites"
         static let diningPreferences = "eliga.dining.preferences"
+        static let diningPreferenceText = "eliga.dining.preferenceText"
+        static let diningAllergies = "eliga.dining.allergies"
         static let lunchNotification = "eliga.notification.lunch"
         static let dinnerNotification = "eliga.notification.dinner"
         static let lunchTime = "eliga.notification.lunch.time"
@@ -48,6 +50,19 @@ struct PreferencesStore: @unchecked Sendable {
     var diningPreferences: [String] {
         get { defaults.stringArray(forKey: Key.diningPreferences) ?? [] }
         nonmutating set { defaults.set(newValue, forKey: Key.diningPreferences) }
+    }
+
+    var diningPreferenceText: String {
+        get {
+            if let value = defaults.string(forKey: Key.diningPreferenceText) { return value }
+            return diningPreferences.joined(separator: ", ")
+        }
+        nonmutating set { defaults.set(newValue, forKey: Key.diningPreferenceText) }
+    }
+
+    var diningAllergies: String {
+        get { defaults.string(forKey: Key.diningAllergies) ?? "" }
+        nonmutating set { defaults.set(newValue, forKey: Key.diningAllergies) }
     }
 
     var lunchNotificationEnabled: Bool {

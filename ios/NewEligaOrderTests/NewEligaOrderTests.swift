@@ -49,6 +49,87 @@ final class NewEligaOrderTests: XCTestCase {
         )
     }
 
+    func testDiningPersonalizationFallbackUnderstandsNaturalLanguageTaste() {
+        let candidates = [
+            DiningPersonalizationCandidate(
+                id: "meat",
+                menuName: "제육볶음",
+                components: "돼지고기, 쌀밥, 김치",
+                information: ""
+            ),
+            DiningPersonalizationCandidate(
+                id: "vegetables",
+                menuName: "오늘의 샐러드",
+                components: "야채, 야채볶음, 채소무침",
+                information: ""
+            ),
+            DiningPersonalizationCandidate(
+                id: "neutral",
+                menuName: "두부 된장국",
+                components: "두부, 된장, 쌀밥",
+                information: ""
+            ),
+        ]
+
+        let result = DiningPersonalizationFallback.classify(
+            candidates: candidates,
+            preference: "고기좋아 야채싫어",
+            allergies: ""
+        )
+
+        XCTAssertEqual(result["meat"]?.recommendation, .recommended)
+        XCTAssertEqual(result["vegetables"]?.recommendation, .notRecommended)
+        XCTAssertEqual(result["neutral"]?.recommendation, .neutral)
+        XCTAssertFalse(result.values.contains(where: \.hasAllergyWarning))
+    }
+
+    func testDiningAllergyWarningIsIndependentFromRecommendation() {
+        let candidates = [
+            DiningPersonalizationCandidate(
+                id: "shrimp",
+                menuName: "새우 볶음밥",
+                components: "새우, 쌀밥, 계란",
+                information: ""
+            ),
+        ]
+
+        let result = DiningPersonalizationFallback.classify(
+            candidates: candidates,
+            preference: "새우 볶음밥",
+            allergies: "새우"
+        )
+
+        XCTAssertEqual(result["shrimp"]?.recommendation, .recommended)
+        XCTAssertEqual(result["shrimp"]?.hasAllergyWarning, true)
+    }
+
+    func testDiningPersonalizationInstructionsRequireCompleteIndependentClassification() {
+        let instructions = DiningMenuPersonalizationService.instructions
+
+        XCTAssertTrue(instructions.contains("모든 메뉴를 빠짐없이"))
+        XCTAssertTrue(instructions.contains("recommended"))
+        XCTAssertTrue(instructions.contains("notRecommended"))
+        XCTAssertTrue(instructions.contains("neutral"))
+        XCTAssertTrue(instructions.contains("알러지는 추천 여부와 독립적으로"))
+        XCTAssertTrue(instructions.contains("메뉴의 대부분 또는 주요 구성"))
+    }
+
+    func testDiningPreferenceStorageMigratesLegacyMenusAndPersistsAllergies() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.dining-preference-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(["제육볶음", "닭갈비"], forKey: "eliga.dining.preferences")
+        let preferences = PreferencesStore(defaults: defaults)
+
+        XCTAssertEqual(preferences.diningPreferenceText, "제육볶음, 닭갈비")
+        preferences.diningPreferenceText = "고기 좋아, 야채 싫어"
+        preferences.diningAllergies = "땅콩, 새우"
+
+        let restored = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(restored.diningPreferenceText, "고기 좋아, 야채 싫어")
+        XCTAssertEqual(restored.diningAllergies, "땅콩, 새우")
+    }
+
     func testCafeMenuDescriptionFallbackBuildsOneLineList() {
         let rawValue = """
         <b>오늘의 반찬</b>
@@ -296,7 +377,11 @@ final class NewEligaOrderTests: XCTestCase {
 
         XCTAssertEqual(
             surface.blocks.map(\.kind),
-            [.status, .chips, .metrics, .facts, .text, .note]
+            [.chips, .metrics, .text, .note]
+        )
+        XCTAssertEqual(
+            surface.blocks.map(\.title),
+            ["메뉴 구성", "영양 정보", "원산지", "알러지 주의 음식"]
         )
         let chipValues = surface.blocks
             .first(where: { $0.kind == .chips })?
@@ -320,7 +405,6 @@ final class NewEligaOrderTests: XCTestCase {
 
         let surface = DiningDynamicUINormalizer.normalize(
             generatedBlocks: [generated],
-            input: input,
             fallback: fallback
         )
         let allValues = surface.blocks
@@ -338,11 +422,38 @@ final class NewEligaOrderTests: XCTestCase {
     func testDiningDynamicUIInstructionsUseDeclarativeTrustedComponentCatalog() {
         let instructions = DiningMenuDynamicUIStructurer.instructions
 
-        XCTAssertTrue(instructions.contains("UI 컴포넌트 카탈로그"))
+        XCTAssertTrue(instructions.contains("허용되는 블록과 순서는 정확히"))
         XCTAssertTrue(instructions.contains("원문에 없는 사실"))
-        XCTAssertTrue(instructions.contains("메뉴명과 사진은 앱의 고정 헤더"))
+        XCTAssertTrue(instructions.contains("메뉴명을 블록에 반복하지 않는다"))
+        XCTAssertTrue(instructions.contains("'메뉴 구성'"))
+        XCTAssertTrue(instructions.contains("'영양 정보'"))
+        XCTAssertTrue(instructions.contains("'원산지'"))
+        XCTAssertTrue(instructions.contains("'알러지 주의 음식'"))
+        XCTAssertTrue(instructions.contains("이용 안내"))
         XCTAssertTrue(instructions.contains("모든 항목은 누락하거나 새로 만들지 말고"))
         XCTAssertTrue(instructions.contains("숫자 및 단위는 절대 수정하지 않는다"))
+    }
+
+    func testDiningDynamicUIExcludesGuideSectionsAndConditionallyShowsAllergy() {
+        let withAllergy = DiningDynamicUIFallback.surface(for: dynamicDiningInput())
+        let allText = withAllergy.blocks.flatMap(\.items).map(\.value).joined(separator: " · ")
+
+        XCTAssertFalse(allText.contains("11:30"))
+        XCTAssertFalse(allText.contains("중식 이용 안내"))
+        XCTAssertNotNil(withAllergy.blocks.first(where: { $0.kind == .note }))
+
+        let withoutAllergy = DiningDynamicUIInput(
+            menuName: "제육볶음",
+            information: "[중식 이용 안내]\n11:30부터 이용 가능합니다",
+            sideDishSummary: "쌀밥, 된장국",
+            calorie: nil,
+            nutrition: "",
+            origin: ""
+        )
+        let surface = DiningDynamicUIFallback.surface(for: withoutAllergy)
+
+        XCTAssertEqual(surface.blocks.map(\.title), ["메뉴 구성", "영양 정보", "원산지"])
+        XCTAssertNil(surface.blocks.first(where: { $0.kind == .note }))
     }
 
     func testDiningMenuDetailInstructionsRequireGroundedStructuredRows() {
@@ -1056,17 +1167,13 @@ final class NewEligaOrderTests: XCTestCase {
             콩나물무침
             [알레르기 주의]
             대두 포함
+            [중식 이용 안내]
+            11:30부터 이용 가능합니다
             """,
             sideDishSummary: "쌀밥, 된장국, 배추김치, 콩나물무침",
             calorie: 650,
             nutrition: "단백질 27g, 나트륨 1200mg",
-            origin: "돼지고기 국내산",
-            courseName: "한식",
-            coursePrice: 7_000,
-            periodName: "중식",
-            servingTime: "11:30–13:30",
-            congestion: "보통",
-            isSoldOut: false
+            origin: "돼지고기 국내산"
         )
     }
 }

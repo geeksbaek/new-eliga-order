@@ -1,21 +1,13 @@
 import SwiftUI
 
 struct DiningMenuDetailView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
-
     let context: DiningMenuDetailContext
     let transitionNamespace: Namespace.ID
-
-    @State private var dynamicSurface: DiningDynamicUISurface?
-    @State private var resolvedSideDishSummary: String?
 
     private var meal: DiningMenuItem { context.meal }
     private var title: DiningMenuTitlePresentation { meal.titlePresentation }
     private var displayedSurface: DiningDynamicUISurface {
-        dynamicSurface ?? DiningDynamicUIFallback.surface(
-            for: dynamicInput(sideDishSummary: resolvedSideDishSummary ?? context.sideDishSummary)
-        )
+        context.preparedSurface ?? DiningDynamicUIFallback.surface(for: dynamicInput)
     }
 
     var body: some View {
@@ -23,18 +15,13 @@ struct DiningMenuDetailView: View {
             fixedHeader
 
             DiningDynamicSurfaceView(surface: displayedSurface)
-                .contentTransition(.opacity)
         }
         .navigationTitle(title.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .animation(reduceMotion ? nil : .smooth, value: displayedSurface)
-        .task(id: structuringTaskID) {
-            await generateDynamicSurface()
-        }
     }
 
     private var fixedHeader: some View {
-        AppMenuDetailHeader(
+        AppMenuDetailHeroHeader(
             imageURL: meal.imageURL,
             imageAccessibilityLabel: "\(title.displayName) 메뉴 사진",
             placeholderSystemImage: "fork.knife",
@@ -49,77 +36,68 @@ struct DiningMenuDetailView: View {
                     }
                 }
 
-                Text(title.displayName)
-                    .font(.title2.bold())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
+                if let personalization = context.personalization,
+                   personalization.recommendation != .neutral || personalization.hasAllergyWarning {
+                    HStack(spacing: 6) {
+                        DiningPersonalizationLabels(personalization: personalization)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func generateDynamicSurface() async {
-        dynamicSurface = nil
-        resolvedSideDishSummary = nil
-
-        let sideDishSummary: String
-        if !context.sideDishSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            sideDishSummary = context.sideDishSummary
-        } else if !meal.information.isEmpty {
-            sideDishSummary = await MenuDescriptionSummarizer.shared.summary(
-                for: meal.information,
-                mode: .diningSideDishes
-            )
-        } else {
-            sideDishSummary = ""
-        }
-
-        guard !Task.isCancelled else { return }
-        resolvedSideDishSummary = sideDishSummary
-        let input = dynamicInput(sideDishSummary: sideDishSummary)
-        dynamicSurface = DiningDynamicUIFallback.surface(for: input)
-
-        // VoiceOver 탐색 중 블록 트리가 교체되면 포커스가 사라질 수 있어
-        // 검증 가능한 결정적 구조를 유지한다.
-        guard !voiceOverEnabled else { return }
-
-        try? await Task.sleep(for: .milliseconds(250))
-        guard !Task.isCancelled else { return }
-        let generated = await DiningMenuDynamicUIStructurer.shared.surface(for: input)
-        guard !Task.isCancelled else { return }
-        dynamicSurface = generated
-    }
-
-    private func dynamicInput(sideDishSummary: String) -> DiningDynamicUIInput {
+    private var dynamicInput: DiningDynamicUIInput {
         DiningDynamicUIInput(
             menuName: title.displayName,
             information: meal.information,
-            sideDishSummary: sideDishSummary,
+            sideDishSummary: context.sideDishSummary,
             calorie: meal.calorie,
             nutrition: meal.nutrition,
-            origin: context.origin,
-            courseName: context.courseName,
-            coursePrice: context.coursePrice,
-            periodName: context.periodName,
-            servingTime: context.servingTime,
-            congestion: AppFormat.congestion(context.congestion),
-            isSoldOut: context.isSoldOut
+            origin: context.origin
         )
     }
+}
 
-    private var structuringTaskID: String {
-        [
-            meal.id,
-            meal.calorie.map(String.init) ?? "",
-            meal.nutrition,
-            context.sideDishSummary,
-            context.origin,
-            context.courseName,
-            String(context.coursePrice),
-            context.periodName,
-            context.servingTime,
-            context.congestion ?? "",
-            String(context.isSoldOut),
-        ].joined(separator: "|")
+#if DEBUG
+struct DiningMenuDetailFixtureView: View {
+    @Namespace private var transitionNamespace
+
+    private let context = DiningMenuDetailContext(
+        meal: DiningMenuItem(
+            name: "[밸런스바이츠] 제육볶음",
+            calorie: 650,
+            nutrition: "단백질 27g, 나트륨 1200mg",
+            information: """
+            [원산지]
+            제육볶음
+            쌀밥
+            된장국
+            배추김치
+            콩나물무침
+            [알러지주의음식]
+            대두 포함
+            [중식 이용 안내]
+            11:30부터 이용 가능합니다
+            """,
+            imageURL: nil,
+            isSoldOut: false
+        ),
+        sideDishSummary: "쌀밥, 된장국, 배추김치, 콩나물무침",
+        courseName: "한식",
+        coursePrice: 7_000,
+        courseIsSoldOut: false,
+        congestion: "NORMAL",
+        origin: "돼지고기 국내산",
+        periodName: "중식",
+        startTime: "11:30:00",
+        endTime: "13:30:00",
+        date: .now
+    )
+
+    var body: some View {
+        NavigationStack {
+            DiningMenuDetailView(context: context, transitionNamespace: transitionNamespace)
+        }
     }
 }
+#endif

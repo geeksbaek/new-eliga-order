@@ -7,17 +7,17 @@ struct DiningView: View {
     let transitionNamespace: Namespace.ID
     @State private var date = Date.now
     @State private var periods: [DiningPeriod] = []
-    @State private var sideDishSummaries: [String: String] = [:]
+    @State private var preparations: [String: DiningMenuPreparation] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showsPreferences = false
-    @State private var loadedDateKeys: Set<String> = []
+    @State private var loadedRequestKeys: Set<String> = []
     @State private var menuScrollPosition = ScrollPosition(idType: String.self)
 
     var body: some View {
         Group {
             if isLoading && periods.isEmpty {
-                LoadingContentView(title: "식단을 불러오는 중…")
+                LoadingContentView(title: "식단과 맞춤 추천을 준비하는 중…")
             } else if let errorMessage, periods.isEmpty {
                 FailureContentView(message: errorMessage) { Task { await load(replacingContent: true) } }
             } else if periods.isEmpty {
@@ -28,29 +28,35 @@ struct DiningView: View {
                         Section {
                             ForEach(period.courses) { course in
                                 ForEach(course.menus) { meal in
-                                    let summaryKey = sideDishSummaryKey(meal: meal, course: course, period: period)
+                                    let key = DiningPreparationKey.make(
+                                        period: period,
+                                        course: course,
+                                        meal: meal
+                                    )
+                                    let preparation = preparations[key]
+                                    let personalization = preparation?.personalization ?? .neutral
                                     let context = detailContext(
                                         meal: meal,
-                                        sideDishSummary: sideDishSummaries[summaryKey] ?? "",
+                                        preparation: preparation,
                                         course: course,
                                         period: period
                                     )
-                                    NavigationLink(
-                                        value: AppRoute.diningMenu(context: context)
-                                    ) {
+                                    NavigationLink(value: AppRoute.diningMenu(context: context)) {
                                         DiningMealRow(
                                             meal: meal,
                                             courseName: course.name,
                                             congestion: course.congestion,
                                             isSoldOut: meal.isSoldOut || course.isSoldOut,
-                                            preferred: isPreferred(meal.titlePresentation.displayName),
-                                            onSideDishSummaryResolved: { summary in
-                                                guard sideDishSummaries[summaryKey] != summary else { return }
-                                                sideDishSummaries[summaryKey] = summary
-                                            }
+                                            sideDishSummary: preparation?.sideDishSummary ?? "",
+                                            personalization: personalization
                                         )
                                     }
-                                    .id("\(period.id)|\(course.id)|\(meal.id)")
+                                    .id(key)
+                                    .listRowBackground(
+                                        DiningPersonalizationStyle.background(
+                                            for: personalization.recommendation
+                                        )
+                                    )
                                     .contextMenu {
                                         Button("상세 보기", systemImage: "info.circle") {
                                             router.push(.diningMenu(context: context), on: .dining)
@@ -91,14 +97,15 @@ struct DiningView: View {
                     .accessibilityLabel("식단 날짜")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("선호 메뉴", systemImage: "sparkles") { showsPreferences = true }
-                    .labelStyle(.iconOnly)
-                    .accessibilityLabel("선호 메뉴 설정")
+                Button("식단 맞춤 설정", systemImage: "person.crop.circle.badge.checkmark") {
+                    showsPreferences = true
+                }
+                .labelStyle(.iconOnly)
+                .accessibilityLabel("음식 취향과 알러지 설정")
             }
         }
-        .task(id: AppFormat.apiDate(date)) {
-            let dateKey = AppFormat.apiDate(date)
-            guard !loadedDateKeys.contains(dateKey) else { return }
+        .task(id: requestKey) {
+            guard !loadedRequestKeys.contains(requestKey) else { return }
             await load(replacingContent: true)
         }
         .onChange(of: AppFormat.apiDate(date)) { _, _ in
@@ -106,58 +113,63 @@ struct DiningView: View {
         }
         .sensoryFeedback(.selection, trigger: date)
         .sheet(isPresented: $showsPreferences) {
-            DiningPreferencesSheet(current: store.diningPreferences) {
-                store.setDiningPreferences($0)
+            DiningPreferencesSheet(
+                currentPreference: store.diningPreferenceText,
+                currentAllergies: store.diningAllergies
+            ) { preference, allergies in
+                store.setDiningPersonalization(preference: preference, allergies: allergies)
             }
             .presentationDetents([.medium, .large])
         }
     }
 
+    private var requestKey: String {
+        "\(AppFormat.apiDate(date))|\(store.diningPersonalizationSignature)"
+    }
+
     private func load(replacingContent: Bool, forceRefresh: Bool = false) async {
         let requestedDate = AppFormat.apiDate(date)
+        let requestedKey = requestKey
         isLoading = true
         if replacingContent {
             periods = []
-            sideDishSummaries = [:]
+            preparations = [:]
         }
         defer {
             if requestedDate == AppFormat.apiDate(date) { isLoading = false }
         }
         errorMessage = nil
         do {
-            let loaded = try await store.api.fetchDiningMenu(
+            let loaded = try await store.preparedDiningDay(
                 shopID: shopID,
                 date: date,
                 forceRefresh: forceRefresh
             )
-            guard !Task.isCancelled, requestedDate == AppFormat.apiDate(date) else { return }
-            periods = DiningMenuFilter.periodsWithMeals(loaded)
-            loadedDateKeys.insert(requestedDate)
+            guard !Task.isCancelled, requestedKey == requestKey else { return }
+            periods = loaded.periods
+            preparations = loaded.preparations
+            loadedRequestKeys.insert(requestedKey)
             ImagePipeline.shared.preload(
                 periods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL),
                 targetSize: 72
             )
-        }
-        catch is CancellationError { return }
-        catch {
-            guard requestedDate == AppFormat.apiDate(date) else { return }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard requestedKey == requestKey else { return }
             errorMessage = error.localizedDescription
         }
     }
 
-    private func isPreferred(_ name: String) -> Bool {
-        store.diningPreferences.contains { name.localizedCaseInsensitiveContains($0) }
-    }
-
     private func detailContext(
         meal: DiningMenuItem,
-        sideDishSummary: String,
+        preparation: DiningMenuPreparation?,
         course: DiningCourse,
         period: DiningPeriod
     ) -> DiningMenuDetailContext {
         DiningMenuDetailContext(
             meal: meal,
-            sideDishSummary: sideDishSummary,
+            sideDishSummary: preparation?.sideDishSummary ?? "",
             courseName: course.name,
             coursePrice: course.price,
             courseIsSoldOut: course.isSoldOut,
@@ -166,16 +178,58 @@ struct DiningView: View {
             periodName: period.time,
             startTime: period.startTime,
             endTime: period.endTime,
-            date: date
+            date: date,
+            preparedSurface: preparation?.dynamicSurface,
+            personalization: preparation?.personalization
         )
     }
+}
 
-    private func sideDishSummaryKey(
-        meal: DiningMenuItem,
-        course: DiningCourse,
-        period: DiningPeriod
-    ) -> String {
-        "\(AppFormat.apiDate(date))|\(period.id)|\(course.id)|\(meal.id)"
+private extension DiningMenuPersonalization {
+    static let neutral = DiningMenuPersonalization(
+        recommendation: .neutral,
+        reason: nil,
+        hasAllergyWarning: false
+    )
+}
+
+enum DiningPersonalizationStyle {
+    static func background(for recommendation: DiningRecommendationState) -> Color {
+        switch recommendation {
+        case .recommended: Color.green.opacity(0.10)
+        case .notRecommended: Color.red.opacity(0.09)
+        case .neutral: Color(.secondarySystemGroupedBackground)
+        }
+    }
+}
+
+struct DiningPersonalizationLabels: View {
+    let personalization: DiningMenuPersonalization
+
+    var body: some View {
+        Group {
+            switch personalization.recommendation {
+            case .recommended:
+                label("추천", systemImage: "sparkles", color: .green)
+            case .notRecommended:
+                label("비추천", systemImage: "hand.thumbsdown.fill", color: .red)
+            case .neutral:
+                EmptyView()
+            }
+
+            if personalization.hasAllergyWarning {
+                label("알러지 주의", systemImage: "exclamationmark.triangle.fill", color: .orange)
+            }
+        }
+    }
+
+    private func label(_ title: String, systemImage: String, color: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.18), in: Capsule())
     }
 }
 
@@ -184,8 +238,8 @@ private struct DiningMealRow: View {
     let courseName: String
     let congestion: String?
     let isSoldOut: Bool
-    let preferred: Bool
-    let onSideDishSummaryResolved: (String) -> Void
+    let sideDishSummary: String
+    let personalization: DiningMenuPersonalization
 
     private var title: DiningMenuTitlePresentation { meal.titlePresentation }
 
@@ -196,7 +250,7 @@ private struct DiningMealRow: View {
                 size: 52,
                 placeholderSystemImage: "fork.knife"
             )
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(courseName)
                     let congestionLabel = AppFormat.congestion(congestion)
@@ -209,7 +263,6 @@ private struct DiningMealRow: View {
                 .foregroundStyle(.secondary)
 
                 HStack(spacing: 6) {
-                    if preferred { Image(systemName: "sparkles").foregroundStyle(.orange).accessibilityLabel("추천") }
                     ForEach(Array(title.badges.enumerated()), id: \.offset) { _, badge in
                         MenuLabelBadge(text: badge)
                     }
@@ -217,14 +270,24 @@ private struct DiningMealRow: View {
                         .font(.body.weight(.medium))
                         .lineLimit(2)
                 }
-                if !meal.information.isEmpty {
-                    MenuDescriptionText(
-                        text: meal.information,
-                        mode: .diningSideDishes,
-                        onResolved: onSideDishSummaryResolved
-                    )
+
+                if personalization.recommendation != .neutral || personalization.hasAllergyWarning {
+                    HStack(spacing: 5) {
+                        DiningPersonalizationLabels(personalization: personalization)
+                    }
                 }
-                if let calorie = meal.calorie { Text("\(calorie) kcal").font(.caption2).foregroundStyle(.secondary) }
+
+                if !sideDishSummary.isEmpty {
+                    Text(sideDishSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let calorie = meal.calorie {
+                    Text("\(calorie) kcal")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             if isSoldOut {
@@ -237,37 +300,86 @@ private struct DiningMealRow: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityValue(accessibilityValue)
+    }
+
+    private var accessibilityValue: String {
+        var values: [String] = []
+        switch personalization.recommendation {
+        case .recommended: values.append("추천 메뉴")
+        case .notRecommended: values.append("비추천 메뉴")
+        case .neutral: break
+        }
+        if personalization.hasAllergyWarning { values.append("알러지 주의") }
+        if isSoldOut { values.append("품절") }
+        return values.joined(separator: ", ")
     }
 }
 
 private struct DiningPreferencesSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var text: String
-    let save: ([String]) -> Void
+    @State private var preference: String
+    @State private var allergies: String
+    let save: (String, String) -> Void
 
-    init(current: [String], save: @escaping ([String]) -> Void) {
-        _text = State(initialValue: current.joined(separator: ", "))
+    init(
+        currentPreference: String,
+        currentAllergies: String,
+        save: @escaping (String, String) -> Void
+    ) {
+        _preference = State(initialValue: currentPreference)
+        _allergies = State(initialValue: currentAllergies)
         self.save = save
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("예: 닭갈비, 제육볶음", text: $text, axis: .vertical)
+            ScrollView {
+                VStack(spacing: 16) {
+                    AppMenuDetailSection(title: "선호 메뉴·음식 취향", systemImage: "sparkles") {
+                    TextField("예: 제육볶음 또는 고기 좋아, 야채 싫어", text: $preference, axis: .vertical)
                         .lineLimit(3...6)
-                } header: {
-                    Text("선호 메뉴")
-                } footer: {
-                    Text("쉼표로 구분하세요. 오늘 식단에서 일치하는 메뉴를 추천으로 표시합니다.")
+                        .padding(12)
+                        .background(
+                            Color(.tertiarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                        .accessibilityIdentifier("dining.preference.input")
+                    Text("메뉴명을 입력하거나 평소 음식 취향을 자연어로 설명하세요. 기기에서 식단을 추천·비추천·중립으로 미리 분류합니다.")
+                        .font(.footnote)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    AppMenuDetailSection(title: "나의 알러지", systemImage: "exclamationmark.shield") {
+                    TextField("예: 땅콩, 갑각류, 우유", text: $allergies, axis: .vertical)
+                        .lineLimit(2...5)
+                        .padding(12)
+                        .background(
+                            Color(.tertiarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                        .accessibilityIdentifier("dining.allergies.input")
+                    Text("관련 가능성이 있는 메뉴에 추천 여부와 별개인 주의 레이블을 표시합니다. 최종 성분은 매장 정보를 다시 확인하세요.")
+                        .font(.footnote)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .padding()
+                .frame(maxWidth: AppDesign.contentMaxWidth)
+                .frame(maxWidth: .infinity)
             }
-            .navigationTitle("선호 메뉴")
+            .background(Color(.systemGroupedBackground))
+            .appScrollEdgeStyle()
+            .navigationTitle("식단 맞춤 설정")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("취소") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") { dismiss() }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("저장") {
-                        save(text.split(separator: ",").map(String.init))
+                        save(preference, allergies)
                         dismiss()
                     }
                 }
@@ -275,3 +387,86 @@ private struct DiningPreferencesSheet: View {
         }
     }
 }
+
+#if DEBUG
+struct DiningPersonalizationFixtureView: View {
+    @State private var showsPreferences = false
+
+    private let rows: [(DiningMenuItem, DiningMenuPersonalization)] = [
+        (
+            DiningMenuItem(
+                name: "제육볶음",
+                calorie: 650,
+                nutrition: "",
+                information: "",
+                imageURL: nil,
+                isSoldOut: false
+            ),
+            DiningMenuPersonalization(
+                recommendation: .recommended,
+                reason: "고기 선호",
+                hasAllergyWarning: false
+            )
+        ),
+        (
+            DiningMenuItem(
+                name: "새우 야채 샐러드",
+                calorie: 410,
+                nutrition: "",
+                information: "",
+                imageURL: nil,
+                isSoldOut: false
+            ),
+            DiningMenuPersonalization(
+                recommendation: .notRecommended,
+                reason: "야채 비선호",
+                hasAllergyWarning: true
+            )
+        ),
+        (
+            DiningMenuItem(
+                name: "두부 된장국",
+                calorie: 320,
+                nutrition: "",
+                information: "",
+                imageURL: nil,
+                isSoldOut: false
+            ),
+            DiningMenuPersonalization(
+                recommendation: .neutral,
+                reason: nil,
+                hasAllergyWarning: false
+            )
+        ),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List(Array(rows.enumerated()), id: \.offset) { _, row in
+                DiningMealRow(
+                    meal: row.0,
+                    courseName: "중식",
+                    congestion: nil,
+                    isSoldOut: false,
+                    sideDishSummary: row.0.name,
+                    personalization: row.1
+                )
+                .listRowBackground(DiningPersonalizationStyle.background(for: row.1.recommendation))
+            }
+            .navigationTitle("식단")
+            .toolbar {
+                Button("식단 맞춤 설정", systemImage: "person.crop.circle.badge.checkmark") {
+                    showsPreferences = true
+                }
+                .accessibilityIdentifier("dining.personalization.settings")
+            }
+            .sheet(isPresented: $showsPreferences) {
+                DiningPreferencesSheet(
+                    currentPreference: "고기 좋아, 야채 싫어",
+                    currentAllergies: "새우"
+                ) { _, _ in }
+            }
+        }
+    }
+}
+#endif

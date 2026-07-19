@@ -90,6 +90,67 @@ struct AppMenuDetailHeader<Summary: View>: View {
     }
 }
 
+struct AppMenuDetailHeroHeader<BadgeContent: View>: View {
+    let imageURL: URL?
+    let imageAccessibilityLabel: String
+    let placeholderSystemImage: String
+    let isUnavailable: Bool
+    private let badgeContent: BadgeContent
+
+    init(
+        imageURL: URL?,
+        imageAccessibilityLabel: String,
+        placeholderSystemImage: String,
+        isUnavailable: Bool = false,
+        @ViewBuilder badgeContent: () -> BadgeContent
+    ) {
+        self.imageURL = imageURL
+        self.imageAccessibilityLabel = imageAccessibilityLabel
+        self.placeholderSystemImage = placeholderSystemImage
+        self.isUnavailable = isUnavailable
+        self.badgeContent = badgeContent()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            RemoteThumbnail(
+                url: imageURL,
+                size: max(proxy.size.width, 1),
+                placeholderSystemImage: placeholderSystemImage,
+                cornerRadius: 0
+            )
+            .accessibilityHidden(false)
+            .saturation(isUnavailable ? 0.15 : 1)
+            .opacity(isUnavailable ? 0.55 : 1)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .overlay(alignment: .topLeading) {
+                badgeContent
+                    .padding(14)
+            }
+            .overlay(alignment: .topTrailing) {
+                if isUnavailable {
+                    Text("품절")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(.red, in: Capsule())
+                        .padding(14)
+                }
+            }
+            .accessibilityLabel(imageAccessibilityLabel)
+            .accessibilityValue(isUnavailable ? "품절" : "")
+        }
+        .aspectRatio(4 / 3, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(
+            Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+    }
+}
+
 struct AppMenuDetailSection<Content: View>: View {
     let title: String?
     let systemImage: String?
@@ -111,6 +172,7 @@ struct AppMenuDetailSection<Content: View>: View {
                 if let systemImage {
                     Label(title, systemImage: systemImage)
                         .font(.headline)
+                        .foregroundStyle(.primary)
                         .accessibilityAddTraits(.isHeader)
                 } else {
                     Text(title)
@@ -141,7 +203,7 @@ struct DiningDynamicSurfaceView: View {
             if surface.isModelGenerated {
                 Label("기기에서 맞춤 구성됨", systemImage: "apple.intelligence")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityLabel("Apple Intelligence를 사용해 기기에서 맞춤 구성됨")
             }
@@ -155,63 +217,15 @@ private struct DiningDynamicBlockView: View {
     @ViewBuilder
     var body: some View {
         switch block.kind {
-        case .status:
-            DiningDynamicStatusBlock(block: block)
         case .chips:
             DiningDynamicChipsBlock(block: block)
         case .metrics:
             DiningDynamicMetricsBlock(block: block)
-        case .facts:
-            DiningDynamicFactsBlock(block: block)
         case .note:
             DiningDynamicTextBlock(block: block, isNote: true)
         case .text:
             DiningDynamicTextBlock(block: block, isNote: false)
         }
-    }
-}
-
-private struct DiningDynamicStatusBlock: View {
-    let block: DiningDynamicUIBlock
-
-    private var accent: Color {
-        if block.items.contains(where: { $0.emphasis == .critical }) { return .red }
-        if block.items.contains(where: { $0.emphasis == .warning }) { return .orange }
-        return .green
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label(block.title, systemImage: "clock.badge.checkmark")
-                .font(.headline)
-                .foregroundStyle(accent)
-                .accessibilityAddTraits(.isHeader)
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 12)], spacing: 12) {
-                ForEach(Array(block.items.enumerated()), id: \.offset) { _, item in
-                    VStack(alignment: .leading, spacing: 3) {
-                        if !item.label.isEmpty {
-                            Text(item.label)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(item.value)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(itemColor(item.emphasis))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(accent.opacity(0.22), lineWidth: 1)
-        }
-        .accessibilityElement(children: .contain)
     }
 }
 
@@ -226,11 +240,11 @@ private struct DiningDynamicChipsBlock: View {
                         if !item.label.isEmpty {
                             Text(item.label)
                                 .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary)
                         }
                         Text(item.value)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(itemColor(item.emphasis))
+                            .foregroundStyle(.primary)
                             .lineLimit(2)
                     }
                     .padding(.horizontal, 12)
@@ -254,42 +268,18 @@ private struct DiningDynamicMetricsBlock: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(item.value)
                             .font(.headline.monospacedDigit())
-                            .foregroundStyle(itemColor(item.emphasis))
+                            .foregroundStyle(.primary)
                             .minimumScaleFactor(0.8)
                         if !item.label.isEmpty {
                             Text(item.label)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary)
                         }
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                     .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .accessibilityElement(children: .combine)
-                }
-            }
-        }
-    }
-}
-
-private struct DiningDynamicFactsBlock: View {
-    let block: DiningDynamicUIBlock
-
-    var body: some View {
-        AppMenuDetailSection(title: block.title, systemImage: "list.bullet.rectangle") {
-            ForEach(Array(block.items.enumerated()), id: \.offset) { index, item in
-                if index > 0 { Divider() }
-                if item.label.isEmpty {
-                    Text(item.value)
-                        .foregroundStyle(itemColor(item.emphasis))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    LabeledContent(item.label) {
-                        Text(item.value)
-                            .foregroundStyle(itemColor(item.emphasis))
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                 }
             }
         }
@@ -303,7 +293,7 @@ private struct DiningDynamicTextBlock: View {
     var body: some View {
         AppMenuDetailSection(
             title: block.title,
-            systemImage: isNote ? "exclamationmark.bubble" : "text.alignleft"
+            systemImage: isNote ? "exclamationmark.triangle" : "shippingbox"
         ) {
             ForEach(Array(block.items.enumerated()), id: \.offset) { index, item in
                 if index > 0 { Divider() }
@@ -311,25 +301,15 @@ private struct DiningDynamicTextBlock: View {
                     if !item.label.isEmpty {
                         Text(item.label)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.primary)
                     }
-                    Text(item.value)
-                        .font(.body)
-                        .foregroundStyle(isNote ? Color.orange : itemColor(item.emphasis))
+                        Text(item.value)
+                            .font(.body)
+                            .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
             }
         }
-    }
-}
-
-private func itemColor(_ emphasis: DiningDynamicUIEmphasis) -> Color {
-    switch emphasis {
-    case .primary: .primary
-    case .secondary: .secondary
-    case .positive: .green
-    case .warning: .orange
-    case .critical: .red
     }
 }

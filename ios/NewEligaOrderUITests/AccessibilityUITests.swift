@@ -119,6 +119,55 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testDiningDetailUsesSimplifiedGeneratedStructure() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-dining-detail")
+        app.launch()
+
+        for title in ["메뉴 구성", "영양 정보", "원산지"] {
+            XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 5), "\(title) 섹션이 필요합니다.")
+        }
+        XCTAssertFalse(app.staticTexts["중식 이용 안내"].exists)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "제육볶음")).count, 1)
+
+        let image = app.images["제육볶음 메뉴 사진"]
+        XCTAssertTrue(image.exists)
+        XCTAssertGreaterThanOrEqual(image.frame.width, app.windows.firstMatch.frame.width - 40)
+
+        attachScreenshot(of: app, name: "단순화된 식단 Gen UI 상단")
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["알러지 주의 음식"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["중식 이용 안내"].exists)
+        attachScreenshot(of: app, name: "단순화된 식단 Gen UI 하단")
+        try app.performAccessibilityAudit(
+            for: [.contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
+    func testDiningPersonalizationShowsRecommendationAndIndependentAllergyWarning() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-dining-personalization")
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["추천"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["비추천"].exists)
+        XCTAssertTrue(app.staticTexts["알러지 주의"].exists)
+        XCTAssertTrue(app.staticTexts["두부 된장국"].exists)
+        attachScreenshot(of: app, name: "식단 추천 비추천 및 알러지 레이블")
+
+        app.buttons["dining.personalization.settings"].tap()
+        XCTAssertTrue(app.staticTexts["선호 메뉴·음식 취향"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["나의 알러지"].exists)
+        XCTAssertTrue(app.textFields["dining.allergies.input"].exists)
+
+        attachScreenshot(of: app, name: "식단 자연어 취향 및 알러지 설정")
+        try app.performAccessibilityAudit(
+            for: [.contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
     private func assertFullyVisible(
         _ element: XCUIElement,
         in app: XCUIApplication,

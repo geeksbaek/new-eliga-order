@@ -42,7 +42,8 @@ final class AppStore {
     private(set) var cartsByShop: [Int: Cart] = [:]
     private(set) var cafePlansByShop: [Int: CafeSalesPlan?] = [:]
     private(set) var favorites: Set<FavoriteMenu>
-    private(set) var diningPreferences: [String]
+    private(set) var diningPreferenceText: String
+    private(set) var diningAllergies: String
     private(set) var isBootstrapping = false
     private(set) var quickOrderSession: QuickOrderSession?
     var selectedShopID: Int?
@@ -59,7 +60,8 @@ final class AppStore {
         self.userIDHint = preferences.rememberedUserID
         self.selectedShopID = preferences.lastShopID
         self.favorites = preferences.favorites
-        self.diningPreferences = preferences.diningPreferences
+        self.diningPreferenceText = preferences.diningPreferenceText
+        self.diningAllergies = preferences.diningAllergies
         self.quickOrderSession = preferences.quickOrderSession
         api.client.onAuthenticationExpired = { [weak self] in
             self?.handleExpiredAuthentication()
@@ -194,8 +196,8 @@ final class AppStore {
         guard authenticationState == .authenticated else { return }
         var imageURLs: [URL] = []
 
-        if let dining = try? await api.fetchDiningMenu(shopID: diningShopID, date: .now) {
-            imageURLs.append(contentsOf: dining.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL))
+        if let dining = try? await preparedDiningDay(shopID: diningShopID, date: .now) {
+            imageURLs.append(contentsOf: dining.periods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL))
         }
 
         for shop in cafeShops {
@@ -300,20 +302,50 @@ final class AppStore {
         favorites.contains { $0.shopID == shopID && $0.displayID == displayID }
     }
 
-    func setDiningPreferences(_ values: [String]) {
-        let normalized = values
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        diningPreferences = Array(Set(normalized)).sorted()
-        preferences.diningPreferences = diningPreferences
+    var diningPersonalizationSignature: String {
+        "\(diningPreferenceText)|\(diningAllergies)"
+    }
+
+    func preparedDiningDay(
+        shopID: Int,
+        date: Date,
+        forceRefresh: Bool = false
+    ) async throws -> PreparedDiningDay {
+        let loaded = try await api.fetchDiningMenu(
+            shopID: shopID,
+            date: date,
+            forceRefresh: forceRefresh
+        )
+        return await DiningMenuPreprocessor.shared.prepare(
+            periods: DiningMenuFilter.periodsWithMeals(loaded),
+            preference: diningPreferenceText,
+            allergies: diningAllergies
+        )
+    }
+
+    func setDiningPersonalization(preference: String, allergies: String) {
+        diningPreferenceText = preference.trimmingCharacters(in: .whitespacesAndNewlines)
+        diningAllergies = allergies.trimmingCharacters(in: .whitespacesAndNewlines)
+        preferences.diningPreferenceText = diningPreferenceText
+        preferences.diningAllergies = diningAllergies
+        // 구버전 배열 저장값은 새 자연어 프로필로 마이그레이션된 뒤 중복 사용하지 않는다.
+        preferences.diningPreferences = []
     }
 
     func hasExactDiningPreference(named name: String) -> Bool {
-        DiningPreferenceRules.containsExact(name, in: diningPreferences)
+        DiningPreferenceRules.containsExact(name, in: diningPreferenceEntries)
     }
 
     func toggleDiningPreference(named name: String) {
-        setDiningPreferences(DiningPreferenceRules.toggling(name, in: diningPreferences))
+        let entries = DiningPreferenceRules.toggling(name, in: diningPreferenceEntries)
+        setDiningPersonalization(preference: entries.joined(separator: ", "), allergies: diningAllergies)
+    }
+
+    private var diningPreferenceEntries: [String] {
+        diningPreferenceText
+            .components(separatedBy: CharacterSet(charactersIn: ",\n;"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     func beginQuickOrder(shopID: Int, goodsID: Int, quantity: Int, options: [SelectedOption]) async throws {

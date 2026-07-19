@@ -5,10 +5,8 @@ import FoundationModels
 // MARK: - Declarative generative dining UI
 
 enum DiningDynamicUIBlockKind: String, Codable, CaseIterable, Sendable {
-    case status
     case chips
     case metrics
-    case facts
     case note
     case text
 }
@@ -46,43 +44,11 @@ struct DiningDynamicUIInput: Hashable, Sendable {
     let calorie: Int?
     let nutrition: String
     let origin: String
-    let courseName: String
-    let coursePrice: Int
-    let periodName: String
-    let servingTime: String
-    let congestion: String
-    let isSoldOut: Bool
-
-    var coursePriceText: String {
-        coursePrice > 0 ? "\(coursePrice.formatted())원" : ""
-    }
-
-    var groundingSource: String {
-        [
-            menuName,
-            information,
-            sideDishSummary,
-            calorie.map { "\($0) kcal" } ?? "",
-            nutrition,
-            origin,
-            courseName,
-            coursePriceText,
-            periodName,
-            servingTime,
-            congestion,
-            isSoldOut ? "품절" : "제공 가능",
-        ].joined(separator: "\n")
-    }
 }
 
 enum DiningDynamicUIFallback {
     static func surface(for input: DiningDynamicUIInput) -> DiningDynamicUISurface {
         var blocks: [DiningDynamicUIBlock] = []
-
-        let statusItems = statusItems(for: input)
-        if !statusItems.isEmpty {
-            blocks.append(block(kind: .status, title: statusTitle(for: input), items: statusItems))
-        }
 
         let resolvedSideDishes = input.sideDishSummary.trimmingCharacters(in: .whitespacesAndNewlines)
         let componentNames = resolvedSideDishes.isEmpty
@@ -92,9 +58,13 @@ enum DiningDynamicUIFallback {
             .filter { normalized($0) != normalized(input.menuName) }
             .prefix(12)
             .map { DiningDynamicUIItem(label: "", value: $0, emphasis: .primary) }
-        if !menuItems.isEmpty {
-            blocks.append(block(kind: .chips, title: "메뉴 구성", items: Array(menuItems)))
-        }
+        blocks.append(
+            block(
+                kind: .chips,
+                title: "메뉴 구성",
+                items: menuItems.isEmpty ? [unavailableItem("메뉴 구성 정보 없음")] : Array(menuItems)
+            )
+        )
 
         var nutritionItems: [DiningDynamicUIItem] = []
         if let calorie = input.calorie {
@@ -105,103 +75,81 @@ enum DiningDynamicUIFallback {
         nutritionItems.append(
             contentsOf: DiningMenuDetailFallback
                 .nutritionFacts(from: input.nutrition, excludingCalorie: input.calorie != nil)
-                .map { DiningDynamicUIItem(label: $0.label, value: $0.value, emphasis: .secondary) }
+                .map { DiningDynamicUIItem(label: $0.label, value: $0.value, emphasis: .primary) }
         )
-        if !nutritionItems.isEmpty {
-            blocks.append(block(kind: .metrics, title: "영양 정보", items: nutritionItems))
-        }
-
-        var factItems: [DiningDynamicUIItem] = []
-        if !input.courseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            factItems.append(DiningDynamicUIItem(label: "코스", value: input.courseName, emphasis: .secondary))
-        }
-        if input.coursePrice > 0 {
-            factItems.append(
-                DiningDynamicUIItem(label: "가격", value: input.coursePriceText, emphasis: .primary)
+        blocks.append(
+            block(
+                kind: .metrics,
+                title: "영양 정보",
+                items: nutritionItems.isEmpty ? [unavailableItem("영양 정보 없음")] : nutritionItems
             )
-        }
-        if !factItems.isEmpty {
-            blocks.append(block(kind: .facts, title: "이용 정보", items: factItems))
-        }
+        )
 
         let origin = cleaned(input.origin, maximumLength: 600)
-        if !origin.isEmpty {
+        blocks.append(
+            block(
+                kind: .text,
+                title: "원산지",
+                items: [
+                    origin.isEmpty
+                        ? unavailableItem("원산지 정보 없음")
+                        : DiningDynamicUIItem(label: "", value: origin, emphasis: .primary),
+                ]
+            )
+        )
+
+        if let allergy = allergyWarning(from: input.information) {
             blocks.append(
                 block(
-                    kind: .text,
-                    title: "원산지",
-                    items: [DiningDynamicUIItem(label: "", value: origin, emphasis: .secondary)]
+                    kind: .note,
+                    title: "알러지 주의 음식",
+                    items: [DiningDynamicUIItem(label: "", value: allergy, emphasis: .primary)]
                 )
             )
         }
 
-        blocks.append(contentsOf: descriptionBlocks(from: input.information))
-        return DiningDynamicUISurface(blocks: Array(blocks.prefix(8)), isModelGenerated: false)
+        return DiningDynamicUISurface(blocks: blocks, isModelGenerated: false)
     }
 
-    private static func statusItems(for input: DiningDynamicUIInput) -> [DiningDynamicUIItem] {
-        var items = [
-            DiningDynamicUIItem(
-                label: "상태",
-                value: input.isSoldOut ? "품절" : "제공 가능",
-                emphasis: input.isSoldOut ? .critical : .positive
-            ),
-        ]
-        if !input.periodName.isEmpty {
-            items.append(DiningDynamicUIItem(label: "식사", value: input.periodName, emphasis: .primary))
-        }
-        if !input.servingTime.isEmpty {
-            items.append(DiningDynamicUIItem(label: "시간", value: input.servingTime, emphasis: .secondary))
-        }
-        if !input.congestion.isEmpty {
-            items.append(DiningDynamicUIItem(label: "혼잡도", value: input.congestion, emphasis: .warning))
-        }
-        return items
+    private static func unavailableItem(_ value: String) -> DiningDynamicUIItem {
+        DiningDynamicUIItem(label: "", value: value, emphasis: .primary)
     }
 
-    private static func statusTitle(for input: DiningDynamicUIInput) -> String {
-        if input.isSoldOut { return "현재 제공 상태" }
-        return input.periodName.isEmpty ? "이용 상태" : "\(input.periodName) 이용 안내"
-    }
-
-    private static func descriptionBlocks(from information: String) -> [DiningDynamicUIBlock] {
+    static func allergyWarning(from information: String) -> String? {
         let lines = normalizedLines(information)
-        guard !lines.isEmpty else { return [] }
-
-        var sections: [(title: String, lines: [String])] = []
-        var currentTitle = "메뉴 안내"
-        var currentLines: [String] = []
-
-        func appendCurrentSection() {
-            guard !currentLines.isEmpty else { return }
-            sections.append((currentTitle, currentLines))
-        }
+        guard !lines.isEmpty else { return nil }
+        var isInAllergySection = false
+        var values: [String] = []
 
         for line in lines {
             if let title = bracketTitle(from: line) {
-                appendCurrentSection()
-                currentTitle = title
-                currentLines = []
-            } else {
-                currentLines.append(line)
+                let normalizedTitle = normalized(title)
+                isInAllergySection = normalizedTitle.contains("알레르") || normalizedTitle.contains("알러")
+                continue
             }
-        }
-        appendCurrentSection()
-
-        return sections.compactMap { section in
-            let normalizedTitle = normalized(section.title)
-            guard normalizedTitle != "원산지" else { return nil }
-            let value = cleaned(section.lines.joined(separator: " · "), maximumLength: 700)
-            guard !value.isEmpty else { return nil }
-            let kind: DiningDynamicUIBlockKind = normalizedTitle.contains("알레르") || normalizedTitle.contains("알러")
-                ? .note
-                : .text
-            return block(
-                kind: kind,
-                title: section.title,
-                items: [DiningDynamicUIItem(label: "", value: value, emphasis: kind == .note ? .warning : .secondary)]
+            let inlineValue = line.replacingOccurrences(
+                of: #"^(알레르기|알러지|알러지주의음식|알레르기주의음식)\s*[:：-]?\s*"#,
+                with: "",
+                options: .regularExpression
             )
+            let isInlineAllergy = inlineValue != line
+            guard isInAllergySection || isInlineAllergy else { continue }
+            let value = cleaned(inlineValue, maximumLength: 300)
+            guard !value.isEmpty, isMeaningfulAllergy(value) else { continue }
+            values.append(value)
         }
+
+        let uniqueValues = values.reduce(into: [String]()) { result, value in
+            guard !result.contains(value) else { return }
+            result.append(value)
+        }
+        guard !uniqueValues.isEmpty else { return nil }
+        return cleaned(uniqueValues.joined(separator: " · "), maximumLength: 700)
+    }
+
+    private static func isMeaningfulAllergy(_ value: String) -> Bool {
+        let normalizedValue = normalized(value)
+        return !["없음", "해당없음", "정보없음", "없습니다", "무"].contains(normalizedValue)
     }
 
     private static func normalizedLines(_ rawValue: String) -> [String] {
@@ -256,55 +204,33 @@ enum DiningDynamicUIFallback {
 enum DiningDynamicUINormalizer {
     static func normalize(
         generatedBlocks: [DiningDynamicUIBlock],
-        input: DiningDynamicUIInput,
         fallback: DiningDynamicUISurface
     ) -> DiningDynamicUISurface {
-        let groundedBlocks = generatedBlocks.prefix(8).compactMap { generated -> DiningDynamicUIBlock? in
-            let title = DiningDynamicUIFallback.cleaned(generated.title, maximumLength: 30)
-            let items = generated.items.prefix(12).compactMap { item -> DiningDynamicUIItem? in
-                let label = DiningDynamicUIFallback.cleaned(item.label, maximumLength: 20)
+        let blocks = fallback.blocks.map { fallbackBlock in
+            guard let generated = generatedBlocks.first(where: { $0.kind == fallbackBlock.kind }) else {
+                return fallbackBlock
+            }
+            var items = generated.items.prefix(12).compactMap { item -> DiningDynamicUIItem? in
                 let value = DiningDynamicUIFallback.cleaned(item.value, maximumLength: 180)
-                guard !value.isEmpty, isGrounded(value, in: input.groundingSource) else { return nil }
-                return DiningDynamicUIItem(label: label, value: value, emphasis: item.emphasis)
-            }
-            guard !title.isEmpty, !items.isEmpty else { return nil }
-            return DiningDynamicUIFallback.block(kind: generated.kind, title: title, items: items)
-        }
-
-        var merged = groundedBlocks
-        for fallbackBlock in fallback.blocks {
-            if let index = matchingBlockIndex(for: fallbackBlock, in: merged) {
-                var items = merged[index].items
-                for fallbackItem in fallbackBlock.items where !contains(fallbackItem, in: items) {
-                    items.append(fallbackItem)
-                }
-                merged[index] = DiningDynamicUIFallback.block(
-                    kind: merged[index].kind,
-                    title: merged[index].title,
-                    items: Array(items.prefix(12))
+                guard !value.isEmpty,
+                      let verifiedItem = fallbackBlock.items.first(where: { isGrounded(value, in: $0.value) })
+                else { return nil }
+                return DiningDynamicUIItem(
+                    label: verifiedItem.label,
+                    value: value,
+                    emphasis: verifiedItem.emphasis
                 )
-            } else if merged.count < 8 {
-                merged.append(fallbackBlock)
             }
+            for fallbackItem in fallbackBlock.items where !contains(fallbackItem, in: items) {
+                items.append(fallbackItem)
+            }
+            return DiningDynamicUIFallback.block(
+                kind: fallbackBlock.kind,
+                title: fallbackBlock.title,
+                items: Array(items.prefix(12))
+            )
         }
-
-        let unique = merged.reduce(into: [DiningDynamicUIBlock]()) { result, block in
-            guard !result.contains(where: { $0.id == block.id }) else { return }
-            result.append(block)
-        }
-        guard !unique.isEmpty else { return fallback }
-        return DiningDynamicUISurface(blocks: Array(unique.prefix(8)), isModelGenerated: true)
-    }
-
-    private static func matchingBlockIndex(
-        for fallbackBlock: DiningDynamicUIBlock,
-        in blocks: [DiningDynamicUIBlock]
-    ) -> Int? {
-        let sameKind = blocks.indices.filter { blocks[$0].kind == fallbackBlock.kind }
-        guard fallbackBlock.kind == .text || fallbackBlock.kind == .note else { return sameKind.first }
-        return sameKind.first { index in
-            fallbackBlock.items.contains { contains($0, in: blocks[index].items) }
-        }
+        return DiningDynamicUISurface(blocks: blocks, isModelGenerated: true)
     }
 
     private static func contains(_ expected: DiningDynamicUIItem, in items: [DiningDynamicUIItem]) -> Bool {
