@@ -12,7 +12,6 @@ struct DiningView: View {
     @State private var isPreparing = false
     @State private var errorMessage: String?
     @State private var showsPreferences = false
-    @State private var loadedRequestKeys: Set<String> = []
     @State private var menuScrollPosition = ScrollPosition(idType: String.self)
 
     var body: some View {
@@ -123,7 +122,14 @@ struct DiningView: View {
             }
         }
         .task(id: requestKey) {
-            guard !loadedRequestKeys.contains(requestKey) else { return }
+            // Always reloads on date/personalization change — `diningDay`
+            // and `prepareDiningDay` are already cheap on repeat visits via
+            // their own date-keyed and content-keyed caches, so there's no
+            // need for a "already loaded this key" skip here. Skipping used
+            // to leave `periods`/`preparations` (single, non-date-keyed
+            // state) showing whatever a different date last wrote into
+            // them, since revisiting a previously-loaded date would bail
+            // out before ever refreshing that state.
             await load(replacingContent: true)
         }
         .onChange(of: AppFormat.apiDate(date)) { _, _ in
@@ -175,7 +181,6 @@ struct DiningView: View {
             if let cached = await store.cachedPreparedDiningDay(periods: rawPeriods) {
                 guard !Task.isCancelled, requestedKey == requestKey else { return }
                 preparations = cached.preparations
-                loadedRequestKeys.insert(requestedKey)
                 return
             }
 
@@ -184,7 +189,6 @@ struct DiningView: View {
             guard !Task.isCancelled, requestedKey == requestKey else { return }
             preparations = loaded.preparations
             isPreparing = false
-            loadedRequestKeys.insert(requestedKey)
         } catch is CancellationError {
             return
         } catch {
