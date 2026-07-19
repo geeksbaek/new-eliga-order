@@ -21,13 +21,6 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("글자 크기") {
-                Label("시스템의 Dynamic Type 설정을 따릅니다", systemImage: "textformat.size")
-                Text("설정 앱의 디스플레이 및 텍스트 크기에서 변경할 수 있습니다.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("식사 알림") {
                 LabeledContent("알림 권한", value: notificationStatus)
 

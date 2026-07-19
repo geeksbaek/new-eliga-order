@@ -15,6 +15,8 @@ struct NewEligaOrderApp: App {
 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-sections") {
                     CafePrioritySectionsFixtureView()
+                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-menu-detail-quantity") {
+                    CafeMenuDetailQuantityFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-menu-detail-holiday") {
                     CafeMenuDetailHolidayFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-holiday") {
@@ -25,6 +27,8 @@ struct NewEligaOrderApp: App {
                     DiningMenuDetailFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-dining-personalization") {
                     DiningPersonalizationFixtureView()
+                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-settings") {
+                    NavigationStack { SettingsView() }
                 } else {
                     authenticatedRoot
                 }

@@ -479,12 +479,13 @@ private struct MenuQuantitySelector: View {
 
     private var quantityControl: some View {
         HStack(spacing: 4) {
-            Button("수량 감소", systemImage: "minus") {
+            quantityButton(
+                title: "수량 감소",
+                systemImage: "minus",
+                isDisabled: quantity <= 1
+            ) {
                 quantity = max(1, quantity - 1)
             }
-            .labelStyle(.iconOnly)
-            .frame(minWidth: 44, minHeight: 44)
-            .disabled(quantity <= 1)
 
             Text("\(quantity)")
                 .font(.title3.monospacedDigit().weight(.semibold))
@@ -492,16 +493,34 @@ private struct MenuQuantitySelector: View {
                 .frame(minWidth: 38)
                 .accessibilityLabel("수량 \(quantity)개")
 
-            Button("수량 증가", systemImage: "plus") {
+            quantityButton(
+                title: "수량 증가",
+                systemImage: "plus",
+                isDisabled: quantity >= 20
+            ) {
                 quantity = min(20, quantity + 1)
             }
-            .labelStyle(.iconOnly)
-            .frame(minWidth: 44, minHeight: 44)
-            .disabled(quantity >= 20)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
         .accessibilityElement(children: .contain)
+    }
+
+    private func quantityButton(
+        title: String,
+        systemImage: String,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isDisabled ? Color.secondary.opacity(0.45) : Color.accentColor)
+        .background(Color(.tertiarySystemFill), in: Circle())
+        .disabled(isDisabled)
+        .accessibilityLabel(title)
     }
 
     private var totalLabel: some View {
@@ -517,6 +536,21 @@ private struct MenuQuantitySelector: View {
 }
 
 #if DEBUG
+struct CafeMenuDetailQuantityFixtureView: View {
+    @State private var quantity = 2
+
+    var body: some View {
+        NavigationStack {
+            AppMenuDetailScrollView {
+                AppMenuDetailSection(title: "주문 수량", systemImage: "number") {
+                    MenuQuantitySelector(quantity: $quantity, total: quantity * 4_500)
+                }
+            }
+            .navigationTitle("시그니처 라떼")
+        }
+    }
+}
+
 struct CafeMenuDetailHolidayFixtureView: View {
     private let closure = CafeOrderClosure(
         reason: .holiday,

@@ -117,6 +117,42 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCafeMenuDetailQuantityButtonsHaveEqualSize() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-cafe-menu-detail-quantity")
+        app.launch()
+
+        let decrease = app.buttons["수량 감소"]
+        let increase = app.buttons["수량 증가"]
+        XCTAssertTrue(decrease.waitForExistence(timeout: 5))
+        XCTAssertTrue(increase.exists)
+        XCTAssertEqual(decrease.frame.width, increase.frame.width, accuracy: 0.5)
+        XCTAssertEqual(decrease.frame.height, increase.frame.height, accuracy: 0.5)
+        XCTAssertEqual(decrease.frame.width, 44, accuracy: 0.5)
+        XCTAssertEqual(decrease.frame.height, 44, accuracy: 0.5)
+
+        attachScreenshot(of: app, name: "카페 상세 동일 크기 수량 버튼")
+        try app.performAccessibilityAudit(
+            // 가격 요약의 기존 명암·Dynamic Type 감사와 분리해 수량 컨트롤의 크기와 상호작용을 검증한다.
+            for: [.elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
+    func testSettingsOmitsFontSizeInformation() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-settings")
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["식사 알림"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["글자 크기"].exists)
+        XCTAssertFalse(app.staticTexts["시스템의 Dynamic Type 설정을 따릅니다"].exists)
+        XCTAssertFalse(app.staticTexts["설정 앱의 디스플레이 및 텍스트 크기에서 변경할 수 있습니다."].exists)
+
+        attachScreenshot(of: app, name: "글자 크기 안내를 제거한 설정")
+    }
+
+    @MainActor
     func testCartUsesAccessibleCafeShopPicker() throws {
         let app = XCUIApplication()
         app.launchArguments += [
