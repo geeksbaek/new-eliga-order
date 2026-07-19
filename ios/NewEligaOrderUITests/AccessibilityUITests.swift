@@ -207,7 +207,7 @@ final class AccessibilityUITests: XCTestCase {
             "매장 스위처와 하단 GNB 사이에는 표준 8pt 간격이 필요합니다."
         )
 
-        let modeSwitcher = app.scrollViews["cafe.shop-mode-switcher"]
+        let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
         modeSwitcher.swipeLeft()
         let swipeSelection = XCTNSPredicateExpectation(
@@ -241,7 +241,7 @@ final class AccessibilityUITests: XCTestCase {
             "카페 탭에서는 하단 검색 버튼이 보여야 합니다."
         )
 
-        let modeSwitcher = app.scrollViews["cafe.shop-mode-switcher"]
+        let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
         // CafeView가 직접 소유하는 행이므로 GNB 상태와 무관하게 매장
         // 스위처와 검색 버튼은 같은 줄에서 겹치지 않고 나란히 있어야 한다.

@@ -309,6 +309,14 @@ enum CafeShopSwitcherPolicy {
     }
 }
 
+/// Liquid Glass segmented control for switching cafe shops. Shows every shop
+/// at once (no horizontal scroll): with the realistic 2-4 shop count, "swipe
+/// to reveal more" pays a discovery tax for information that just fits on
+/// screen, and reads as borrowing the Camera app's mode-strip look rather
+/// than owning a shape suited to this content. Showing everything up front
+/// and letting the morphing selection pill carry the delight instead is the
+/// more deliberate, modern read — the pill-morph and swipe-to-step gesture
+/// are the parts of the old camera-strip design worth keeping.
 struct CafeShopModeSwitcher: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
@@ -317,43 +325,25 @@ struct CafeShopModeSwitcher: View {
     let selectedShopID: Int
     let selectShop: (Int) -> Void
 
-    @State private var centeredShopID: Int?
     @Namespace private var selectionNamespace
-
-    /// Camera-style mode chip width: wide enough for Korean labels, narrow enough to peek neighbors.
-    private let itemWidth: CGFloat = 118
     private let trackHeight: CGFloat = 44
-
-    private var viewportWidth: CGFloat {
-        CGFloat(min(max(shops.count, 1), 2)) * itemWidth + 8
-    }
 
     var body: some View {
         modeStrip
-            .frame(width: viewportWidth, height: trackHeight)
+            .frame(height: trackHeight)
             .frame(maxWidth: .infinity)
-            .onAppear {
-                centeredShopID = selectedShopID
-            }
-            .onChange(of: selectedShopID) { _, newValue in
-                guard centeredShopID != newValue else { return }
-                withAnimation(.snappy(duration: 0.28)) {
-                    centeredShopID = newValue
-                }
-            }
             .sensoryFeedback(.selection, trigger: selectedShopID)
     }
 
     @ViewBuilder
     private var modeStrip: some View {
         if #available(iOS 26, *), !reduceTransparency {
-            // Camera-like Liquid Glass: pure system glass track + morphing selection pill.
             GlassEffectContainer(spacing: 12) {
-                modeScroll
+                modeRow
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
         } else {
-            modeScroll
+            modeRow
                 .background(
                     reduceTransparency ? AnyShapeStyle(Color(.secondarySystemBackground)) : AnyShapeStyle(.regularMaterial),
                     in: Capsule()
@@ -364,32 +354,32 @@ struct CafeShopModeSwitcher: View {
         }
     }
 
-    private var modeScroll: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                ForEach(shops) { shop in
-                    modeButton(for: shop)
-                        .frame(width: itemWidth, height: trackHeight - 4)
-                        .id(shop.id)
-                }
+    private var modeRow: some View {
+        HStack(spacing: 2) {
+            ForEach(shops) { shop in
+                modeButton(for: shop)
             }
-            .padding(2)
-            .scrollTargetLayout()
         }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
-        .scrollPosition(id: $centeredShopID, anchor: .center)
+        .padding(3)
         .simultaneousGesture(
+            // Keeps the camera strip's swipe-to-step feel even without a
+            // scroll view backing it: a drag anywhere on the track steps
+            // selection to the neighboring shop.
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
-                    let translation = value.predictedEndTranslation
+                    let translation = value.translation
                     guard abs(translation.width) > abs(translation.height),
                           abs(translation.width) >= 44
                     else { return }
                     selectAdjacentShop(offset: translation.width < 0 ? 1 : -1)
                 }
         )
-        .clipShape(Capsule())
+        // `.contain` (not the default) makes this HStack its own AX element
+        // carrying this identifier, while still exposing each shop button as
+        // its own separate element — a plain container here would otherwise
+        // leak this identifier onto every child button, clobbering their
+        // individual "cafe.shop-mode.<id>" identifiers.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cafe.shop-mode-switcher")
     }
 
@@ -397,20 +387,19 @@ struct CafeShopModeSwitcher: View {
         let isSelected = shop.id == selectedShopID
 
         return Button {
+            guard shop.id != selectedShopID else { return }
             withAnimation(.snappy(duration: 0.28)) {
-                if shop.id != selectedShopID {
-                    selectShop(shop.id)
-                }
-                centeredShopID = shop.id
+                selectShop(shop.id)
             }
         } label: {
             Text(CafeShopSwitcherPolicy.modeTitle(for: shop.name))
                 .font(.subheadline.weight(isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.75)
                 .allowsTightening(true)
-                .frame(maxWidth: .infinity, minHeight: trackHeight - 4)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: trackHeight - 6)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -432,7 +421,8 @@ struct CafeShopModeSwitcher: View {
     @ViewBuilder
     private var selectionSurface: some View {
         if #available(iOS 26, *), !reduceTransparency {
-            // Brighter morphing pill over the track — closer to Camera's selected mode chip.
+            // Morphing selection pill — slides/resizes between chips of
+            // different widths as the selected shop changes.
             Color.clear
                 .glassEffect(
                     .regular
@@ -464,7 +454,6 @@ struct CafeShopModeSwitcher: View {
         ) else { return }
         withAnimation(.snappy(duration: 0.28)) {
             selectShop(shopID)
-            centeredShopID = shopID
         }
     }
 }
