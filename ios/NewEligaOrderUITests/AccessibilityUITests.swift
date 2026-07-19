@@ -235,13 +235,35 @@ final class AccessibilityUITests: XCTestCase {
         let cafeTitle = app.navigationBars["카페"]
         XCTAssertTrue(cafeTitle.waitForExistence(timeout: 5))
 
+        let searchButton = app.buttons["cafe.search.accessory"]
+        XCTAssertTrue(
+            searchButton.waitForExistence(timeout: 3),
+            "카페 탭에서는 하단 검색 액세서리가 보여야 합니다."
+        )
+
+        let modeSwitcher = app.scrollViews["cafe.shop-mode-switcher"]
+        if modeSwitcher.exists {
+            // GNB가 펼쳐진 상태에서는 매장 스위처와 검색 버튼이 같은 줄에
+            // 나란히 배치된다 (카메라 앱 모드 전환 UI 벤치마크).
+            XCTAssertLessThanOrEqual(
+                modeSwitcher.frame.maxX + 8,
+                searchButton.frame.minX,
+                "매장 스위처와 검색 버튼은 같은 줄에서 겹치지 않아야 합니다."
+            )
+            XCTAssertEqual(
+                modeSwitcher.frame.midY,
+                searchButton.frame.midY,
+                accuracy: 4,
+                "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
+            )
+        }
+
         let menuList = app.collectionViews.firstMatch
         XCTAssertTrue(menuList.exists)
         menuList.swipeUp()
 
         let collapsedCafeTab = app.buttons["카페"]
         XCTAssertEqual(collapsedCafeTab.value as? String, "축소됨")
-        let searchButton = app.buttons["cafe.search.accessory"]
         XCTAssertTrue(
             searchButton.waitForExistence(timeout: 3),
             "GNB가 축소된 뒤에도 우측 검색 버튼이 보여야 합니다."
@@ -266,6 +288,28 @@ final class AccessibilityUITests: XCTestCase {
         searchField.typeText("라떼")
         XCTAssertEqual(searchField.value as? String, "라떼")
         attachScreenshot(of: app, name: "GNB 검색 활성화")
+    }
+
+    @MainActor
+    func testCafeSearchAccessoryHiddenOnOtherTabs() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-cafe-mode-switcher")
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["카페"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["cafe.search.accessory"].waitForExistence(timeout: 3))
+
+        app.tabBars.buttons["홈"].tap()
+        XCTAssertFalse(
+            app.buttons["cafe.search.accessory"].waitForExistence(timeout: 2),
+            "카페가 아닌 탭에는 빈 검색 글래스가 남아 있으면 안 됩니다."
+        )
+
+        app.tabBars.buttons["식단"].tap()
+        XCTAssertFalse(
+            app.buttons["cafe.search.accessory"].exists,
+            "식단 탭에도 검색 액세서리가 보이면 안 됩니다."
+        )
     }
 
     @MainActor

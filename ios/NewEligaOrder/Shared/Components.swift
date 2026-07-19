@@ -311,43 +311,65 @@ enum CafeShopSwitcherPolicy {
 
 struct CafeShopModeSwitcher: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
 
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
+    /// Hides the outer capsule glass so this doesn't stack a second Liquid Glass
+    /// surface directly on a neighboring one (the collapsed GNB pill sits right
+    /// next to this when the tab bar is minimized).
+    var showsTrackGlass: Bool = true
+    /// Non-nil only when hosted in the unified bottom accessory: reports active
+    /// drag/settle so the parent can slide its side buttons away and let this
+    /// grow to fill the row, and switches sizing to flow with the parent's
+    /// frame instead of the legacy fixed capsule width.
+    var isEngaged: Binding<Bool>? = nil
 
     @State private var centeredShopID: Int?
     @Namespace private var selectionNamespace
 
-    private let itemWidth: CGFloat = 112
+    /// Camera-style mode chip width: wide enough for Korean labels, narrow enough to peek neighbors.
+    private let itemWidth: CGFloat = 118
+    private let trackHeight: CGFloat = 44
 
     private var viewportWidth: CGFloat {
-        CGFloat(min(max(shops.count, 1), 2)) * itemWidth + 4
+        CGFloat(min(max(shops.count, 1), 2)) * itemWidth + 8
     }
 
     var body: some View {
-        modeStrip
-            .frame(width: viewportWidth, height: 48)
-            .frame(maxWidth: .infinity)
-            .onAppear {
-                centeredShopID = selectedShopID
+        Group {
+            if isEngaged != nil {
+                modeStrip.frame(height: trackHeight)
+            } else {
+                modeStrip.frame(width: viewportWidth, height: trackHeight)
             }
-            .onChange(of: selectedShopID) { _, newValue in
-                guard centeredShopID != newValue else { return }
-                withAnimation(.snappy) {
-                    centeredShopID = newValue
-                }
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            centeredShopID = selectedShopID
+        }
+        .onChange(of: selectedShopID) { _, newValue in
+            guard centeredShopID != newValue else { return }
+            withAnimation(.snappy(duration: 0.28)) {
+                centeredShopID = newValue
             }
-            .sensoryFeedback(.selection, trigger: selectedShopID)
+        }
+        .sensoryFeedback(.selection, trigger: selectedShopID)
     }
 
     @ViewBuilder
     private var modeStrip: some View {
         if #available(iOS 26, *), !reduceTransparency {
-            GlassEffectContainer(spacing: 8) {
-                modeScroll
-                    .background(.black.opacity(0.24), in: Capsule())
-                    .glassEffect(.clear.interactive(), in: .capsule)
+            // Camera-like Liquid Glass: pure system glass track + morphing selection pill.
+            // Avoid stacked dark fills — they muddy the material and fight the tab accessory glass.
+            GlassEffectContainer(spacing: 12) {
+                if showsTrackGlass {
+                    modeScroll
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                } else {
+                    modeScroll
+                }
             }
         } else {
             modeScroll
@@ -363,10 +385,10 @@ struct CafeShopModeSwitcher: View {
 
     private var modeScroll: some View {
         ScrollView(.horizontal) {
-            LazyHStack(spacing: 0) {
+            HStack(spacing: 0) {
                 ForEach(shops) { shop in
                     modeButton(for: shop)
-                        .frame(width: itemWidth, height: 44)
+                        .frame(width: itemWidth, height: trackHeight - 4)
                         .id(shop.id)
                 }
             }
@@ -376,6 +398,19 @@ struct CafeShopModeSwitcher: View {
         .scrollIndicators(.hidden)
         .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
         .scrollPosition(id: $centeredShopID, anchor: .center)
+        .onScrollPhaseChange { _, newPhase in
+            guard let isEngaged else { return }
+            // Camera's mode strip only reacts to an actual finger on the
+            // glass: tracking/interacting/decelerating are touch-driven, but
+            // `.animating` also fires for the *programmatic* scroll this view
+            // does when a chip is tapped (see `modeButton`/`onChange` below) —
+            // excluding it keeps a plain tap from hiding the side buttons.
+            let engaged = newPhase == .tracking || newPhase == .interacting || newPhase == .decelerating
+            guard isEngaged.wrappedValue != engaged else { return }
+            withAnimation(.smooth(duration: 0.3)) {
+                isEngaged.wrappedValue = engaged
+            }
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -394,7 +429,7 @@ struct CafeShopModeSwitcher: View {
         let isSelected = shop.id == selectedShopID
 
         return Button {
-            withAnimation(.snappy) {
+            withAnimation(.snappy(duration: 0.28)) {
                 if shop.id != selectedShopID {
                     selectShop(shop.id)
                 }
@@ -402,12 +437,12 @@ struct CafeShopModeSwitcher: View {
             }
         } label: {
             Text(CafeShopSwitcherPolicy.modeTitle(for: shop.name))
-                .font(.caption.weight(isSelected ? .bold : .medium))
-                .foregroundStyle(isSelected ? AppPalette.brand : .secondary)
+                .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.72)
                 .allowsTightening(true)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: trackHeight - 4)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -429,19 +464,28 @@ struct CafeShopModeSwitcher: View {
     @ViewBuilder
     private var selectionSurface: some View {
         if #available(iOS 26, *), !reduceTransparency {
+            // Brighter morphing pill over the track — closer to Camera's selected mode chip.
             Color.clear
                 .glassEffect(
-                    .regular.interactive(),
+                    .regular
+                        .tint(selectionTint)
+                        .interactive(),
                     in: .capsule
                 )
                 .glassEffectID("cafe-selected-shop", in: selectionNamespace)
         } else {
             Capsule()
-                .fill(AppPalette.brand.opacity(reduceTransparency ? 0.22 : 0.14))
+                .fill(Color.primary.opacity(reduceTransparency ? 0.12 : 0.08))
                 .overlay {
-                    Capsule().stroke(.primary.opacity(0.12), lineWidth: 0.5)
+                    Capsule().stroke(.primary.opacity(0.1), lineWidth: 0.5)
                 }
         }
+    }
+
+    private var selectionTint: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.22)
+            : Color.white.opacity(0.55)
     }
 
     private func selectAdjacentShop(offset: Int) {
@@ -450,7 +494,7 @@ struct CafeShopModeSwitcher: View {
             selectedShopID: selectedShopID,
             offset: offset
         ) else { return }
-        withAnimation(.snappy) {
+        withAnimation(.snappy(duration: 0.28)) {
             selectShop(shopID)
             centeredShopID = shopID
         }
@@ -500,17 +544,6 @@ struct CafeShopModeSwitcherFixtureView: View {
                             isPresented: $isSearchPresented
                         )
                     )
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        CafeShopModeSwitcher(
-                            shops: shops,
-                            selectedShopID: selectedShopID,
-                            selectShop: { selectedShopID = $0 }
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
-                        .padding(.bottom, 8)
-                    }
                 }
             }
             Tab("장바구니", systemImage: "bag", value: 3) { Color.clear }
@@ -518,7 +551,12 @@ struct CafeShopModeSwitcherFixtureView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .appTabBarBehavior()
-        .appCafeSearchAccessory(isEnabled: selectedTab == 2 && !isSearchPresented) {
+        .appCafeBottomAccessory(
+            isEnabled: selectedTab == 2 && !isSearchPresented,
+            shops: shops,
+            selectedShopID: selectedShopID,
+            selectShop: { selectedShopID = $0 }
+        ) {
             isSearchPresented = true
         }
         .tint(AppPalette.brand)
