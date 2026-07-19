@@ -42,6 +42,16 @@ struct CafeView: View {
     private var isLoading: Bool { loadingShopID != nil }
     private var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var isSearchMode: Bool { isSearchPresented || isSearchActive }
+    /// Space above the pre-iOS 26 fallback shop switcher inset. On iOS 26+ the
+    /// switcher lives in the shared `tabViewBottomAccessory` (see
+    /// `AppShellView`/`CafeBottomAccessory`) instead of this local inset, so
+    /// the accessory's own safe area reservation handles clearance.
+    private var shopSwitcherBottomPadding: CGFloat { 8 }
+    private var actionErrorBottomPadding: CGFloat {
+        guard !isSearchMode, store.cafeShops.count > 1 else { return 0 }
+        if #available(iOS 26, *) { return 0 }
+        return 56 + (shopSwitcherBottomPadding - 8)
+    }
     private var orderState: CafeOrderState { CafeRules.state(for: store.cafePlansByShop[activeShopID] ?? nil) }
     private var visibleMenus: [CafeMenuItem] {
         CafeMenuFilter.items(
@@ -102,17 +112,23 @@ struct CafeView: View {
         .navigationTitle("카페")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !isSearchMode, store.cafeShops.count > 1 {
-                CafeShopModeSwitcher(
-                    shops: store.cafeShops,
-                    selectedShopID: activeShopID,
-                    selectShop: selectShop
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+            // iOS 26+ renders the switcher in the shared bottom accessory
+            // (`AppShellView` + `CafeBottomAccessory`) so it can share a row
+            // with the search button and the collapsed GNB pill. This inset
+            // only backs the pre-iOS 26 fallback.
+            if #unavailable(iOS 26) {
+                if !isSearchMode, store.cafeShops.count > 1 {
+                    CafeShopModeSwitcher(
+                        shops: store.cafeShops,
+                        selectedShopID: activeShopID,
+                        selectShop: selectShop
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, shopSwitcherBottomPadding)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .overlay(alignment: .bottom) {
@@ -122,7 +138,7 @@ struct CafeView: View {
                     .padding()
                     .appGlassSurface(cornerRadius: 22, tint: .red)
                     .padding()
-                    .padding(.bottom, !isSearchMode && store.cafeShops.count > 1 ? 56 : 0)
+                    .padding(.bottom, actionErrorBottomPadding)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .accessibilityAddTraits(.updatesFrequently)
             }

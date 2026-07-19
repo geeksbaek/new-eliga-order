@@ -98,13 +98,26 @@ extension View {
         }
     }
 
+    /// Unified camera-style bottom accessory: shop switcher + search button when
+    /// there are multiple cafe shops to pick between, or a plain search row
+    /// otherwise. Only attach when content is real — an empty
+    /// `tabViewBottomAccessory` still draws system glass chrome on every tab.
     @ViewBuilder
-    func appCafeSearchAccessory(isEnabled: Bool, action: @escaping () -> Void) -> some View {
-        if #available(iOS 26, *) {
+    func appCafeBottomAccessory(
+        isEnabled: Bool,
+        shops: [Shop],
+        selectedShopID: Int,
+        selectShop: @escaping (Int) -> Void,
+        searchAction: @escaping () -> Void
+    ) -> some View {
+        if #available(iOS 26, *), isEnabled {
             tabViewBottomAccessory {
-                if isEnabled {
-                    CafeSearchAccessory(action: action)
-                }
+                CafeBottomAccessory(
+                    shops: shops,
+                    selectedShopID: selectedShopID,
+                    selectShop: selectShop,
+                    searchAction: searchAction
+                )
             }
         } else {
             self
@@ -144,6 +157,75 @@ private struct CafeSearchAccessory: View {
         }
         .buttonStyle(.plain)
         .contentShape(.rect)
+        .accessibilityLabel("메뉴 검색")
+        .accessibilityIdentifier("cafe.search.accessory")
+    }
+}
+
+/// Camera-style bottom row: shop switcher (~3/5 width) centered between two
+/// fixed-size glass buttons. `tabViewBottomAccessoryPlacement` tells us
+/// whether the GNB is expanded (`.regular`, a full-width row above the tab
+/// bar) or minimized (`.inline`, sharing one row with the collapsed GNB
+/// pill) — the pill itself is system-drawn and out of our view tree, so we
+/// only lay out our own content and let the system dock it beside the pill.
+@available(iOS 26, *)
+private struct CafeBottomAccessory: View {
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+
+    let shops: [Shop]
+    let selectedShopID: Int
+    let selectShop: (Int) -> Void
+    let searchAction: () -> Void
+
+    @State private var isSwitcherEngaged = false
+
+    private var isInline: Bool { placement == .inline }
+    private let sideButtonSize: CGFloat = 44
+
+    var body: some View {
+        if shops.count > 1 {
+            multiShopRow
+        } else {
+            CafeSearchAccessory(action: searchAction)
+        }
+    }
+
+    private var multiShopRow: some View {
+        HStack(spacing: 8) {
+            if !isInline, !isSwitcherEngaged {
+                // Balances the search button on the other side so the switcher
+                // reads as centered on the full-width expanded-GNB row.
+                Color.clear
+                    .frame(width: sideButtonSize, height: sideButtonSize)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+
+            CafeShopModeSwitcher(
+                shops: shops,
+                selectedShopID: selectedShopID,
+                selectShop: selectShop,
+                showsTrackGlass: !isInline,
+                isEngaged: $isSwitcherEngaged
+            )
+            .frame(maxWidth: .infinity)
+
+            if !isSwitcherEngaged {
+                searchButton
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+        }
+        .frame(height: sideButtonSize)
+    }
+
+    private var searchButton: some View {
+        Button(action: searchAction) {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(.semibold))
+                .frame(width: sideButtonSize, height: sideButtonSize)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel("메뉴 검색")
         .accessibilityIdentifier("cafe.search.accessory")
     }
