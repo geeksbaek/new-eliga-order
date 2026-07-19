@@ -227,7 +227,7 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
-    func testCafeSearchStaysFixedRegardlessOfGNBCollapse() throws {
+    func testCafeSearchRowStaysPutWhileGNBNeverMinimizes() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-cafe-mode-switcher")
         app.launch()
@@ -243,8 +243,8 @@ final class AccessibilityUITests: XCTestCase {
 
         let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
-        // CafeView가 직접 소유하는 행이므로 GNB 상태와 무관하게 매장
-        // 스위처와 검색 버튼은 같은 줄에서 겹치지 않고 나란히 있어야 한다.
+        // CafeView가 직접 소유하는 행이므로 매장 스위처와 검색 버튼은
+        // 같은 줄에서 겹치지 않고 나란히 있어야 한다.
         XCTAssertLessThanOrEqual(
             modeSwitcher.frame.maxX + 8,
             searchButton.frame.minX,
@@ -256,26 +256,30 @@ final class AccessibilityUITests: XCTestCase {
             accuracy: 4,
             "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
         )
+        let restingFrame = searchButton.frame
 
         let menuList = app.collectionViews.firstMatch
         XCTAssertTrue(menuList.exists)
         menuList.swipeUp()
 
-        let collapsedCafeTab = app.buttons["카페"]
-        XCTAssertEqual(collapsedCafeTab.value as? String, "축소됨")
+        // GNB는 `.tabBarMinimizeBehavior(.never)`라 스크롤해도 축소되지
+        // 않는다 — 그리고 우리 행도 그 상태와 무관하게 제자리에 그대로다.
+        let cafeTab = app.buttons["카페"]
+        XCTAssertNotEqual(
+            cafeTab.value as? String,
+            "축소됨",
+            "GNB는 .never로 설정되어 스크롤해도 축소되면 안 됩니다."
+        )
         XCTAssertTrue(
             searchButton.waitForExistence(timeout: 3),
-            "GNB가 축소된 뒤에도 검색 버튼이 계속 보여야 합니다."
+            "스크롤 후에도 검색 버튼이 계속 보여야 합니다."
         )
-        // 의도적으로 GNB와 동기화하지 않는다: 검색 버튼(과 매장 스위처)은
-        // 축소된 GNB 알약과 나란한 줄로 옮겨가지 않고, 그 위에 계속 떠
-        // 있어야 한다.
-        XCTAssertLessThanOrEqual(
-            searchButton.frame.maxY,
-            collapsedCafeTab.frame.minY + 4,
-            "검색 버튼은 축소된 GNB 알약과 합쳐지지 않고 그 위에 떠 있어야 합니다."
+        XCTAssertEqual(
+            searchButton.frame,
+            restingFrame,
+            "GNB가 축소되지 않으므로 검색 행의 위치도 스크롤 전후로 그대로여야 합니다."
         )
-        attachScreenshot(of: app, name: "GNB 축소와 무관하게 고정된 검색 행")
+        attachScreenshot(of: app, name: "스크롤 후에도 고정된 검색 행")
 
         searchButton.tap()
         let searchField = app.searchFields["모든 매장의 메뉴 검색"]

@@ -92,7 +92,7 @@ extension View {
     @ViewBuilder
     func appTabBarBehavior() -> some View {
         if #available(iOS 26, *) {
-            tabBarMinimizeBehavior(.onScrollDown)
+            tabBarMinimizeBehavior(.never)
         } else {
             self
         }
