@@ -61,7 +61,11 @@ struct LoginView: View {
                     .font(.largeTitle.bold())
                     .accessibilityIdentifier("login.brand")
                 Text("식단과 카페 주문을 한곳에서")
-                    .font(.title3)
+                    // Bold, like the brand title above it: over the ambient
+                    // mesh gradient's variable tint, only bold text clears
+                    // the "large text" contrast threshold (3:1) — regular
+                    // weight needs 4.5:1 and fails against this background.
+                    .font(.title3.bold())
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -78,7 +82,12 @@ struct LoginView: View {
                 Text("로그인")
                     .font(.title2.bold())
                 Text("엘리가 계정으로 안전하게 계속하세요.")
-                    .font(.subheadline)
+                    // Bold for the same reason as the hero tagline: this
+                    // card's backdrop is a semi-transparent white
+                    // (`Color(.systemBackground).opacity(...)`) over the
+                    // ambient gradient, so regular weight falls just short
+                    // of the (stricter, non-"large text") AA contrast ratio.
+                    .font(.subheadline.bold())
                     .foregroundStyle(.primary)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
