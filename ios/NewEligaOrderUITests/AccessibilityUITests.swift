@@ -227,6 +227,48 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCafeSearchLivesAtTrailingEdgeOfCollapsedTabBar() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-cafe-mode-switcher")
+        app.launch()
+
+        let cafeTitle = app.navigationBars["카페"]
+        XCTAssertTrue(cafeTitle.waitForExistence(timeout: 5))
+
+        let menuList = app.collectionViews.firstMatch
+        XCTAssertTrue(menuList.exists)
+        menuList.swipeUp()
+
+        let collapsedCafeTab = app.buttons["카페"]
+        XCTAssertEqual(collapsedCafeTab.value as? String, "축소됨")
+        let searchButton = app.buttons["cafe.search.accessory"]
+        XCTAssertTrue(
+            searchButton.waitForExistence(timeout: 3),
+            "GNB가 축소된 뒤에도 우측 검색 버튼이 보여야 합니다."
+        )
+        XCTAssertGreaterThan(
+            searchButton.frame.minX,
+            collapsedCafeTab.frame.maxX,
+            "검색 버튼은 축소된 GNB의 우측에 배치되어야 합니다."
+        )
+        XCTAssertEqual(
+            searchButton.frame.midY,
+            collapsedCafeTab.frame.midY,
+            accuracy: 4,
+            "검색 버튼과 축소된 GNB는 같은 줄에 있어야 합니다."
+        )
+        attachScreenshot(of: app, name: "축소 GNB 우측 네이티브 검색 버튼")
+
+        searchButton.tap()
+        let searchField = app.searchFields["모든 매장의 메뉴 검색"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        searchField.typeText("라떼")
+        XCTAssertEqual(searchField.value as? String, "라떼")
+        attachScreenshot(of: app, name: "GNB 검색 활성화")
+    }
+
+    @MainActor
     func testDiningDetailUsesSimplifiedGeneratedStructure() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-dining-detail")

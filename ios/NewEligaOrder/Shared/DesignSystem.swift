@@ -99,12 +99,53 @@ extension View {
     }
 
     @ViewBuilder
+    func appCafeSearchAccessory(isEnabled: Bool, action: @escaping () -> Void) -> some View {
+        if #available(iOS 26, *) {
+            tabViewBottomAccessory {
+                if isEnabled {
+                    CafeSearchAccessory(action: action)
+                }
+            }
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
     func appScrollEdgeStyle() -> some View {
         if #available(iOS 26, *) {
             scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         } else {
             self
         }
+    }
+}
+
+@available(iOS 26, *)
+private struct CafeSearchAccessory: View {
+    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            if placement == .inline {
+                Label("메뉴 검색", systemImage: "magnifyingglass")
+                    .font(.callout.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+            } else {
+                Label("모든 매장의 메뉴 검색", systemImage: "magnifyingglass")
+                    .font(.callout.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(.rect)
+        .accessibilityLabel("메뉴 검색")
+        .accessibilityIdentifier("cafe.search.accessory")
     }
 }
 

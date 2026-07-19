@@ -5,6 +5,7 @@ struct CafeView: View {
     @Environment(AppRouter.self) private var router
     let transitionNamespace: Namespace.ID
     private let searchHistoryStore = CafeSearchHistoryStore()
+    @Binding private var isSearchPresented: Bool
 
     @State private var shopID: Int?
     @State private var categories: [CafeCategory] = []
@@ -27,14 +28,20 @@ struct CafeView: View {
     @State private var menuScrollPosition = ScrollPosition(idType: Int.self)
     @State private var menuScrollPositionsByShop: [Int: ScrollPosition] = [:]
 
-    init(initialShopID: Int?, transitionNamespace: Namespace.ID) {
+    init(
+        initialShopID: Int?,
+        transitionNamespace: Namespace.ID,
+        isSearchPresented: Binding<Bool> = .constant(false)
+    ) {
         self.transitionNamespace = transitionNamespace
+        _isSearchPresented = isSearchPresented
         _shopID = State(initialValue: initialShopID)
     }
 
     private var activeShopID: Int { shopID ?? store.cafeShops.first?.id ?? 5 }
     private var isLoading: Bool { loadingShopID != nil }
     private var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isSearchMode: Bool { isSearchPresented || isSearchActive }
     private var orderState: CafeOrderState { CafeRules.state(for: store.cafePlansByShop[activeShopID] ?? nil) }
     private var visibleMenus: [CafeMenuItem] {
         CafeMenuFilter.items(
@@ -66,41 +73,23 @@ struct CafeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !isSearchActive {
+            if !isSearchMode {
                 categoryPicker
+                orderBanner
             }
-            orderBanner
             ZStack {
                 content
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "모든 매장의 메뉴 검색"
+        .modifier(
+            CafeSearchInterfaceModifier(
+                text: $searchText,
+                isPresented: $isSearchPresented,
+                history: searchHistory,
+                quickItems: quickItems
+            )
         )
-        .searchSuggestions {
-            if searchText.isEmpty {
-                if !searchHistory.isEmpty {
-                    Section("최근 검색") {
-                        ForEach(searchHistory, id: \.self) { query in
-                            Label(query, systemImage: "clock.arrow.circlepath")
-                                .searchCompletion(query)
-                        }
-                    }
-                }
-
-                if !quickItems.isEmpty {
-                    Section("최근·인기 메뉴") {
-                        ForEach(quickItems.prefix(5)) { item in
-                            Label(item.name, systemImage: "sparkles")
-                                .searchCompletion(item.name)
-                        }
-                    }
-                }
-            }
-        }
         .onSubmit(of: .search) {
             recordCurrentSearch()
         }
@@ -113,7 +102,7 @@ struct CafeView: View {
         .navigationTitle("카페")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !isSearchActive, store.cafeShops.count > 1 {
+            if !isSearchMode, store.cafeShops.count > 1 {
                 CafeShopModeSwitcher(
                     shops: store.cafeShops,
                     selectedShopID: activeShopID,
@@ -133,7 +122,7 @@ struct CafeView: View {
                     .padding()
                     .appGlassSurface(cornerRadius: 22, tint: .red)
                     .padding()
-                    .padding(.bottom, !isSearchActive && store.cafeShops.count > 1 ? 56 : 0)
+                    .padding(.bottom, !isSearchMode && store.cafeShops.count > 1 ? 56 : 0)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .accessibilityAddTraits(.updatesFrequently)
             }
@@ -161,11 +150,17 @@ struct CafeView: View {
             else { return }
             selectShop(selectedShopID)
         }
+        .onChange(of: isSearchPresented) { wasPresented, isPresented in
+            if wasPresented, !isPresented {
+                recordCurrentSearch()
+                searchText = ""
+            }
+        }
         .onDisappear {
             recordCurrentSearch()
         }
         .sensoryFeedback(.selection, trigger: selectedCategoryID)
-        .animation(.snappy, value: isSearchActive)
+        .animation(.snappy, value: isSearchMode)
     }
 
     private var categoryPicker: some View {
@@ -522,6 +517,7 @@ struct CafeView: View {
 
     private func openDetail(_ item: CafeMenuItem, shopID: Int? = nil) {
         recordCurrentSearch()
+        isSearchPresented = false
         let destinationShopID = shopID ?? activeShopID
         store.selectShop(destinationShopID)
         router.push(.menu(shopID: destinationShopID, displayID: item.displayID), on: .cafe)
@@ -529,6 +525,7 @@ struct CafeView: View {
 
     private func openQuickOrder(_ item: CafeMenuItem, shopID: Int) {
         recordCurrentSearch()
+        isSearchPresented = false
         store.selectShop(shopID)
         router.push(.quickOrder(shopID: shopID, displayID: item.displayID), on: .cafe)
     }
@@ -555,6 +552,71 @@ struct CafeView: View {
                 )
             } catch {
                 withAnimation { actionError = error.localizedDescription }
+            }
+        }
+    }
+}
+
+private struct CafeSearchInterfaceModifier: ViewModifier {
+    @Binding var text: String
+    @Binding var isPresented: Bool
+    let history: [String]
+    let quickItems: [CafeQuickItem]
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            if isPresented {
+                searchable(content)
+            } else {
+                content
+            }
+        } else {
+            legacySearchable(content)
+        }
+    }
+
+    private func searchable(_ content: Content) -> some View {
+        withSuggestions(
+            content.searchable(
+                text: $text,
+                isPresented: $isPresented,
+                placement: .toolbar,
+                prompt: "모든 매장의 메뉴 검색"
+            )
+        )
+    }
+
+    private func legacySearchable(_ content: Content) -> some View {
+        withSuggestions(
+            content.searchable(
+                text: $text,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "모든 매장의 메뉴 검색"
+            )
+        )
+    }
+
+    private func withSuggestions<SearchContent: View>(_ content: SearchContent) -> some View {
+        content.searchSuggestions {
+            if text.isEmpty {
+                if !history.isEmpty {
+                    Section("최근 검색") {
+                        ForEach(history, id: \.self) { query in
+                            Label(query, systemImage: "clock.arrow.circlepath")
+                                .searchCompletion(query)
+                        }
+                    }
+                }
+
+                if !quickItems.isEmpty {
+                    Section("최근·인기 메뉴") {
+                        ForEach(quickItems.prefix(5)) { item in
+                            Label(item.name, systemImage: "sparkles")
+                                .searchCompletion(item.name)
+                        }
+                    }
+                }
             }
         }
     }

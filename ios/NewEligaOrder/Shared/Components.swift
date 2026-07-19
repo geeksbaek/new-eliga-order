@@ -461,6 +461,8 @@ struct CafeShopModeSwitcher: View {
 struct CafeShopModeSwitcherFixtureView: View {
     @State private var selectedTab = 2
     @State private var selectedShopID = 5
+    @State private var searchText = ""
+    @State private var isSearchPresented = false
 
     private let shops = [
         Shop(id: 5, name: "카카오 판교 아지트 카페", kind: .cafe, isOpen: true),
@@ -483,10 +485,21 @@ struct CafeShopModeSwitcherFixtureView: View {
                             fixtureRow("바닐라 라떼", detail: "4,800원")
                             fixtureRow("콜드브루", detail: "4,300원")
                             fixtureRow("말차 크림 라떼", detail: "NEW · 5,200원")
+                            fixtureRow("에스프레소", detail: "3,000원")
+                            fixtureRow("카푸치노", detail: "4,200원")
+                            fixtureRow("카라멜 마키아토", detail: "5,000원")
+                            fixtureRow("자몽 에이드", detail: "4,800원")
+                            fixtureRow("레몬 티", detail: "4,300원")
                         }
                     }
                     .navigationTitle("카페")
                     .navigationBarTitleDisplayMode(.inline)
+                    .modifier(
+                        CafeSearchFixtureModifier(
+                            text: $searchText,
+                            isPresented: $isSearchPresented
+                        )
+                    )
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         CafeShopModeSwitcher(
                             shops: shops,
@@ -502,6 +515,11 @@ struct CafeShopModeSwitcherFixtureView: View {
             }
             Tab("장바구니", systemImage: "bag", value: 3) { Color.clear }
             Tab("내역", systemImage: "receipt", value: 4) { Color.clear }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .appTabBarBehavior()
+        .appCafeSearchAccessory(isEnabled: selectedTab == 2 && !isSearchPresented) {
+            isSearchPresented = true
         }
         .tint(AppPalette.brand)
     }
@@ -552,6 +570,25 @@ struct CafeShopPickerFixtureView: View {
                     )
                 }
             }
+        }
+    }
+}
+
+private struct CafeSearchFixtureModifier: ViewModifier {
+    @Binding var text: String
+    @Binding var isPresented: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isPresented {
+            content.searchable(
+                text: $text,
+                isPresented: $isPresented,
+                placement: .toolbar,
+                prompt: "모든 매장의 메뉴 검색"
+            )
+        } else {
+            content
         }
     }
 }

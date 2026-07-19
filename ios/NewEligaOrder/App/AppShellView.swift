@@ -7,6 +7,7 @@ struct AppShellView: View {
     @Environment(AppIntentHandoff.self) private var intentHandoff
     @SceneStorage("navigation.selectedTab") private var restoredTab = AppTab.home.rawValue
     @Namespace private var menuTransitionNamespace
+    @State private var isCafeSearchPresented = false
 
     var body: some View {
         @Bindable var router = router
@@ -27,7 +28,11 @@ struct AppShellView: View {
 
             Tab("카페", systemImage: "cup.and.saucer", value: AppTab.cafe) {
                 NavigationStack(path: router.binding(for: .cafe)) {
-                    CafeView(initialShopID: store.selectedShopID, transitionNamespace: menuTransitionNamespace)
+                    CafeView(
+                        initialShopID: store.selectedShopID,
+                        transitionNamespace: menuTransitionNamespace,
+                        isSearchPresented: $isCafeSearchPresented
+                    )
                         .withAppDestinations(menuTransitionNamespace: menuTransitionNamespace)
                 }
             }
@@ -49,6 +54,11 @@ struct AppShellView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .appTabBarBehavior()
+        .appCafeSearchAccessory(
+            isEnabled: router.selectedTab == .cafe && router.cafePath.isEmpty && !isCafeSearchPresented
+        ) {
+            isCafeSearchPresented = true
+        }
         .safeAreaInset(edge: .top) {
             if !network.isConnected {
                 NetworkStatusBanner()
@@ -65,6 +75,9 @@ struct AppShellView: View {
         }
         .onChange(of: router.selectedTab) { _, tab in
             restoredTab = tab.rawValue
+            if tab != .cafe {
+                isCafeSearchPresented = false
+            }
         }
         .onChange(of: intentHandoff.pendingDestination) { _, _ in
             consumeIntentHandoff()
