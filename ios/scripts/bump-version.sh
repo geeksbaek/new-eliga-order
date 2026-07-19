@@ -13,8 +13,10 @@ if [[ ! "$bump" =~ '^(major|minor|patch|build)$' ]]; then
   exit 64
 fi
 
-current_version=$(awk '/MARKETING_VERSION:/ { print $2; exit }' "$project_yml")
-current_build=$(awk '/CURRENT_PROJECT_VERSION:/ { print $2; exit }' "$project_yml")
+# The checked-in Xcode project is the build source of truth. project.yml is
+# optional and can lag behind when XcodeGen isn't used for a release.
+current_version=$(sed -n 's/.*MARKETING_VERSION = \([^;]*\);.*/\1/p' "$project_file" | head -1)
+current_build=$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([^;]*\);.*/\1/p' "$project_file" | head -1)
 
 if [[ ! "$current_version" =~ '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || ! "$current_build" =~ '^[0-9]+$' ]]; then
   print -u2 "현재 버전을 해석할 수 없습니다: $current_version ($current_build)"
