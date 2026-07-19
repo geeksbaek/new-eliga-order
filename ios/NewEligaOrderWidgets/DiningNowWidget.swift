@@ -31,6 +31,7 @@ struct DiningProvider: TimelineProvider {
 
 struct DiningNowWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let entry: DiningEntry
 
     private var selection: DiningSelection? {
@@ -45,6 +46,8 @@ struct DiningNowWidgetView: View {
                 accessoryContent(selection)
             case .systemSmall:
                 smallContent(selection)
+            case .systemLarge:
+                largeContent(selection)
             default:
                 mediumContent(selection)
             }
@@ -112,6 +115,120 @@ struct DiningNowWidgetView: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func largeContent(_ selection: DiningSelection) -> some View {
+        let dishLimit = dynamicTypeSize.isAccessibilitySize ? 4 : 6
+        let visibleDishes = Array(selection.period.dishes.prefix(dishLimit))
+        let remainingDishCount = max(0, selection.period.dishes.count - visibleDishes.count)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            WidgetHeader(
+                title: timingLabel(selection),
+                systemImage: timingSystemImage(selection),
+                updatedAt: entry.snapshot.generatedAt
+            )
+
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(selection.period.title)
+                        .font(.title2.bold())
+                        .lineLimit(1)
+                    Label(
+                        WidgetFormat.timeRange(
+                            start: selection.period.startTime,
+                            end: selection.period.endTime
+                        ),
+                        systemImage: "clock"
+                    )
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    WidgetStatusPill(
+                        title: availabilityLabel(selection.period.dishes),
+                        systemImage: "checkmark.circle.fill",
+                        isEmphasized: true
+                    )
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "fork.knife.circle.fill")
+                    .font(.system(size: 46, weight: .semibold))
+                    .foregroundStyle(WidgetPalette.brand)
+                    .widgetAccentable()
+                    .accessibilityHidden(true)
+            }
+            .padding(13)
+            .background(WidgetPalette.brand.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+
+            HStack {
+                Text("메뉴 구성")
+                    .font(.headline)
+                Spacer()
+                Text("총 \(selection.period.dishes.count)개")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible())],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(Array(visibleDishes.enumerated()), id: \.offset) { _, dish in
+                    largeDishTile(dish)
+                }
+            }
+
+            if remainingDishCount > 0 {
+                Text("외 \(remainingDishCount)개 메뉴는 앱에서 확인할 수 있어요")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 5) {
+                Text("전체 식단 보기")
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "arrow.right")
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(WidgetPalette.brand)
+            .widgetAccentable()
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("앱의 식단 화면을 엽니다")
+        }
+    }
+
+    private func largeDishTile(_ dish: WidgetDish) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: dish.isSoldOut ? "xmark.circle.fill" : "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(dish.isSoldOut ? .secondary : WidgetPalette.brand)
+                .widgetAccentable(!dish.isSoldOut)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(dish.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .strikethrough(dish.isSoldOut)
+                if let badge = dish.badge, !badge.isEmpty {
+                    Text(badge)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 9)
+        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+        .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(dish.isSoldOut ? "품절" : "제공 가능")
     }
 
     private func accessoryContent(_ selection: DiningSelection) -> some View {
@@ -198,7 +315,7 @@ struct DiningNowWidget: Widget {
         }
         .configurationDisplayName("지금 식단")
         .description("현재 시간에 가장 적절한 사내 식단을 보여줍니다.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
     }
 }
 
@@ -209,6 +326,12 @@ struct DiningNowWidget: Widget {
 }
 
 #Preview(as: .systemMedium) {
+    DiningNowWidget()
+} timeline: {
+    DiningEntry(date: .now, snapshot: .preview)
+}
+
+#Preview(as: .systemLarge) {
     DiningNowWidget()
 } timeline: {
     DiningEntry(date: .now, snapshot: .preview)
