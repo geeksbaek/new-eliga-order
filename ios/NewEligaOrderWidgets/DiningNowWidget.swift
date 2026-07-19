@@ -85,23 +85,28 @@ struct DiningNowWidgetView: View {
                 updatedAt: entry.snapshot.generatedAt
             )
             HStack(alignment: .top, spacing: 14) {
+                // Only as wide as its own content (title/time/pill) — it
+                // must not split the widget 50/50 with the menu list, which
+                // is the actually important part and needs the real room.
                 VStack(alignment: .leading, spacing: 7) {
                     Text(selection.period.title)
                         .font(.title2.bold())
                         .lineLimit(1)
+                        .fixedSize()
                     Label(
                         WidgetFormat.timeRange(start: selection.period.startTime, end: selection.period.endTime),
                         systemImage: "clock"
                     )
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                     WidgetStatusPill(
                         title: availabilityLabel(selection.period.dishes),
                         systemImage: "checkmark.circle.fill",
                         isEmphasized: true
                     )
+                    .fixedSize()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Divider()
 
