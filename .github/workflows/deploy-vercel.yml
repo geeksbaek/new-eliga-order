@@ -42,11 +42,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Install
+        working-directory: web
         run: npm ci
 
       - name: Unit tests
+        working-directory: web
         run: npm test
 
   deploy:
@@ -70,6 +73,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Install Vercel CLI
         run: npm install -g "vercel@${VERCEL_CLI_VERSION}"
@@ -92,12 +96,14 @@ jobs:
           fi
 
       - name: Pull Vercel project settings
+        working-directory: web
         run: >
           vercel pull --yes
           --environment=${{ steps.meta.outputs.pull_env }}
           --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build
+        working-directory: web
         run: >
           vercel build
           ${{ steps.meta.outputs.prod_flag }}
@@ -105,6 +111,7 @@ jobs:
 
       - name: Deploy
         id: deploy
+        working-directory: web
         run: |
           set -euo pipefail
           URL=$(vercel deploy --prebuilt --yes ${{ steps.meta.outputs.prod_flag }} --token="${{ secrets.VERCEL_TOKEN }}")

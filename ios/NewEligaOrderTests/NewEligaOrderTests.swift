@@ -1,0 +1,1775 @@
+import XCTest
+@testable import NewEligaOrder
+
+@MainActor
+final class NewEligaOrderTests: XCTestCase {
+    func testCafeShopSwitcherUsesCompactCameraStyleTitles() {
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "카카오 판교 아지트 카페"), "판교 아지트")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "카카오 AI 캠퍼스 카페"), "AI 캠퍼스")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "독립 매장"), "독립 매장")
+    }
+
+    func testCafeShopSwitcherNormalizesRealShopNamesToFloorOnly() {
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "춘식도락 with in the box(4F)"), "4F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafe 3F"), "3F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafe 5F"), "5F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafe 5F b"), "5F b")
+        // Same floor label with the precomposed diacritic the backend
+        // actually sends ("kafé", U+00E9), and uppercase wing letters.
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafé 5F"), "5F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafé 5F B"), "5F b")
+    }
+
+    func testCafeShopSwitcherMovesExactlyOneModePerSwipe() {
+        let shops = [
+            Shop(id: 5, name: "본사", kind: .cafe, isOpen: true),
+            Shop(id: 6, name: "서초", kind: .cafe, isOpen: true),
+            Shop(id: 8, name: "판교", kind: .cafe, isOpen: true),
+        ]
+
+        XCTAssertEqual(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: 1), 6)
+        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: -1))
+        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 8, offset: 1))
+    }
+
+    func testCafeSearchHistoryPersistsNewestFirstAndDeduplicates() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-search-history-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = CafeSearchHistoryStore(defaults: defaults)
+
+        storage.record("  아메리카노  ", accountID: "USER@example.com")
+        storage.record("말차 라떼", accountID: "user@example.com")
+        storage.record("아메리카노", accountID: "user@example.com")
+
+        XCTAssertEqual(
+            CafeSearchHistoryStore(defaults: defaults).history(accountID: "user@example.com"),
+            ["아메리카노", "말차 라떼"]
+        )
+    }
+
+    func testCafeSearchHistoryKeepsTenQueriesPerAccount() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-search-history-limit-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = CafeSearchHistoryStore(defaults: defaults)
+
+        for index in 1...12 {
+            storage.record("검색어 \(index)", accountID: "first@example.com")
+        }
+        storage.record("다른 계정 검색", accountID: "second@example.com")
+
+        XCTAssertEqual(storage.history(accountID: "first@example.com").count, 10)
+        XCTAssertEqual(storage.history(accountID: "first@example.com").first, "검색어 12")
+        XCTAssertEqual(storage.history(accountID: "first@example.com").last, "검색어 3")
+        XCTAssertEqual(storage.history(accountID: "second@example.com"), ["다른 계정 검색"])
+    }
+
+    func testCafeMenuOptionSelectionPersistsWithoutOrdering() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-option-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let detail = cafeOptionDetail()
+
+        CafeMenuOptionSelectionStore(defaults: defaults).save(
+            accountID: "user@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail,
+            variantID: 102,
+            selectedMenus: [22: [222], 21: [212, 211]]
+        )
+
+        let restored = CafeMenuOptionSelectionStore(defaults: defaults).restore(
+            accountID: "user@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail
+        )
+        XCTAssertEqual(restored?.variantID, 102)
+        XCTAssertEqual(restored?.selectedMenus, [21: [211, 212], 22: [222]])
+    }
+
+    func testCafeMenuOptionSelectionIsSeparatedByAccountShopAndMenu() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-option-scope-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let detail = cafeOptionDetail()
+        let storage = CafeMenuOptionSelectionStore(defaults: defaults)
+
+        storage.save(
+            accountID: "first@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail,
+            variantID: 101,
+            selectedMenus: [11: [112]]
+        )
+
+        XCTAssertNil(storage.restore(accountID: "second@example.com", shopID: 5, displayID: detail.displayID, detail: detail))
+        XCTAssertNil(storage.restore(accountID: "first@example.com", shopID: 6, displayID: detail.displayID, detail: detail))
+        XCTAssertNil(storage.restore(accountID: "first@example.com", shopID: 5, displayID: 999, detail: detail))
+    }
+
+    func testCafeMenuOptionSelectionResetsWhenOptionCatalogChanges() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-option-invalidation-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let detail = cafeOptionDetail()
+        let storage = CafeMenuOptionSelectionStore(defaults: defaults)
+
+        storage.save(
+            accountID: "user@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail,
+            variantID: 101,
+            selectedMenus: [11: [112]]
+        )
+
+        let changedDetail = cafeOptionDetail(firstMilkName: "락토프리 우유")
+        XCTAssertNil(
+            storage.restore(
+                accountID: "user@example.com",
+                shopID: 5,
+                displayID: detail.displayID,
+                detail: changedDetail
+            )
+        )
+        XCTAssertNil(
+            storage.restore(
+                accountID: "user@example.com",
+                shopID: 5,
+                displayID: detail.displayID,
+                detail: detail
+            ),
+            "옵션 변경으로 무효화된 과거 선택은 다시 복원되지 않아야 합니다."
+        )
+    }
+
+    func testDiningMenuTitleSeparatesLeadingBadge() {
+        let title = DiningMenuTitlePresentation(rawValue: "[밸런스바이츠] 닭가슴살 포케")
+
+        XCTAssertEqual(title.displayName, "닭가슴살 포케")
+        XCTAssertEqual(title.badges, ["밸런스바이츠"])
+    }
+
+    private func cafeOptionDetail(firstMilkName: String = "일반 우유") -> MenuDetail {
+        MenuDetail(
+            displayID: 900,
+            shopID: 5,
+            label: nil,
+            thumbnailURL: nil,
+            variants: [
+                GoodsVariant(
+                    id: 101,
+                    name: "아이스 라떼",
+                    displayName: "아이스",
+                    price: 4_500,
+                    isSoldOut: false,
+                    description: nil,
+                    calorie: nil,
+                    nutrition: nil,
+                    thumbnailURL: nil,
+                    options: [
+                        GoodsOption(
+                            id: 11,
+                            name: "우유",
+                            allowsMultipleSelection: false,
+                            menus: [
+                                OptionMenu(id: 111, name: firstMilkName, price: 0),
+                                OptionMenu(id: 112, name: "두유", price: 500),
+                            ]
+                        ),
+                    ]
+                ),
+                GoodsVariant(
+                    id: 102,
+                    name: "핫 라떼",
+                    displayName: "따뜻하게",
+                    price: 4_500,
+                    isSoldOut: false,
+                    description: nil,
+                    calorie: nil,
+                    nutrition: nil,
+                    thumbnailURL: nil,
+                    options: [
+                        GoodsOption(
+                            id: 21,
+                            name: "추가",
+                            allowsMultipleSelection: true,
+                            menus: [
+                                OptionMenu(id: 211, name: "샷 추가", price: 500),
+                                OptionMenu(id: 212, name: "시럽 추가", price: 300),
+                            ]
+                        ),
+                        GoodsOption(
+                            id: 22,
+                            name: "우유",
+                            allowsMultipleSelection: false,
+                            menus: [
+                                OptionMenu(id: 221, name: "일반 우유", price: 0),
+                                OptionMenu(id: 222, name: "오트 우유", price: 700),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+    }
+
+    func testDiningMenuTitleSupportsConsecutiveBadges() {
+        let title = DiningMenuTitlePresentation(rawValue: "  [건강식] [NEW] 두부 샐러드  ")
+
+        XCTAssertEqual(title.displayName, "두부 샐러드")
+        XCTAssertEqual(title.badges, ["건강식", "NEW"])
+    }
+
+    func testDiningMenuTitleLeavesPlainAndMalformedNamesIntact() {
+        let plain = DiningMenuTitlePresentation(rawValue: "제육볶음")
+        XCTAssertEqual(plain.displayName, "제육볶음")
+        XCTAssertTrue(plain.badges.isEmpty)
+
+        let malformed = DiningMenuTitlePresentation(rawValue: "[밸런스바이츠 제육볶음")
+        XCTAssertEqual(malformed.displayName, "[밸런스바이츠 제육볶음")
+        XCTAssertTrue(malformed.badges.isEmpty)
+    }
+
+    func testDiningMenuTitleDoesNotRemoveBadgeWithoutMenuName() {
+        let title = DiningMenuTitlePresentation(rawValue: "[밸런스바이츠]")
+
+        XCTAssertEqual(title.displayName, "[밸런스바이츠]")
+        XCTAssertTrue(title.badges.isEmpty)
+    }
+
+    func testDiningPreferenceToggleMatchesExactNameCaseInsensitively() {
+        let initial = ["닭", "제육볶음"]
+
+        XCTAssertTrue(DiningPreferenceRules.containsExact(" 제육볶음 ", in: initial))
+        XCTAssertFalse(DiningPreferenceRules.containsExact("닭갈비", in: initial))
+        XCTAssertEqual(
+            DiningPreferenceRules.toggling("제육볶음", in: initial),
+            ["닭"]
+        )
+        XCTAssertEqual(
+            DiningPreferenceRules.toggling(" 닭갈비 ", in: initial),
+            ["닭", "제육볶음", "닭갈비"]
+        )
+    }
+
+    func testDiningPersonalizationFallbackUnderstandsNaturalLanguageTaste() {
+        let candidates = [
+            DiningPersonalizationCandidate(
+                id: "meat",
+                menuName: "제육볶음",
+                components: "돼지고기, 쌀밥, 김치",
+                information: ""
+            ),
+            DiningPersonalizationCandidate(
+                id: "vegetables",
+                menuName: "오늘의 샐러드",
+                components: "야채, 야채볶음, 채소무침",
+                information: ""
+            ),
+            DiningPersonalizationCandidate(
+                id: "neutral",
+                menuName: "두부 된장국",
+                components: "두부, 된장, 쌀밥",
+                information: ""
+            ),
+        ]
+
+        let result = DiningPersonalizationFallback.classify(
+            candidates: candidates,
+            preference: "고기좋아 야채싫어",
+            allergies: ""
+        )
+
+        XCTAssertEqual(result["meat"]?.recommendation, .recommended)
+        XCTAssertEqual(result["meat"]?.positiveComponents, ["돼지고기"])
+        XCTAssertEqual(result["vegetables"]?.recommendation, .notRecommended)
+        XCTAssertEqual(result["vegetables"]?.negativeComponents, ["야채", "야채볶음"])
+        XCTAssertEqual(result["neutral"]?.recommendation, .neutral)
+        XCTAssertFalse(result.values.contains(where: \.hasAllergyWarning))
+    }
+
+    func testDiningPreloadPolicyIncludesOnlyTodayAndTomorrow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let reference = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 19, hour: 18))
+        )
+
+        let dates = DiningPreloadPolicy.dates(relativeTo: reference, calendar: calendar)
+
+        XCTAssertEqual(dates.count, 2)
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[0]), DateComponents(year: 2026, month: 7, day: 19))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[1]), DateComponents(year: 2026, month: 7, day: 20))
+    }
+
+    func testDiningPersonalizationPolicySkipsRecommendationWithoutPreference() {
+        XCTAssertFalse(DiningPersonalizationPolicy.hasPreference("  \n"))
+        XCTAssertFalse(
+            DiningPersonalizationPolicy.hasAnyConfiguration(preference: "", allergies: "")
+        )
+        XCTAssertTrue(
+            DiningPersonalizationPolicy.hasAnyConfiguration(preference: "", allergies: "새우")
+        )
+    }
+
+    func testDiningAllergyWarningIsIndependentFromRecommendation() {
+        let candidates = [
+            DiningPersonalizationCandidate(
+                id: "shrimp",
+                menuName: "새우 볶음밥",
+                components: "새우, 쌀밥, 계란",
+                information: ""
+            ),
+        ]
+
+        let result = DiningPersonalizationFallback.classify(
+            candidates: candidates,
+            preference: "새우 볶음밥",
+            allergies: "새우"
+        )
+
+        XCTAssertEqual(result["shrimp"]?.recommendation, .recommended)
+        XCTAssertEqual(result["shrimp"]?.hasAllergyWarning, true)
+    }
+
+    func testDiningPersonalizationInstructionsRequireCompleteIndependentClassification() {
+        let instructions = DiningMenuPersonalizationService.instructions
+
+        XCTAssertTrue(instructions.contains("모든 메뉴를 빠짐없이"))
+        XCTAssertTrue(instructions.contains("recommended"))
+        XCTAssertTrue(instructions.contains("notRecommended"))
+        XCTAssertTrue(instructions.contains("neutral"))
+        XCTAssertTrue(instructions.contains("알러지는 추천 여부와 독립적으로"))
+        XCTAssertTrue(instructions.contains("메뉴의 대부분 또는 주요 구성"))
+        XCTAssertTrue(instructions.contains("positiveComponents"))
+        XCTAssertTrue(instructions.contains("negativeComponents"))
+    }
+
+    func testDiningPreferenceStorageMigratesLegacyMenusAndPersistsAllergies() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.dining-preference-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(["제육볶음", "닭갈비"], forKey: "eliga.dining.preferences")
+        let preferences = PreferencesStore(defaults: defaults)
+
+        XCTAssertEqual(preferences.diningPreferenceText, "제육볶음, 닭갈비")
+        preferences.diningPreferenceText = "고기 좋아, 야채 싫어"
+        preferences.diningAllergies = "땅콩, 새우"
+
+        let restored = PreferencesStore(defaults: defaults)
+        XCTAssertEqual(restored.diningPreferenceText, "고기 좋아, 야채 싫어")
+        XCTAssertEqual(restored.diningAllergies, "땅콩, 새우")
+    }
+
+    func testCafeMenuDescriptionFallbackBuildsOneLineList() {
+        let rawValue = """
+        <b>오늘의 반찬</b>
+        • 배추김치
+        - 멸치볶음
+        계란말이
+        """
+
+        let result = MenuDescriptionFormatter.fallback(rawValue)
+
+        XCTAssertEqual(result, "오늘의 반찬, 배추김치, 멸치볶음, 계란말이")
+        XCTAssertFalse(result.contains("\n"))
+        XCTAssertLessThanOrEqual(result.count, MenuDescriptionFormatter.maximumLength)
+    }
+
+    func testCafeMenuDescriptionModelOutputRemovesPrefixAndLineBreaks() {
+        let result = MenuDescriptionFormatter.normalizedModelOutput(
+            "반찬 목록: 김치\n두부조림\n시금치나물",
+            fallback: "원문"
+        )
+
+        XCTAssertEqual(result, "김치, 두부조림, 시금치나물")
+    }
+
+    func testDiningSideDishPromptExcludesNonSideDishCategories() {
+        let instructions = MenuDescriptionSummarizationMode.diningSideDishes.instructions
+
+        XCTAssertTrue(instructions.contains("[원산지] 표시 아래"))
+        XCTAssertTrue(instructions.contains("한 줄당 반찬 하나"))
+        XCTAssertTrue(instructions.contains("산지와 재료 원산지 표기는 제거"))
+        XCTAssertTrue(instructions.contains("알레르기 정보, 안내 및 홍보 문구는 제거"))
+        XCTAssertTrue(instructions.contains("반찬 정보 없음"))
+    }
+
+    func testDiningSideDishSourceStartsBelowOriginMarkerAndPreservesLines() {
+        let rawValue = """
+        <p>오늘의 식단 설명</p>
+        <p>[ 원산지 ]</p>
+        <p>배추김치(배추 국내산)</p>
+        <p>멸치볶음</p>
+        <p>알레르기: 대두 포함</p>
+        """
+
+        let source = MenuDescriptionSourceExtractor.source(
+            for: rawValue,
+            mode: .diningSideDishes
+        )
+
+        XCTAssertFalse(source.contains("오늘의 식단 설명"))
+        XCTAssertFalse(source.contains("[ 원산지 ]"))
+        XCTAssertEqual(
+            source.components(separatedBy: .newlines).filter { !$0.isEmpty },
+            ["배추김치(배추 국내산)", "멸치볶음", "알레르기: 대두 포함"]
+        )
+    }
+
+    func testDiningSideDishModeSummarizesShortSingleLineDescriptions() {
+        let description = "쌀밥, 된장국, 김치, 멸치볶음"
+
+        XCTAssertTrue(
+            MenuDescriptionFormatter.shouldSummarize(
+                description,
+                mode: .diningSideDishes
+            )
+        )
+        XCTAssertFalse(MenuDescriptionFormatter.shouldSummarize(description))
+    }
+
+    func testDiningSideDishRuleParserUsesOnlyOriginSectionFoodLines() {
+        let rawValue = """
+        오늘의 식단
+        [원산지]
+        배추김치(배추 국내산)
+        멸치볶음
+        (돼지고기: 국내산)
+        안내: 메뉴는 변경될 수 있습니다
+        계란말이
+        [알레르기]
+        대두
+        """
+
+        XCTAssertEqual(
+            DiningSideDishRuleParser.summary(from: rawValue),
+            "배추김치, 멸치볶음, 계란말이"
+        )
+    }
+
+    func testDiningSideDishRuleParserDoesNotClaimUnmarkedText() {
+        XCTAssertNil(DiningSideDishRuleParser.summary(from: "배추김치\n멸치볶음"))
+    }
+
+    func testFoundationModelRuntimePolicySupportsIOS26AndIOS27() {
+        XCTAssertTrue(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 4, patchVersion: 0)
+            )
+        )
+        XCTAssertTrue(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+            )
+        )
+        XCTAssertTrue(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 1, patchVersion: 0)
+            )
+        )
+    }
+
+    func testFoundationModelRuntimePolicyRejectsUnsupportedIOSVersion() {
+        XCTAssertFalse(
+            FoundationModelRuntimePolicy.isSupported(
+                osVersion: OperatingSystemVersion(majorVersion: 25, minorVersion: 9, patchVersion: 0)
+            )
+        )
+    }
+
+    func testFoundationModelCoordinatorSerializesRequests() async {
+        let coordinator = FoundationModelRequestCoordinator()
+        let probe = FoundationModelRequestProbe()
+
+        async let first: Int = try coordinator.perform {
+            await probe.begin(1)
+            try? await Task.sleep(for: .milliseconds(40))
+            await probe.end(1)
+            return 1
+        }
+        async let second: Int = try coordinator.perform {
+            await probe.begin(2)
+            try? await Task.sleep(for: .milliseconds(10))
+            await probe.end(2)
+            return 2
+        }
+
+        _ = try? await (first, second)
+        let maximumConcurrentRequests = await probe.maximumConcurrentRequests
+        XCTAssertEqual(maximumConcurrentRequests, 1)
+    }
+
+    func testFoundationModelCoordinatorIsolatesInferenceFromCallerCancellation() async {
+        let coordinator = FoundationModelRequestCoordinator()
+        let probe = FoundationModelCancellationProbe()
+        let gate = FoundationModelQueueGate()
+        let caller = Task {
+            try await coordinator.perform {
+                await probe.markStarted()
+                await gate.blockUntilReleased()
+                await probe.finish(inferenceWasCancelled: Task.isCancelled)
+                return 1
+            }
+        }
+
+        await gate.waitUntilBlocked()
+        let cancellationReturned = expectation(description: "취소된 호출자 즉시 반환")
+        let observer = Task {
+            do {
+                _ = try await caller.value
+            } catch is CancellationError {
+                // expected
+            } catch {
+                XCTFail("예상하지 못한 오류: \(error)")
+            }
+            cancellationReturned.fulfill()
+        }
+        caller.cancel()
+        await fulfillment(of: [cancellationReturned], timeout: 0.1)
+        await gate.release()
+        _ = await observer.result
+        try? await Task.sleep(for: .milliseconds(10))
+        let result = await probe.result
+        XCTAssertEqual(result, false)
+    }
+
+    func testFoundationModelCoordinatorSkipsCancelledQueuedInference() async {
+        let enqueues = FoundationModelEnqueueProbe()
+        let coordinator = FoundationModelRequestCoordinator {
+            await enqueues.markEnqueued()
+        }
+        let gate = FoundationModelQueueGate()
+        let calls = FoundationModelCallCounter()
+        let first = Task {
+            try await coordinator.perform {
+                await gate.blockUntilReleased()
+                return 1
+            }
+        }
+        await gate.waitUntilBlocked()
+
+        let queued = Task {
+            try await coordinator.perform {
+                await calls.increment()
+                return 2
+            }
+        }
+        await enqueues.wait(for: 2)
+        queued.cancel()
+        await gate.release()
+        _ = try? await first.value
+
+        do {
+            _ = try await queued.value
+            XCTFail("취소된 대기 요청이 실행되면 안 됩니다.")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            XCTFail("예상하지 못한 오류: \(error)")
+        }
+        let callCount = await calls.value
+        XCTAssertEqual(callCount, 0)
+    }
+
+    func testDiningMenuDetailFallbackBuildsStructuredRows() {
+        let details = DiningMenuDetailFallback.details(
+            menuName: "얼큰돈내장국밥",
+            information: """
+            [원산지]
+            얼큰돈내장국밥
+            병천순대찜*들깨초장
+            (돼지:국내산)
+            부추무침
+            쌀밥
+            섞박지
+            [알러지주의음식]
+            알류
+            """,
+            calorie: 650,
+            nutrition: "탄수화물 88g, 단백질: 27g, 나트륨 1200mg"
+        )
+
+        XCTAssertEqual(details.menuRows.first, DiningMenuDetailRow(label: "주메뉴", value: "얼큰돈내장국밥"))
+        XCTAssertEqual(
+            details.menuRows.last,
+            DiningMenuDetailRow(label: "구성", value: "병천순대찜 · 들깨초장 · 부추무침 · 쌀밥 · 섞박지")
+        )
+        XCTAssertEqual(details.nutritionRows.first, DiningMenuDetailRow(label: "열량", value: "650 kcal"))
+        XCTAssertTrue(details.nutritionRows.contains(DiningMenuDetailRow(label: "단백질", value: "27g")))
+        XCTAssertFalse(details.menuRows.contains(where: { $0.value.contains("알류") }))
+        XCTAssertFalse(details.isModelGenerated)
+    }
+
+    func testDiningNutritionFactsParsesEverySlashDelimitedNutrient() {
+        let rows = DiningMenuDetailFallback.nutritionFacts(
+            from: "탄수화물 : 120.6g / 단백질 : 32g / 지방 : 21.5g / 포화지방 : 7g / 당류 : 12g / 식이섬유 : 9g / 나트륨 : 1,200mg / 열량 : 902Kcal",
+            excludingCalorie: true
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                DiningMenuDetailRow(label: "탄수화물", value: "120.6g"),
+                DiningMenuDetailRow(label: "단백질", value: "32g"),
+                DiningMenuDetailRow(label: "지방", value: "21.5g"),
+                DiningMenuDetailRow(label: "포화지방", value: "7g"),
+                DiningMenuDetailRow(label: "당류", value: "12g"),
+                DiningMenuDetailRow(label: "식이섬유", value: "9g"),
+                DiningMenuDetailRow(label: "나트륨", value: "1,200mg"),
+            ]
+        )
+    }
+
+    func testDiningDynamicUIKeepsAllStructuredNutritionMetrics() {
+        let input = DiningDynamicUIInput(
+            menuName: "마늘보쌈",
+            information: "",
+            sideDishSummary: "쌀밥, 배추김치",
+            calorie: 902,
+            nutrition: "탄수화물 120.6g / 단백질 32g / 지방 21.5g / 포화지방 7g / 트랜스지방 0g / 당류 12g / 식이섬유 9g / 콜레스테롤 85mg / 나트륨 1,200mg / 칼륨 700mg / 칼슘 80mg / 철분 3mg",
+            origin: ""
+        )
+
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let modelStructuredNutrition = DiningDynamicUIBlock(
+            id: "model-nutrition",
+            kind: .metrics,
+            title: "영양 정보",
+            items: [
+                DiningDynamicUIItem(label: "열량", value: "902 kcal", emphasis: .primary),
+                DiningDynamicUIItem(label: "탄수화물", value: "120.6g", emphasis: .primary),
+                DiningDynamicUIItem(label: "단백질", value: "32g", emphasis: .primary),
+            ]
+        )
+        let normalized = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [modelStructuredNutrition],
+            fallback: fallback
+        )
+        let metrics = normalized.blocks.first(where: { $0.kind == .metrics })?.items ?? []
+
+        XCTAssertEqual(metrics.count, 13)
+        XCTAssertEqual(metrics.first?.label, "열량")
+        for label in ["탄수화물", "단백질", "지방", "포화지방", "트랜스지방", "당류", "식이섬유", "콜레스테롤", "나트륨", "칼륨", "칼슘", "철분"] {
+            XCTAssertTrue(metrics.contains(where: { $0.label == label }), "\(label)이 영양 정보 UI에 유지되어야 합니다")
+        }
+    }
+
+    func testDiningDynamicUINutritionGroundingKeepsEqualValuesForDifferentNutrients() {
+        let input = DiningDynamicUIInput(
+            menuName: "테스트 식단",
+            information: "",
+            sideDishSummary: "쌀밥",
+            calorie: nil,
+            nutrition: "단백질 27g / 지방 27g",
+            origin: ""
+        )
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let generated = DiningDynamicUIBlock(
+            id: "model-nutrition-equal-values",
+            kind: .metrics,
+            title: "영양 정보",
+            items: [
+                DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary),
+                DiningDynamicUIItem(label: "지방", value: "27g", emphasis: .primary),
+            ]
+        )
+
+        let surface = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [generated],
+            fallback: fallback
+        )
+        let metrics = surface.blocks.first(where: { $0.kind == .metrics })?.items ?? []
+
+        XCTAssertEqual(metrics.map(\.label), ["단백질", "지방"])
+    }
+
+    func testDiningDynamicUINormalizerRemovesDuplicateNutritionItems() {
+        let input = DiningDynamicUIInput(
+            menuName: "테스트 식단",
+            information: "",
+            sideDishSummary: "쌀밥",
+            calorie: nil,
+            nutrition: "단백질 27g / 지방 18g",
+            origin: ""
+        )
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let generated = DiningDynamicUIBlock(
+            id: "duplicated-model-nutrition",
+            kind: .metrics,
+            title: "영양 정보",
+            items: [
+                DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary),
+                DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary),
+                DiningDynamicUIItem(label: "지방", value: "18g", emphasis: .primary),
+            ]
+        )
+
+        let surface = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [generated],
+            fallback: fallback
+        )
+        let metrics = surface.blocks.first(where: { $0.kind == .metrics })?.items ?? []
+
+        XCTAssertEqual(metrics.map(\.label), ["단백질", "지방"])
+        XCTAssertEqual(Set(metrics.map(\.label)).count, metrics.count)
+    }
+
+    func testDiningDynamicUIDeduplicatorMergesDuplicateNutritionBlocks() {
+        let protein = DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary)
+        let fat = DiningDynamicUIItem(label: "지방", value: "18g", emphasis: .primary)
+        let surface = DiningDynamicUISurface(
+            blocks: [
+                DiningDynamicUIFallback.block(kind: .metrics, title: "영양 정보", items: [protein, protein]),
+                DiningDynamicUIFallback.block(kind: .metrics, title: "영양 정보", items: [protein, fat]),
+            ],
+            isModelGenerated: true
+        )
+
+        let deduplicated = DiningDynamicUIDeduplicator.surface(surface)
+
+        XCTAssertEqual(deduplicated.blocks.count, 1)
+        XCTAssertEqual(deduplicated.blocks.first?.items.map(\.label), ["단백질", "지방"])
+    }
+
+    func testDiningDynamicUIFallbackSelectsComponentsFromAvailableData() {
+        let input = dynamicDiningInput()
+
+        let surface = DiningDynamicUIFallback.surface(for: input)
+
+        XCTAssertEqual(
+            surface.blocks.map(\.kind),
+            [.chips, .metrics, .text, .note]
+        )
+        XCTAssertEqual(
+            surface.blocks.map(\.title),
+            ["메뉴 구성", "영양 정보", "원산지", "알러지 주의 음식"]
+        )
+        let chipValues = surface.blocks
+            .first(where: { $0.kind == .chips })?
+            .items.map(\.value)
+        XCTAssertEqual(chipValues, ["쌀밥", "된장국", "배추김치", "콩나물무침"])
+        XCTAssertFalse(surface.isModelGenerated)
+    }
+
+    func testDiningDynamicUINormalizerRejectsHallucinationsAndRestoresRequiredFacts() {
+        let input = dynamicDiningInput()
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let generated = DiningDynamicUIBlock(
+            id: "generated-chips",
+            kind: .chips,
+            title: "오늘의 구성",
+            items: [
+                DiningDynamicUIItem(label: "밥", value: "쌀밥", emphasis: .primary),
+                DiningDynamicUIItem(label: "디저트", value: "원문에 없는 초콜릿", emphasis: .primary),
+            ]
+        )
+
+        let surface = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [generated],
+            fallback: fallback
+        )
+        let allValues = surface.blocks
+            .flatMap { $0.items }
+            .map { $0.value }
+            .joined(separator: " · ")
+
+        XCTAssertFalse(allValues.contains("초콜릿"))
+        for expected in ["쌀밥", "된장국", "배추김치", "콩나물무침", "650 kcal", "27g"] {
+            XCTAssertTrue(allValues.contains(expected), "\(expected)이 동적 UI에 유지되어야 합니다")
+        }
+        XCTAssertTrue(surface.isModelGenerated)
+    }
+
+    func testDiningDynamicUIInstructionsUseDeclarativeTrustedComponentCatalog() {
+        let instructions = DiningMenuDynamicUIStructurer.instructions
+
+        XCTAssertTrue(instructions.contains("blocks에는 허용되는 블록"))
+        XCTAssertTrue(instructions.contains("원문에 없는 사실"))
+        XCTAssertTrue(instructions.contains("메뉴명을 블록에 반복하지 않는다"))
+        XCTAssertTrue(instructions.contains("'메뉴 구성'"))
+        XCTAssertTrue(instructions.contains("'영양 정보'"))
+        XCTAssertTrue(instructions.contains("'원산지'"))
+        XCTAssertTrue(instructions.contains("'알러지 주의 음식'"))
+        XCTAssertTrue(instructions.contains("이용 안내"))
+        XCTAssertTrue(instructions.contains("모든 항목은 누락하거나 새로 만들지 말고"))
+        XCTAssertTrue(instructions.contains("반드시 nutritionItems에 구조화"))
+        XCTAssertTrue(instructions.contains("단순 복사하지 말고"))
+        XCTAssertTrue(instructions.contains("모든 영양소를 하나도 누락하지 않는다"))
+        XCTAssertTrue(instructions.contains("숫자 및 단위는 절대 수정하지 않는다"))
+    }
+
+    func testDiningDynamicUIExcludesGuideSectionsAndConditionallyShowsAllergy() {
+        let withAllergy = DiningDynamicUIFallback.surface(for: dynamicDiningInput())
+        let allText = withAllergy.blocks.flatMap(\.items).map(\.value).joined(separator: " · ")
+
+        XCTAssertFalse(allText.contains("11:30"))
+        XCTAssertFalse(allText.contains("중식 이용 안내"))
+        XCTAssertNotNil(withAllergy.blocks.first(where: { $0.kind == .note }))
+
+        let withoutAllergy = DiningDynamicUIInput(
+            menuName: "제육볶음",
+            information: "[중식 이용 안내]\n11:30부터 이용 가능합니다",
+            sideDishSummary: "쌀밥, 된장국",
+            calorie: nil,
+            nutrition: "",
+            origin: ""
+        )
+        let surface = DiningDynamicUIFallback.surface(for: withoutAllergy)
+
+        XCTAssertEqual(surface.blocks.map(\.title), ["메뉴 구성", "영양 정보", "원산지"])
+        XCTAssertNil(surface.blocks.first(where: { $0.kind == .note }))
+    }
+
+    func testDiningMenuDetailInstructionsRequireGroundedStructuredRows() {
+        let instructions = DiningMenuDetailStructurer.instructions
+
+        XCTAssertTrue(instructions.contains("원문에 명시된 내용만 사용"))
+        XCTAssertTrue(instructions.contains("[원산지] 아래부터 다음 대괄호 섹션 전"))
+        XCTAssertTrue(instructions.contains("모든 음식이 menuRows에 정확히 한 번씩 포함"))
+        XCTAssertTrue(instructions.contains("음식을 누락하지 말고"))
+        XCTAssertTrue(instructions.contains("nutritionRows"))
+        XCTAssertTrue(instructions.contains("모든 영양소 이름"))
+        XCTAssertTrue(instructions.contains("값이 없는 영양소는 만들지 않는다"))
+    }
+
+    func testDiningMenuDetailMergerRestoresEveryFallbackDishWhenModelReturnsOnlyMain() {
+        let fallback = DiningMenuDetailFallback.details(
+            menuName: "얼큰돈내장국밥",
+            information: """
+            [원산지]
+            얼큰돈내장국밥
+            병천순대찜*들깨초장
+            부추무침
+            쌀밥
+            섞박지
+            [알러지주의음식]
+            알류
+            """,
+            calorie: nil,
+            nutrition: ""
+        )
+
+        let merged = DiningMenuDetailMerger.menuRows(
+            menuName: "얼큰돈내장국밥",
+            generatedRows: [DiningMenuDetailRow(label: "주메뉴", value: "얼큰돈내장국밥")],
+            fallbackRows: fallback.menuRows
+        )
+
+        XCTAssertEqual(merged, fallback.menuRows)
+    }
+
+    func testDiningMenuDetailMergerKeepsModelCategoriesWithoutDroppingUnclassifiedDishes() {
+        let fallbackRows = [
+            DiningMenuDetailRow(label: "주메뉴", value: "제육볶음"),
+            DiningMenuDetailRow(label: "구성", value: "쌀밥 · 된장국 · 배추김치 · 콩나물무침"),
+        ]
+        let generatedRows = [
+            DiningMenuDetailRow(label: "주메뉴", value: "제육볶음"),
+            DiningMenuDetailRow(label: "밥", value: "쌀밥"),
+            DiningMenuDetailRow(label: "반찬", value: "배추김치"),
+            DiningMenuDetailRow(label: "반찬", value: "원문에 없는 초콜릿"),
+        ]
+
+        let merged = DiningMenuDetailMerger.menuRows(
+            menuName: "제육볶음",
+            generatedRows: generatedRows,
+            fallbackRows: fallbackRows
+        )
+        let allValues = merged.map(\.value).joined(separator: " · ")
+
+        for expected in ["쌀밥", "된장국", "제육볶음", "배추김치", "콩나물무침"] {
+            XCTAssertTrue(allValues.contains(expected), "\(expected)이 유지되어야 합니다")
+        }
+        XCTAssertFalse(allValues.contains("초콜릿"))
+    }
+
+    func testDiningMenuDetailUsesResolvedListSideDishesAsAuthoritativeComponents() {
+        let details = DiningMenuDetailFallback.details(
+            menuName: "제육볶음",
+            information: """
+            [원산지]
+            원문 파싱에서 제외되어야 할 항목
+            [알레르기]
+            대두
+            """,
+            calorie: nil,
+            nutrition: "",
+            sideDishSummary: "쌀밥, 된장국, 배추김치, 콩나물무침"
+        )
+
+        XCTAssertEqual(
+            details.menuRows,
+            [
+                DiningMenuDetailRow(label: "주메뉴", value: "제육볶음"),
+                DiningMenuDetailRow(label: "구성", value: "쌀밥 · 된장국 · 배추김치 · 콩나물무침"),
+            ]
+        )
+    }
+
+    func testDiningMenuDetailMergerRestoresMissingFallbackNutritionRows() {
+        let merged = DiningMenuDetailMerger.nutritionRows(
+            generatedRows: [DiningMenuDetailRow(label: "열량", value: "추측값")],
+            fallbackRows: [
+                DiningMenuDetailRow(label: "열량", value: "650 kcal"),
+                DiningMenuDetailRow(label: "단백질", value: "27g"),
+            ]
+        )
+
+        XCTAssertEqual(merged.first, DiningMenuDetailRow(label: "열량", value: "650 kcal"))
+        XCTAssertTrue(merged.contains(DiningMenuDetailRow(label: "단백질", value: "27g")))
+    }
+
+    func testKeychainPersistsAuthenticationTokensAcrossStoreInstances() throws {
+        let service = "com.leeari95.NewEligaOrder.tests.\(UUID().uuidString)"
+        let firstStore = KeychainStore(service: service, account: "auth")
+        defer { firstStore.clear() }
+        let expected = AuthTokens(
+            accessToken: "persisted.header.payload",
+            refreshToken: "persisted-refresh-token",
+            tokenType: "Bearer"
+        )
+
+        try firstStore.save(tokens: expected)
+        let restored = KeychainStore(service: service, account: "auth").loadTokens()
+
+        XCTAssertEqual(restored?.accessToken, expected.accessToken)
+        XCTAssertEqual(restored?.refreshToken, expected.refreshToken)
+        XCTAssertEqual(restored?.tokenType, expected.tokenType)
+    }
+
+    func testExtractsNestedAuthenticationTokens() {
+        let json: JSONValue = .object([
+            "content": .object([
+                "token": .object([
+                    "accessToken": .string("header.payload.signature"),
+                    "refreshToken": .string("refresh-token"),
+                ]),
+            ]),
+        ])
+
+        let tokens = APIClient.extractTokens(from: json)
+
+        XCTAssertEqual(tokens?.accessToken, "header.payload.signature")
+        XCTAssertEqual(tokens?.refreshToken, "refresh-token")
+        XCTAssertEqual(tokens?.tokenType, "Bearer")
+    }
+
+    func testExtractsCookieAccessTokenAndResponseRefreshToken() throws {
+        let json: JSONValue = .object([
+            "content": .object([
+                "refreshToken": .string("refresh-from-response"),
+            ]),
+        ])
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "svc.eligaorder.com",
+            .path: "/",
+            .name: "AccessToken",
+            .value: "cookie.header.payload",
+            .secure: "TRUE",
+        ]))
+
+        let tokens = APIClient.extractTokens(from: json, cookies: [cookie])
+
+        XCTAssertEqual(tokens?.accessToken, "cookie.header.payload")
+        XCTAssertEqual(tokens?.refreshToken, "refresh-from-response")
+        XCTAssertEqual(tokens?.tokenType, "Bearer")
+    }
+
+    func testRefreshCookieIsUsedWhenResponseOmitsRefreshToken() throws {
+        let json: JSONValue = .object([
+            "content": .object([
+                "accessToken": .string("response.header.payload"),
+            ]),
+        ])
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: ".eligaorder.com",
+            .path: "/",
+            .name: "RefreshToken",
+            .value: "refresh-from-cookie",
+            .secure: "TRUE",
+        ]))
+
+        let tokens = APIClient.extractTokens(from: json, cookies: [cookie])
+
+        XCTAssertEqual(tokens?.accessToken, "response.header.payload")
+        XCTAssertEqual(tokens?.refreshToken, "refresh-from-cookie")
+    }
+
+    func testMapsLocalizedShopsAndNormalizesKinds() {
+        let json: JSONValue = .object([
+            "content": .array([
+                .object([
+                    "id": .int(5),
+                    "name": .object(["ko": .string("kafé 5F"), "en": .string("Cafe")]),
+                    "type": .string("CAFE"),
+                    "openYn": .bool(true),
+                ]),
+            ]),
+        ])
+
+        let shops = EligaMapper.shops(json)
+
+        XCTAssertEqual(shops.first?.name, "kafé 5F")
+        XCTAssertEqual(shops.first?.kind, .cafe)
+        XCTAssertEqual(shops.first?.canOrder, true)
+    }
+
+    func testCartTotalsIncludeQuantity() {
+        let item = CartItem(
+            id: 1,
+            goodsID: 10,
+            name: "아메리카노",
+            quantity: 3,
+            price: 1_500,
+            options: [],
+            thumbnailURL: nil
+        )
+        let cart = Cart(id: 2, shopID: 5, items: [item])
+
+        XCTAssertEqual(cart.itemCount, 3)
+        XCTAssertEqual(cart.total, 4_500)
+    }
+
+    func testCafeRulesBlockPausedOrders() {
+        let plan = CafeSalesPlan(
+            shopID: 5,
+            isOpen: true,
+            isBreakTime: false,
+            isLastOrder: false,
+            autoOpenTime: "09:00:00",
+            autoCloseTime: "19:00:00",
+            usesLastOrder: false,
+            lastOrderTime: nil,
+            openDays: [],
+            isOrderPaused: true
+        )
+
+        let state = CafeRules.state(for: plan)
+
+        XCTAssertFalse(state.isOrderable)
+        guard case .closed(let closure) = state else { return XCTFail("closed 상태여야 합니다") }
+        XCTAssertEqual(closure.reason, .paused)
+        XCTAssertTrue(closure.compactMessage.contains("잠시 중지"))
+        XCTAssertTrue(closure.compactMessage.contains("09:00–19:00"))
+        XCTAssertFalse(closure.compactMessage.contains("09:00:00"))
+    }
+
+    func testCafeRulesHolidayProvidesNextOpenDayAndHours() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
+        let sunday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 19, hour: 12))
+        )
+        let plan = CafeSalesPlan(
+            shopID: 5,
+            isOpen: false,
+            isBreakTime: false,
+            isLastOrder: false,
+            autoOpenTime: "09:00:00",
+            autoCloseTime: "19:00:00",
+            usesLastOrder: false,
+            lastOrderTime: nil,
+            openDays: ["MON", "TUE", "WED", "THU", "FRI"],
+            isOrderPaused: false
+        )
+
+        let state = CafeRules.state(for: plan, now: sunday, calendar: calendar)
+
+        guard case .closed(let closure) = state else { return XCTFail("closed 상태여야 합니다") }
+        XCTAssertEqual(closure.reason, .holiday)
+        XCTAssertEqual(closure.title, "오늘은 휴무예요")
+        XCTAssertEqual(closure.schedule, "다음 영업 · 월요일 09:00–19:00")
+    }
+
+    func testTimePresentationRemovesSecondsFromRangesAndEmbeddedText() {
+        XCTAssertEqual(
+            AppFormat.timeRange(start: "07:30:00", end: "09:05:59"),
+            "07:30–09:05"
+        )
+        XCTAssertEqual(
+            AppFormat.minutePrecision("운영 시간 09:00:00~18:30:45 안내"),
+            "운영 시간 09:00~18:30 안내"
+        )
+    }
+
+    func testRouterHandlesNativeDeepLinks() throws {
+        let router = AppRouter()
+        let appURL = try XCTUnwrap(URL(string: "neweligaorder://cafe"))
+        let webURL = try XCTUnwrap(URL(string: "https://example.com/cart"))
+
+        XCTAssertTrue(router.handle(url: appURL))
+        XCTAssertEqual(router.selectedTab, .cafe)
+        XCTAssertFalse(router.handle(url: webURL))
+    }
+
+    func testSelectingCafeTabPreservesExistingCafeState() {
+        let router = AppRouter()
+        router.cafePath = [.menu(shopID: 5, displayID: 42)]
+
+        router.switchTo(.cafe)
+
+        XCTAssertEqual(router.selectedTab, .cafe)
+        XCTAssertEqual(router.cafePath, [.menu(shopID: 5, displayID: 42)])
+    }
+
+    func testRouterHandlesWidgetMenuAndQuickOrderLinks() throws {
+        let router = AppRouter()
+        let menuURL = try XCTUnwrap(URL(string: "neweligaorder://menu?shopID=5&displayID=42"))
+        let quickURL = try XCTUnwrap(URL(string: "neweligaorder://quick-order?shopID=5&displayID=42"))
+
+        XCTAssertTrue(router.handle(url: menuURL))
+        XCTAssertEqual(router.selectedTab, .cafe)
+        XCTAssertEqual(router.cafePath, [.menu(shopID: 5, displayID: 42)])
+
+        XCTAssertTrue(router.handle(url: quickURL))
+        XCTAssertEqual(router.cafePath, [.quickOrder(shopID: 5, displayID: 42)])
+    }
+
+    func testCafeMenuSearchMatchesLocalizedFields() {
+        let item = CafeMenuItem(
+            displayID: 1,
+            goodsID: 2,
+            name: "제주 말차 라떼",
+            categoryID: 3,
+            category: "시즌 음료",
+            price: 4_500,
+            isSoldOut: false,
+            description: "진한 녹차와 우유",
+            calorie: nil,
+            nutrition: nil,
+            label: "NEW",
+            displayName: "말차라떼",
+            thumbnailURL: nil
+        )
+
+        XCTAssertTrue(item.matches(search: "말차"))
+        XCTAssertTrue(item.matches(search: "녹차"))
+        XCTAssertTrue(item.matches(search: "시즌"))
+        XCTAssertFalse(item.matches(search: "아메리카노"))
+    }
+
+    func testCafeMenuSearchIgnoresSelectedCategory() {
+        let coffee = CafeMenuItem(
+            displayID: 1,
+            goodsID: 11,
+            name: "아메리카노",
+            categoryID: 10,
+            category: "커피",
+            price: 3_000,
+            isSoldOut: false,
+            description: nil,
+            calorie: nil,
+            nutrition: nil,
+            label: nil,
+            displayName: "아메리카노",
+            thumbnailURL: nil
+        )
+        let tea = CafeMenuItem(
+            displayID: 2,
+            goodsID: 22,
+            name: "제주 말차 라떼",
+            categoryID: 20,
+            category: "티",
+            price: 4_500,
+            isSoldOut: false,
+            description: nil,
+            calorie: nil,
+            nutrition: nil,
+            label: nil,
+            displayName: "말차라떼",
+            thumbnailURL: nil
+        )
+
+        let results = CafeMenuFilter.items(
+            in: [coffee, tea],
+            selectedCategoryID: coffee.categoryID,
+            searchText: "말차"
+        )
+
+        XCTAssertEqual(results.map(\.displayID), [tea.displayID])
+    }
+
+    func testCafeMenuSearchCombinesEveryShop() {
+        let shops = [
+            Shop(id: 5, name: "1층 카페", kind: .cafe, isOpen: true),
+            Shop(id: 6, name: "5층 카페", kind: .cafe, isOpen: true),
+        ]
+        let first = CafeMenuItem(
+            displayID: 10,
+            goodsID: 101,
+            name: "아이스 아메리카노",
+            categoryID: 1,
+            category: "커피",
+            price: 2_500,
+            isSoldOut: false,
+            description: nil,
+            calorie: nil,
+            nutrition: nil,
+            label: nil,
+            displayName: "아메리카노",
+            thumbnailURL: nil
+        )
+        let second = CafeMenuItem(
+            displayID: 20,
+            goodsID: 202,
+            name: "디카페인 아메리카노",
+            categoryID: 2,
+            category: "디카페인",
+            price: 3_000,
+            isSoldOut: false,
+            description: nil,
+            calorie: nil,
+            nutrition: nil,
+            label: nil,
+            displayName: "디카페인",
+            thumbnailURL: nil
+        )
+
+        let sections = CafeMenuFilter.sections(
+            shops: shops,
+            menusByShop: [5: [first], 6: [second]],
+            searchText: "아메리카노"
+        )
+
+        XCTAssertEqual(sections.map(\.shop.id), [5, 6])
+        XCTAssertEqual(sections.flatMap(\.items).map(\.displayID), [10, 20])
+    }
+
+    func testCafeMenuPriorityOrdersFavoritesThenBestThenNew() {
+        let regular = cafeMenuItem(displayID: 1, name: "일반", label: nil)
+        let new = cafeMenuItem(displayID: 2, name: "신메뉴", label: "new")
+        let best = cafeMenuItem(displayID: 3, name: "인기", label: " BEST ")
+        let favorite = cafeMenuItem(displayID: 4, name: "즐겨찾기", label: nil)
+        let favoriteNew = cafeMenuItem(displayID: 5, name: "즐겨찾기 신메뉴", label: "NEW")
+
+        let results = CafeMenuFilter.items(
+            in: [regular, new, best, favorite, favoriteNew],
+            selectedCategoryID: nil,
+            searchText: "",
+            favoriteDisplayIDs: [favorite.displayID, favoriteNew.displayID]
+        )
+
+        XCTAssertEqual(results.map(\.displayID), [4, 5, 3, 2, 1])
+    }
+
+    func testCafeMenuPriorityPreservesOrderWithinSameGroup() {
+        let firstBest = cafeMenuItem(displayID: 10, name: "첫 번째 BEST", label: "BEST")
+        let secondBest = cafeMenuItem(displayID: 11, name: "두 번째 BEST", label: "best")
+        let firstRegular = cafeMenuItem(displayID: 12, name: "첫 번째 일반", label: nil)
+        let secondRegular = cafeMenuItem(displayID: 13, name: "두 번째 일반", label: nil)
+
+        let results = CafeMenuFilter.prioritized(
+            [firstRegular, firstBest, secondRegular, secondBest],
+            favoriteDisplayIDs: []
+        )
+
+        XCTAssertEqual(results.map(\.displayID), [10, 11, 12, 13])
+    }
+
+    func testCafeMenuPrioritySectionsSeparateFavoriteBestNewAndStandard() {
+        let favorite = cafeMenuItem(displayID: 1, name: "즐겨찾기", label: nil)
+        let best = cafeMenuItem(displayID: 2, name: "베스트", label: "BEST")
+        let new = cafeMenuItem(displayID: 3, name: "신메뉴", label: "NEW")
+        let standard = cafeMenuItem(displayID: 4, name: "일반", label: nil)
+
+        let sections = CafeMenuFilter.prioritySections(
+            from: [standard, new, best, favorite],
+            favoriteDisplayIDs: [favorite.displayID]
+        )
+
+        XCTAssertEqual(sections.map(\.group), [.favorite, .best, .new, .standard])
+        XCTAssertEqual(sections.map { $0.items.map(\.displayID) }, [[1], [2], [3], [4]])
+    }
+
+    func testCafeMenuSearchAppliesFavoritePriorityPerShop() {
+        let shop = Shop(id: 5, name: "카페", kind: .cafe, isOpen: true)
+        let regular = cafeMenuItem(displayID: 20, name: "아메리카노 일반", label: nil)
+        let favorite = cafeMenuItem(displayID: 21, name: "아메리카노 즐겨찾기", label: nil)
+
+        let sections = CafeMenuFilter.sections(
+            shops: [shop],
+            menusByShop: [shop.id: [regular, favorite]],
+            searchText: "아메리카노",
+            favoriteDisplayIDsByShop: [shop.id: [favorite.displayID]]
+        )
+
+        XCTAssertEqual(sections.first?.items.map(\.displayID), [21, 20])
+    }
+
+    func testDiningMenuFilterRemovesEmptyOperationShells() {
+        let emptyCourse = DiningCourse(
+            name: "코스",
+            price: 0,
+            menus: [],
+            isSoldOut: false,
+            congestion: nil,
+            origin: ""
+        )
+        let blankMeal = DiningMenuItem(
+            name: "   ",
+            calorie: nil,
+            nutrition: "",
+            information: "",
+            imageURL: nil,
+            isSoldOut: false
+        )
+        let blankCourse = DiningCourse(
+            name: "코스",
+            price: 0,
+            menus: [blankMeal],
+            isSoldOut: false,
+            congestion: nil,
+            origin: ""
+        )
+        let periods = [
+            DiningPeriod(time: "조식", startTime: "08:00", endTime: "09:00", courses: []),
+            DiningPeriod(time: "중식", startTime: "11:30", endTime: "13:30", courses: [emptyCourse, blankCourse]),
+        ]
+
+        XCTAssertTrue(DiningMenuFilter.periodsWithMeals(periods).isEmpty)
+    }
+
+    func testMealNotificationSelectsOnlyFirstAvailableRecommendedMenuForMatchingMeal() {
+        let first = DiningMenuItem(
+            name: "[밸런스바이츠] 제육볶음",
+            calorie: 620,
+            nutrition: "",
+            information: "김치, 멸치볶음",
+            imageURL: nil,
+            isSoldOut: false
+        )
+        let second = DiningMenuItem(
+            name: "닭갈비",
+            calorie: 580,
+            nutrition: "",
+            information: "무생채",
+            imageURL: nil,
+            isSoldOut: false
+        )
+        let course = DiningCourse(
+            name: "한식",
+            price: 7_000,
+            menus: [first, second],
+            isSoldOut: false,
+            congestion: nil,
+            origin: ""
+        )
+        let period = DiningPeriod(time: "중식", startTime: "11:30", endTime: "13:30", courses: [course])
+        let preparations = Dictionary(uniqueKeysWithValues: [first, second].map { menu in
+            (
+                DiningPreparationKey.make(period: period, course: course, meal: menu),
+                DiningMenuPreparation(
+                    sideDishSummary: menu.information,
+                    dynamicSurface: DiningDynamicUIFallback.surface(
+                        for: DiningDynamicUIInput(
+                            menuName: menu.titlePresentation.displayName,
+                            information: menu.information,
+                            sideDishSummary: menu.information,
+                            calorie: menu.calorie,
+                            nutrition: menu.nutrition,
+                            origin: course.origin
+                        )
+                    ),
+                    personalization: DiningMenuPersonalization(
+                        recommendation: .recommended,
+                        reason: "고기 선호와 잘 맞아요",
+                        hasAllergyWarning: false
+                    )
+                )
+            )
+        })
+        let prepared = PreparedDiningDay(periods: [period], preparations: preparations)
+
+        let candidate = MealNotificationPolicy.candidate(for: .lunch, in: prepared)
+
+        XCTAssertEqual(candidate?.menuName, "제육볶음")
+        XCTAssertEqual(candidate?.otherMenuNames, ["닭갈비"])
+        XCTAssertNil(MealNotificationPolicy.candidate(for: .dinner, in: prepared))
+    }
+
+    func testMealNotificationDoesNotRecommendSoldOutMenu() {
+        let menu = DiningMenuItem(
+            name: "품절 제육볶음",
+            calorie: nil,
+            nutrition: "",
+            information: "",
+            imageURL: nil,
+            isSoldOut: true
+        )
+        let course = DiningCourse(
+            name: "한식",
+            price: 0,
+            menus: [menu],
+            isSoldOut: false,
+            congestion: nil,
+            origin: ""
+        )
+        let period = DiningPeriod(time: "점심", startTime: "11:30", endTime: "13:30", courses: [course])
+        let key = DiningPreparationKey.make(period: period, course: course, meal: menu)
+        let prepared = PreparedDiningDay(
+            periods: [period],
+            preparations: [
+                key: DiningMenuPreparation(
+                    sideDishSummary: "",
+                    dynamicSurface: DiningDynamicUISurface(blocks: [], isModelGenerated: false),
+                    personalization: DiningMenuPersonalization(
+                        recommendation: .recommended,
+                        reason: nil,
+                        hasAllergyWarning: false
+                    )
+                ),
+            ]
+        )
+
+        XCTAssertNil(MealNotificationPolicy.candidate(for: .lunch, in: prepared))
+    }
+
+    func testMealNotificationCopyEmphasizesSelectedMenuAndRejectsAnotherMenu() {
+        let candidate = MealNotificationCandidate(
+            meal: .dinner,
+            menuName: "제육볶음",
+            reason: "고기 취향과 잘 맞아요",
+            otherMenuNames: ["닭갈비", "비빔밥"]
+        )
+
+        let fallback = MealNotificationPolicy.fallbackCopy(for: candidate)
+        XCTAssertTrue(fallback.title.contains("제육볶음"))
+        XCTAssertFalse(fallback.title.contains("닭갈비"))
+        XCTAssertNotNil(MealNotificationPolicy.validated(fallback, for: candidate))
+        XCTAssertNil(
+            MealNotificationPolicy.validated(
+                MealNotificationCopy(title: "제육볶음 추천", body: "닭갈비도 함께 추천해요."),
+                for: candidate
+            )
+        )
+        XCTAssertNil(
+            MealNotificationPolicy.validated(
+                MealNotificationCopy(title: "오늘의 추천", body: "맛있는 메뉴를 확인하세요."),
+                for: candidate
+            )
+        )
+    }
+
+    func testMealNotificationPeriodMatchingSupportsKoreanServiceNames() {
+        XCTAssertTrue(MealNotificationScheduler.Meal.lunch.matches(periodName: "중식 1부"))
+        XCTAssertTrue(MealNotificationScheduler.Meal.dinner.matches(periodName: "석식"))
+        XCTAssertFalse(MealNotificationScheduler.Meal.dinner.matches(periodName: "중식"))
+    }
+
+    func testMealNotificationModelInstructionsRequireExactlyOneGroundedMenu() {
+        let instructions = MealNotificationCopyGenerator.instructions
+        XCTAssertTrue(instructions.contains("정확히 하나만"))
+        XCTAssertTrue(instructions.contains("메뉴명을 원문 그대로 반드시 포함"))
+        XCTAssertTrue(instructions.contains("사실을 만들지 않는다"))
+    }
+
+    func testDiningMenuDetailContextIncludesCourseAvailabilityAndServingTime() {
+        let meal = DiningMenuItem(
+            name: "계란말이",
+            calorie: 180,
+            nutrition: "단백질 12g",
+            information: "계란말이, 김치, 멸치볶음",
+            imageURL: nil,
+            isSoldOut: false
+        )
+        let context = DiningMenuDetailContext(
+            meal: meal,
+            sideDishSummary: "계란말이, 김치, 멸치볶음",
+            courseName: "한식 코스",
+            coursePrice: 7_000,
+            courseIsSoldOut: true,
+            congestion: "NORMAL",
+            origin: "쌀 국내산",
+            periodName: "중식",
+            startTime: "11:30",
+            endTime: "13:30",
+            date: Date(timeIntervalSince1970: 0),
+            shopID: 7
+        )
+
+        XCTAssertTrue(context.isSoldOut)
+        XCTAssertEqual(context.servingTime, "11:30–13:30")
+        XCTAssertEqual(context.meal.nutrition, "단백질 12g")
+        XCTAssertEqual(context.origin, "쌀 국내산")
+        XCTAssertEqual(
+            context.preparationKey,
+            DiningPreparationKey.make(
+                periodID: "중식|11:30|13:30",
+                courseID: "한식 코스|쌀 국내산",
+                mealID: meal.id
+            )
+        )
+    }
+
+    func testOrderDateFormattingAcceptsServerVariants() {
+        XCTAssertNotNil(AppFormat.orderDate("2026-07-18T04:20:00.123Z"))
+        XCTAssertNotNil(AppFormat.orderDate("2026-07-18 13:20:00"))
+        XCTAssertEqual(AppFormat.orderTime("2026-07-18 13:20:00"), "오후 1:20")
+    }
+
+    func testOrderStatusMapperFindsNestedPayload() {
+        let raw: JSONValue = .object([
+            "content": .object([
+                "order": .object([
+                    "orderId": .int(314),
+                    "orderNo": .string("A-0314"),
+                    "orderStatus": .string("WAITING_FOR_PICKUP"),
+                ]),
+            ]),
+        ])
+
+        let result = EligaMapper.orderStatus(raw, fallbackOrderID: 1)
+
+        XCTAssertEqual(result.orderID, 314)
+        XCTAssertEqual(result.orderNumber, "A-0314")
+        XCTAssertEqual(result.status, "WAITING_FOR_PICKUP")
+    }
+
+    func testOrderActivityPhaseMapsTerminalStates() {
+        XCTAssertEqual(OrderActivityPhase(statusCode: "ORDER_RECEPTION"), .submitted)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "WAITING_FOR_PICKUP"), .ready)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "PICKUP_COMPLETE"), .completed)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "ORDER_CANCELLED"), .cancelled)
+        XCTAssertTrue(OrderActivityPhase(statusCode: "ORDER_COMPLETE").isTerminal)
+        XCTAssertFalse(OrderActivityPhase(statusCode: "PREPARING").isTerminal)
+    }
+
+    func testRemotePushPayloadSupportsNestedOrderValues() {
+        let values = PushNotificationCoordinator.orderValues(from: [
+            "order": [
+                "id": "91",
+                "orderNo": "B-91",
+                "status": "WAITING_FOR_PICKUP",
+            ],
+        ])
+
+        XCTAssertEqual(values.orderID, 91)
+        XCTAssertEqual(values.orderNumber, "B-91")
+        XCTAssertEqual(values.status, "WAITING_FOR_PICKUP")
+    }
+
+    func testOrderMonitoringStoragePersistsAndRemovesTrackedOrder() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.monitoring-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = OrderMonitoringStorage(defaults: defaults)
+        let order = MonitoredOrder(
+            orderID: 314,
+            orderNumber: "A-0314",
+            shopName: "엘리가 카페",
+            phase: .submitted,
+            startedAt: .now
+        )
+
+        storage.track(order)
+
+        XCTAssertEqual(storage.orders, [order])
+        XCTAssertTrue(storage.hasActiveOrders)
+
+        storage.remove(orderID: order.orderID)
+
+        XCTAssertTrue(storage.orders.isEmpty)
+        XCTAssertFalse(storage.hasActiveOrders)
+    }
+
+    func testQuickOrderRecoveryJournalPersistsBeforeDestructiveIsolation() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.quick-order-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let journalDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quick-order-tests-\(UUID().uuidString)", isDirectory: true)
+        let journalURL = journalDirectory.appendingPathComponent("recovery.json")
+        defer { try? FileManager.default.removeItem(at: journalDirectory) }
+        let preferences = PreferencesStore(defaults: defaults, quickOrderJournalURL: journalURL)
+        let session = QuickOrderSession(
+            id: UUID(),
+            accountID: "tester@example.com",
+            shopID: 5,
+            goodsID: 101,
+            quantity: 2,
+            options: [SelectedOption(optionID: 7, menuIDs: [9, 8])],
+            stashedLines: [
+                CartRestoreLine(goodsID: 202, quantity: 3, options: [])
+            ],
+            phase: .stashed
+        )
+
+        try preferences.saveQuickOrderSession(session)
+
+        defaults.removeObject(forKey: "eliga.quickOrder.recovery")
+        let restored = try XCTUnwrap(
+            PreferencesStore(defaults: defaults, quickOrderJournalURL: journalURL).quickOrderSession
+        )
+        XCTAssertEqual(restored.id, session.id)
+        XCTAssertEqual(restored.accountID, session.accountID)
+        XCTAssertEqual(restored.stashedLines, session.stashedLines)
+        XCTAssertEqual(restored.phase, .stashed)
+
+        try preferences.saveQuickOrderSession(nil)
+        XCTAssertNil(preferences.quickOrderSession)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
+    }
+
+    func testOrderMonitoringStoragePrunesExpiredOrders() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.monitoring-expiry-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = OrderMonitoringStorage(defaults: defaults)
+        storage.track(
+            MonitoredOrder(
+                orderID: 99,
+                orderNumber: "99",
+                shopName: "카페",
+                phase: .preparing,
+                startedAt: Date.now.addingTimeInterval(-OrderMonitoringPolicy.maximumLifetime - 1)
+            )
+        )
+
+        storage.removeExpired()
+
+        XCTAssertTrue(storage.orders.isEmpty)
+    }
+
+    func testOrderMonitoringNotificationCopyMatchesReadyState() {
+        XCTAssertEqual(
+            OrderMonitoringPolicy.notificationTitle(for: .ready),
+            "픽업할 준비가 됐어요"
+        )
+        XCTAssertEqual(
+            OrderMonitoringPolicy.notificationBody(shopName: "1층 카페", orderNumber: "A-0314"),
+            "1층 카페 · 주문 A-0314"
+        )
+    }
+
+    private func cafeMenuItem(
+        displayID: Int,
+        name: String,
+        label: String?
+    ) -> CafeMenuItem {
+        CafeMenuItem(
+            displayID: displayID,
+            goodsID: displayID,
+            name: name,
+            categoryID: 1,
+            category: "음료",
+            price: 3_000,
+            isSoldOut: false,
+            description: nil,
+            calorie: nil,
+            nutrition: nil,
+            label: label,
+            displayName: name,
+            thumbnailURL: nil
+        )
+    }
+
+    private func dynamicDiningInput() -> DiningDynamicUIInput {
+        DiningDynamicUIInput(
+            menuName: "제육볶음",
+            information: """
+            [원산지]
+            제육볶음
+            쌀밥
+            된장국
+            배추김치
+            콩나물무침
+            [알레르기 주의]
+            대두 포함
+            [중식 이용 안내]
+            11:30부터 이용 가능합니다
+            """,
+            sideDishSummary: "쌀밥, 된장국, 배추김치, 콩나물무침",
+            calorie: 650,
+            nutrition: "단백질 27g, 나트륨 1200mg",
+            origin: "돼지고기 국내산"
+        )
+    }
+}
+
+private actor FoundationModelRequestProbe {
+    private(set) var maximumConcurrentRequests = 0
+    private var activeRequests = 0
+
+    func begin(_ id: Int) {
+        _ = id
+        activeRequests += 1
+        maximumConcurrentRequests = max(maximumConcurrentRequests, activeRequests)
+    }
+
+    func end(_ id: Int) {
+        _ = id
+        activeRequests -= 1
+    }
+}
+
+private actor FoundationModelCancellationProbe {
+    private(set) var result: Bool?
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func markStarted() {
+        started = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func finish(inferenceWasCancelled: Bool) {
+        result = inferenceWasCancelled
+    }
+}
+
+private actor FoundationModelQueueGate {
+    private var blocked = false
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func blockUntilReleased() async {
+        blocked = true
+        blockedWaiters.forEach { $0.resume() }
+        blockedWaiters.removeAll()
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func waitUntilBlocked() async {
+        if blocked { return }
+        await withCheckedContinuation { blockedWaiters.append($0) }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}
+
+private actor FoundationModelCallCounter {
+    private(set) var value = 0
+    func increment() { value += 1 }
+}
+
+private actor FoundationModelEnqueueProbe {
+    private var count = 0
+    private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func markEnqueued() {
+        count += 1
+        let ready = waiters.filter { count >= $0.target }
+        waiters.removeAll { count >= $0.target }
+        ready.forEach { $0.continuation.resume() }
+    }
+
+    func wait(for target: Int) async {
+        if count >= target { return }
+        await withCheckedContinuation { waiters.append((target, $0)) }
+    }
+}
