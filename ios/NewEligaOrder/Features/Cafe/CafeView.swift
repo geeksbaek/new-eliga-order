@@ -248,6 +248,7 @@ struct CafeView: View {
                         menuRow(item, shopID: activeShopID)
                     }
                 }
+                .listSectionSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -320,6 +321,7 @@ struct CafeView: View {
                             menuRow(item, shopID: shopSection.shop.id)
                         }
                     }
+                    .listSectionSeparator(.hidden)
                 }
             }
         }
@@ -702,6 +704,7 @@ struct CafePrioritySectionsFixtureView: View {
                             .listRowInsets(.init(top: 6, leading: 16, bottom: 6, trailing: 16))
                         }
                     }
+                    .listSectionSeparator(.hidden)
                 }
             }
             .listStyle(.plain)
