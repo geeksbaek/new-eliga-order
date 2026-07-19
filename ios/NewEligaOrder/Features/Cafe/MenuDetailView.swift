@@ -117,6 +117,7 @@ struct MenuDetailView: View {
             withAnimation { successMessage = nil }
         }
         .sensoryFeedback(.success, trigger: successMessage)
+        .sensoryFeedback(.selection, trigger: store.isFavorite(shopID: shopID, displayID: displayID))
     }
 
     private func actionButtons(variant: GoodsVariant) -> some View {
@@ -500,6 +501,7 @@ private struct MenuQuantitySelector: View {
                 totalLabel
             }
         }
+        .sensoryFeedback(.selection, trigger: quantity)
     }
 
     private var quantityControl: some View {

@@ -766,6 +766,8 @@ struct CafeMenuRow: View {
             named: Text(isFavorite ? "즐겨찾기 해제" : "즐겨찾기"),
             toggleFavorite
         )
+        .sensoryFeedback(.selection, trigger: isFavorite)
+        .sensoryFeedback(.selection, trigger: quantity)
     }
 
     private var detailButton: some View {
