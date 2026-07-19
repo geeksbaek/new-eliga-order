@@ -13,7 +13,6 @@ struct PreferencesStore: @unchecked Sendable {
         static let dinnerNotification = "eliga.notification.dinner"
         static let lunchTime = "eliga.notification.lunch.time"
         static let dinnerTime = "eliga.notification.dinner.time"
-        static let cafePushDefaultRegistrations = "eliga.notification.cafe.default-registrations"
         static let quickOrderSession = "eliga.quickOrder.recovery"
     }
 
@@ -86,20 +85,6 @@ struct PreferencesStore: @unchecked Sendable {
         nonmutating set { defaults.set(newValue, forKey: Key.dinnerTime) }
     }
 
-    func hasAppliedCafePushDefaults(accountID: String, registrationToken: String) -> Bool {
-        defaults.stringArray(forKey: Key.cafePushDefaultRegistrations)?.contains(
-            cafePushRegistrationKey(accountID: accountID, registrationToken: registrationToken)
-        ) == true
-    }
-
-    func markCafePushDefaultsApplied(accountID: String, registrationToken: String) {
-        let key = cafePushRegistrationKey(accountID: accountID, registrationToken: registrationToken)
-        var registrations = defaults.stringArray(forKey: Key.cafePushDefaultRegistrations) ?? []
-        guard !registrations.contains(key) else { return }
-        registrations.append(key)
-        defaults.set(Array(registrations.suffix(12)), forKey: Key.cafePushDefaultRegistrations)
-    }
-
     var quickOrderSession: QuickOrderSession? {
         get {
             let data = (try? Data(contentsOf: quickOrderJournalURL, options: .mappedIfSafe))
@@ -156,9 +141,5 @@ struct PreferencesStore: @unchecked Sendable {
 
     private static func date(hour: Int, minute: Int) -> Date {
         Calendar.current.date(from: DateComponents(hour: hour, minute: minute)) ?? .now
-    }
-
-    private func cafePushRegistrationKey(accountID: String, registrationToken: String) -> String {
-        "\(accountID.lowercased())|\(registrationToken)"
     }
 }

@@ -55,30 +55,10 @@ final class OrderLiveActivityManager {
         }
     }
 
-    func applyRemoteUpdate(
-        orderID: Int,
-        status: String,
-        orderNumber: String?,
-        shopName: String? = nil,
-        itemSummary: String? = nil,
-        total: Int? = nil
-    ) async {
-        let phase = OrderActivityPhase(statusCode: status)
-        var activity = Activity<OrderActivityAttributes>.activities.first(where: {
+    func applyRemoteUpdate(orderID: Int, status: String, orderNumber: String?) async {
+        guard let activity = Activity<OrderActivityAttributes>.activities.first(where: {
             $0.attributes.orderID == orderID
-        })
-
-        if activity == nil, !phase.isTerminal {
-            activity = await startFromServerPush(
-                orderID: orderID,
-                orderNumber: orderNumber,
-                phase: phase,
-                shopName: shopName,
-                itemSummary: itemSummary,
-                total: total
-            )
-        }
-        guard let activity else { return }
+        }) else { return }
         let snapshot = OrderStatusSnapshot(
             orderID: orderID,
             orderNumber: orderNumber ?? String(orderID),
@@ -127,43 +107,6 @@ final class OrderLiveActivityManager {
         }
     }
 
-    private func startFromServerPush(
-        orderID: Int,
-        orderNumber: String?,
-        phase: OrderActivityPhase,
-        shopName: String?,
-        itemSummary: String?,
-        total: Int?
-    ) async -> Activity<OrderActivityAttributes>? {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return nil }
-        let attributes = OrderActivityAttributes(
-            orderID: orderID,
-            shopName: shopName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                ?? "엘리가오더 카페",
-            itemSummary: itemSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                ?? "카페 주문",
-            total: max(0, total ?? 0)
-        )
-        let state = OrderActivityAttributes.ContentState(
-            phase: phase,
-            statusText: Self.statusText(for: phase),
-            orderNumber: orderNumber?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                ?? String(orderID),
-            updatedAt: .now
-        )
-        do {
-            let activity = try Activity.request(
-                attributes: attributes,
-                content: ActivityContent(state: state, staleDate: .now.addingTimeInterval(15 * 60)),
-                pushType: .token
-            )
-            observePushToken(for: activity)
-            return activity
-        } catch {
-            return nil
-        }
-    }
-
     private func storePushToken(_ token: String, for activityID: String) {
         guard let defaults = UserDefaults(suiteName: Storage.appGroup) else { return }
         var values = defaults.dictionary(forKey: Storage.tokenKey) as? [String: String] ?? [:]
@@ -193,8 +136,4 @@ final class OrderLiveActivityManager {
         case .cancelled: "주문이 취소됐어요"
         }
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

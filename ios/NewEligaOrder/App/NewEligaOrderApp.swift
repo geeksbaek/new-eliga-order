@@ -50,10 +50,6 @@ struct NewEligaOrderApp: App {
                 OrderMonitoringCoordinator.shared.applicationDidBecomeActive(using: store.api)
             }
             .onOpenURL { _ = router.handle(url: $0) }
-            .onReceive(NotificationCenter.default.publisher(for: PushTokenStore.didChangeNotification)) { _ in
-                guard store.authenticationState == .authenticated else { return }
-                Task { await store.syncCafePushPreferences(applyDefaults: true) }
-            }
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
                 case .active where store.authenticationState == .authenticated:

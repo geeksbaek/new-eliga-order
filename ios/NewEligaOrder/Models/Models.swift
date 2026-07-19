@@ -440,16 +440,6 @@ struct OrderStatusSnapshot: Equatable, Sendable {
     let status: String
 }
 
-struct CafePushPreferences: Equatable, Sendable {
-    var appOrdersEnabled: Bool
-    var kioskOrdersEnabled: Bool
-
-    static let enabled = CafePushPreferences(
-        appOrdersEnabled: true,
-        kioskOrdersEnabled: true
-    )
-}
-
 struct CafeQuickItem: Identifiable, Hashable, Sendable {
     var id: String { "\(displayID)|\(goodsID)|\(lastOrderAt ?? "")" }
     let displayID: Int

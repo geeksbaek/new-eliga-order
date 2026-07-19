@@ -69,22 +69,6 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                Toggle(
-                    "카페 APP 주문 제조 알림 받기",
-                    isOn: cafePushBinding(\.appOrdersEnabled)
-                )
-                Toggle(
-                    "카페 주문 키오스크 제조 알림 받기",
-                    isOn: cafePushBinding(\.kioskOrdersEnabled)
-                )
-            } header: {
-                Text("카페 주문 알림")
-            } footer: {
-                Text("제조 상태가 도착하면 알림과 라이브 액티비티가 함께 갱신됩니다.")
-            }
-            .disabled(store.isUpdatingCafePushPreferences)
-
             if let errorMessage {
                 Section { Label(errorMessage, systemImage: "exclamationmark.circle").foregroundStyle(.primary) }
             }
@@ -173,35 +157,6 @@ struct SettingsView: View {
                 hasLoaded = true
                 errorMessage = error.localizedDescription
             }
-        }
-    }
-
-    private func cafePushBinding(_ keyPath: WritableKeyPath<CafePushPreferences, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { store.cafePushPreferences[keyPath: keyPath] },
-            set: { value in
-                var updated = store.cafePushPreferences
-                updated[keyPath: keyPath] = value
-                Task {
-                    do {
-                        try await store.updateCafePushPreferences(updated)
-                        await loadNotificationAuthorizationStatus()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            }
-        )
-    }
-
-    private func loadNotificationAuthorizationStatus() async {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        notificationAuthorizationStatus = settings.authorizationStatus
-        notificationStatus = switch settings.authorizationStatus {
-        case .authorized, .provisional, .ephemeral: "허용됨"
-        case .denied: "허용 안 됨"
-        case .notDetermined: "요청 전"
-        @unknown default: "알 수 없음"
         }
     }
 }
