@@ -292,163 +292,173 @@ enum CafeShopSwitcherPolicy {
         guard shops.count > 1,
               let currentIndex = shops.firstIndex(where: { $0.id == selectedShopID })
         else { return nil }
-        let nextIndex = (currentIndex + offset % shops.count + shops.count) % shops.count
+        let nextIndex = currentIndex + offset
+        guard shops.indices.contains(nextIndex) else { return nil }
         return shops[nextIndex].id
+    }
+
+    static func modeTitle(for shopName: String) -> String {
+        var title = shopName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title.hasPrefix("카카오 ") {
+            title.removeFirst("카카오 ".count)
+        }
+        if title.hasSuffix(" 카페") {
+            title.removeLast(" 카페".count)
+        }
+        return title.isEmpty ? shopName : title
     }
 }
 
-struct CafeShopThumbSwitcher: View {
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+struct CafeShopModeSwitcher: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
 
-    @State private var isShopListPresented = false
+    @State private var centeredShopID: Int?
+    @Namespace private var selectionNamespace
 
-    private var selectedShopName: String {
-        shops.first(where: { $0.id == selectedShopID })?.name ?? "매장 선택"
+    private let itemWidth: CGFloat = 112
+
+    private var viewportWidth: CGFloat {
+        CGFloat(min(max(shops.count, 1), 2)) * itemWidth + 4
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            switchButton(
-                title: "이전 매장",
-                systemImage: "chevron.left",
-                offset: -1
-            )
-
-            Button {
-                isShopListPresented = true
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "cup.and.saucer.fill")
-                        .font(.caption)
-                        .foregroundStyle(AppPalette.brand)
-                    Text(selectedShopName)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.up")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
+        modeStrip
+            .frame(width: viewportWidth, height: 48)
+            .frame(maxWidth: .infinity)
+            .onAppear {
+                centeredShopID = selectedShopID
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("카페 매장 선택")
-            .accessibilityValue(selectedShopName)
-            .accessibilityHint("전체 매장 목록을 엽니다")
-            .accessibilityIdentifier("cafe.shop-thumb-switcher.current")
+            .onChange(of: selectedShopID) { _, newValue in
+                guard centeredShopID != newValue else { return }
+                withAnimation(.snappy) {
+                    centeredShopID = newValue
+                }
+            }
+            .sensoryFeedback(.selection, trigger: selectedShopID)
+    }
 
-            switchButton(
-                title: "다음 매장",
-                systemImage: "chevron.right",
-                offset: 1
-            )
+    @ViewBuilder
+    private var modeStrip: some View {
+        if #available(iOS 26, *), !reduceTransparency {
+            GlassEffectContainer(spacing: 8) {
+                modeScroll
+                    .background(.black.opacity(0.24), in: Capsule())
+                    .glassEffect(.clear.interactive(), in: .capsule)
+            }
+        } else {
+            modeScroll
+                .background(
+                    reduceTransparency ? AnyShapeStyle(Color(.secondarySystemBackground)) : AnyShapeStyle(.regularMaterial),
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule().stroke(.primary.opacity(0.1), lineWidth: 0.5)
+                }
         }
-        .padding(.horizontal, 2)
-        .frame(maxWidth: 380, minHeight: 44, maxHeight: 44)
-        .appGlassSurface(cornerRadius: 22, isInteractive: true)
-        .contentShape(Rectangle())
+    }
+
+    private var modeScroll: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(shops) { shop in
+                    modeButton(for: shop)
+                        .frame(width: itemWidth, height: 44)
+                        .id(shop.id)
+                }
+            }
+            .padding(2)
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
+        .scrollPosition(id: $centeredShopID, anchor: .center)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height),
-                          abs(value.translation.width) >= 44
+                    let translation = value.predictedEndTranslation
+                    guard abs(translation.width) > abs(translation.height),
+                          abs(translation.width) >= 44
                     else { return }
-                    selectAdjacentShop(offset: value.translation.width < 0 ? 1 : -1)
+                    selectAdjacentShop(offset: translation.width < 0 ? 1 : -1)
                 }
         )
-        .sheet(isPresented: $isShopListPresented) {
-            CafeShopSelectionSheet(
-                shops: shops,
-                selectedShopID: selectedShopID,
-                selectShop: selectShop
-            )
-            .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sensoryFeedback(.selection, trigger: selectedShopID)
+        .clipShape(Capsule())
+        .accessibilityIdentifier("cafe.shop-mode-switcher")
     }
 
-    private func switchButton(title: String, systemImage: String, offset: Int) -> some View {
-        Button {
-            selectAdjacentShop(offset: offset)
+    private func modeButton(for shop: Shop) -> some View {
+        let isSelected = shop.id == selectedShopID
+
+        return Button {
+            withAnimation(.snappy) {
+                if shop.id != selectedShopID {
+                    selectShop(shop.id)
+                }
+                centeredShopID = shop.id
+            }
         } label: {
-            Image(systemName: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 44, height: 44)
+            Text(CafeShopSwitcherPolicy.modeTitle(for: shop.name))
+                .font(.caption.weight(isSelected ? .bold : .medium))
+                .foregroundStyle(isSelected ? AppPalette.brand : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .allowsTightening(true)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(shops.count < 2)
-        .accessibilityLabel(title)
-        .accessibilityIdentifier("cafe.shop-thumb-switcher.\(offset < 0 ? "previous" : "next")")
+        .background {
+            if isSelected {
+                selectionSurface
+            }
+        }
+        .accessibilityLabel(shop.name)
+        .accessibilityValue(isSelected ? "선택됨" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isSelected ? "현재 매장" : "이 매장으로 변경")
+        .accessibilityIdentifier("cafe.shop-mode.\(shop.id)")
+        .accessibilityShowsLargeContentViewer {
+            Label(shop.name, systemImage: "cup.and.saucer.fill")
+        }
+    }
+
+    @ViewBuilder
+    private var selectionSurface: some View {
+        if #available(iOS 26, *), !reduceTransparency {
+            Color.clear
+                .glassEffect(
+                    .regular.interactive(),
+                    in: .capsule
+                )
+                .glassEffectID("cafe-selected-shop", in: selectionNamespace)
+        } else {
+            Capsule()
+                .fill(AppPalette.brand.opacity(reduceTransparency ? 0.22 : 0.14))
+                .overlay {
+                    Capsule().stroke(.primary.opacity(0.12), lineWidth: 0.5)
+                }
+        }
     }
 
     private func selectAdjacentShop(offset: Int) {
-        guard let id = CafeShopSwitcherPolicy.adjacentShopID(
+        guard let shopID = CafeShopSwitcherPolicy.adjacentShopID(
             in: shops,
             selectedShopID: selectedShopID,
             offset: offset
         ) else { return }
-        selectShop(id)
-    }
-}
-
-private struct CafeShopSelectionSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let shops: [Shop]
-    let selectedShopID: Int
-    let selectShop: (Int) -> Void
-
-    var body: some View {
-        NavigationStack {
-            List(shops) { shop in
-                Button {
-                    selectShop(shop.id)
-                    dismiss()
-                } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: "cup.and.saucer.fill")
-                            .frame(width: 32, height: 32)
-                            .foregroundStyle(shop.id == selectedShopID ? AppPalette.brand : .secondary)
-                            .background(.quaternary, in: Circle())
-
-                        Text(shop.name)
-                            .font(.body.weight(shop.id == selectedShopID ? .semibold : .regular))
-                            .foregroundStyle(.primary)
-
-                        Spacer(minLength: 12)
-
-                        if shop.id == selectedShopID {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(AppPalette.brand)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .frame(minHeight: 48)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(shop.name)
-                .accessibilityValue(shop.id == selectedShopID ? "선택됨" : "")
-            }
-            .navigationTitle("카페 매장")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("완료") { dismiss() }
-                }
-            }
+        withAnimation(.snappy) {
+            selectShop(shopID)
+            centeredShopID = shopID
         }
     }
 }
 
 #if DEBUG
-struct CafeShopThumbSwitcherFixtureView: View {
+struct CafeShopModeSwitcherFixtureView: View {
     @State private var selectedTab = 2
     @State private var selectedShopID = 5
 
@@ -478,14 +488,15 @@ struct CafeShopThumbSwitcherFixtureView: View {
                     .navigationTitle("카페")
                     .navigationBarTitleDisplayMode(.inline)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        CafeShopThumbSwitcher(
+                        CafeShopModeSwitcher(
                             shops: shops,
                             selectedShopID: selectedShopID,
                             selectShop: { selectedShopID = $0 }
                         )
+                        .frame(maxWidth: .infinity)
                         .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
+                        .padding(.top, 4)
+                        .padding(.bottom, 8)
                     }
                 }
             }

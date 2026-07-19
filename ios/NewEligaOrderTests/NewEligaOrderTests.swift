@@ -3,7 +3,13 @@ import XCTest
 
 @MainActor
 final class NewEligaOrderTests: XCTestCase {
-    func testCafeShopSwitcherCyclesInBothDirections() throws {
+    func testCafeShopSwitcherUsesCompactCameraStyleTitles() {
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "카카오 판교 아지트 카페"), "판교 아지트")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "카카오 AI 캠퍼스 카페"), "AI 캠퍼스")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "독립 매장"), "독립 매장")
+    }
+
+    func testCafeShopSwitcherMovesExactlyOneModePerSwipe() {
         let shops = [
             Shop(id: 5, name: "본사", kind: .cafe, isOpen: true),
             Shop(id: 6, name: "서초", kind: .cafe, isOpen: true),
@@ -11,15 +17,8 @@ final class NewEligaOrderTests: XCTestCase {
         ]
 
         XCTAssertEqual(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: 1), 6)
-        XCTAssertEqual(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: -1), 8)
-        XCTAssertEqual(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 8, offset: 1), 5)
-    }
-
-    func testCafeShopSwitcherDoesNothingWithOneShopOrUnknownSelection() {
-        let shop = Shop(id: 5, name: "본사", kind: .cafe, isOpen: true)
-
-        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: [shop], selectedShopID: 5, offset: 1))
-        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: [shop, shop], selectedShopID: 9, offset: 1))
+        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: -1))
+        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 8, offset: 1))
     }
 
     func testCafeSearchHistoryPersistsNewestFirstAndDeduplicates() throws {

@@ -114,13 +114,15 @@ struct CafeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !isSearchActive, store.cafeShops.count > 1 {
-                CafeShopThumbSwitcher(
+                CafeShopModeSwitcher(
                     shops: store.cafeShops,
                     selectedShopID: activeShopID,
                     selectShop: selectShop
                 )
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 12)
                 .padding(.top, 4)
+                .padding(.bottom, 8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }

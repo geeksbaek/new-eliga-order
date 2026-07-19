@@ -181,31 +181,43 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
-    func testCafeThumbSwitcherChangesShopWithOneTap() throws {
+    func testCafeModeSwitcherChangesShopBySwipeAndTap() throws {
         let app = XCUIApplication()
         app.launchArguments += [
-            "-ui-testing-cafe-thumb-switcher",
+            "-ui-testing-cafe-mode-switcher",
             "-AppleInterfaceStyle", "Dark",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
         ]
         app.launch()
 
-        let currentShop = app.buttons["cafe.shop-thumb-switcher.current"]
-        let nextShop = app.buttons["cafe.shop-thumb-switcher.next"]
-        XCTAssertTrue(currentShop.waitForExistence(timeout: 5))
-        XCTAssertTrue(nextShop.exists)
-        XCTAssertEqual(currentShop.value as? String, "카카오 판교 아지트 카페")
-        assertFullyVisible(currentShop, in: app)
-        assertFullyVisible(nextShop, in: app)
+        let firstShop = app.buttons["cafe.shop-mode.5"]
+        let secondShop = app.buttons["cafe.shop-mode.6"]
+        let thirdShop = app.buttons["cafe.shop-mode.8"]
+        XCTAssertTrue(firstShop.waitForExistence(timeout: 5))
+        XCTAssertTrue(secondShop.exists)
+        XCTAssertTrue(thirdShop.exists)
+        XCTAssertEqual(firstShop.value as? String, "선택됨")
+        assertFullyVisible(firstShop, in: app)
 
-        nextShop.tap()
-        XCTAssertEqual(currentShop.value as? String, "카카오 제주 스페이스 카페")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.exists)
+        XCTAssertGreaterThanOrEqual(
+            tabBar.frame.minY - firstShop.frame.maxY,
+            8,
+            "매장 스위처와 하단 GNB 사이에는 표준 8pt 간격이 필요합니다."
+        )
 
-        currentShop.tap()
-        let thirdShop = app.buttons["카카오 AI 캠퍼스 카페"]
-        XCTAssertTrue(thirdShop.waitForExistence(timeout: 2))
+        let modeSwitcher = app.scrollViews["cafe.shop-mode-switcher"]
+        XCTAssertTrue(modeSwitcher.exists)
+        modeSwitcher.swipeLeft()
+        let swipeSelection = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "선택됨"),
+            object: secondShop
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [swipeSelection], timeout: 2), .completed)
+
         thirdShop.tap()
-        XCTAssertEqual(currentShop.value as? String, "카카오 AI 캠퍼스 카페")
+        XCTAssertEqual(thirdShop.value as? String, "선택됨")
 
         attachScreenshot(of: app, name: "한 손 카페 매장 스위처")
         try app.performAccessibilityAudit(

@@ -23,8 +23,8 @@ struct NewEligaOrderApp: App {
                     CafeHolidayFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-shop-picker") {
                     CafeShopPickerFixtureView()
-                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-thumb-switcher") {
-                    CafeShopThumbSwitcherFixtureView()
+                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-mode-switcher") {
+                    CafeShopModeSwitcherFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-dining-detail") {
                     DiningMenuDetailFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-dining-personalization") {
