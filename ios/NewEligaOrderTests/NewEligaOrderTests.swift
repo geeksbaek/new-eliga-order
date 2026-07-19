@@ -9,6 +9,17 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "독립 매장"), "독립 매장")
     }
 
+    func testCafeShopSwitcherNormalizesRealShopNamesToFloorOnly() {
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "춘식도락 with in the box(4F)"), "4F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafe 3F"), "3F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafe 5F"), "5F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafe 5F b"), "5F b")
+        // Same floor label with the precomposed diacritic the backend
+        // actually sends ("kafé", U+00E9), and uppercase wing letters.
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafé 5F"), "5F")
+        XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafé 5F B"), "5F b")
+    }
+
     func testCafeShopSwitcherMovesExactlyOneModePerSwipe() {
         let shops = [
             Shop(id: 5, name: "본사", kind: .cafe, isOpen: true),

@@ -27,6 +27,10 @@ struct CafeView: View {
     @State private var loadedShopIDs: Set<Int> = []
     @State private var menuScrollPosition = ScrollPosition(idType: Int.self)
     @State private var menuScrollPositionsByShop: [Int: ScrollPosition] = [:]
+    /// Suppresses the custom loading indicators while `.refreshable`'s own
+    /// pull-to-refresh spinner is visible, so the two don't show up doubled.
+    @State private var isPullRefreshing = false
+    @State private var isSearchPullRefreshing = false
 
     init(
         initialShopID: Int?,
@@ -271,9 +275,13 @@ struct CafeView: View {
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 1)
         .scrollPosition($menuScrollPosition)
-        .refreshable { await load(shopID: activeShopID, replacingContent: false, forceRefresh: true) }
+        .refreshable {
+            isPullRefreshing = true
+            await load(shopID: activeShopID, replacingContent: false, forceRefresh: true)
+            isPullRefreshing = false
+        }
         .overlay(alignment: .top) {
-            if isLoading {
+            if isLoading && !isPullRefreshing {
                 ProgressView()
                     .controlSize(.small)
                     .padding(8)
@@ -301,7 +309,7 @@ struct CafeView: View {
 
     private var allShopSearchList: some View {
         List {
-            if isLoadingAllShopMenus {
+            if isLoadingAllShopMenus && !isSearchPullRefreshing {
                 Section {
                     HStack(spacing: 10) {
                         ProgressView()
@@ -344,7 +352,11 @@ struct CafeView: View {
         }
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 1)
-        .refreshable { await loadAllShopMenus(force: true) }
+        .refreshable {
+            isSearchPullRefreshing = true
+            await loadAllShopMenus(force: true)
+            isSearchPullRefreshing = false
+        }
         .appScrollEdgeStyle()
     }
 

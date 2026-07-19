@@ -297,7 +297,25 @@ enum CafeShopSwitcherPolicy {
         return shops[nextIndex].id
     }
 
+    /// Normalizes a shop's raw name down to just its floor label for the
+    /// compact mode-switcher chip — e.g. `"춘식도락 with in the box(4F)"` →
+    /// `"4F"`, `"kafé 5F"` → `"5F"`, `"kafé 5F b"` → `"5F b"` (the 5th floor
+    /// has two cafes, in the main building and the "b" wing). Falls back to
+    /// the legacy "strip 카카오 prefix / 카페 suffix" trimming for names
+    /// without a floor number.
     static func modeTitle(for shopName: String) -> String {
+        // Real shop names can carry a combining/precomposed diacritic (e.g.
+        // "kafé") that isn't relevant to the floor pattern — fold it away
+        // before matching.
+        let folded = shopName.folding(options: .diacriticInsensitive, locale: nil) as NSString
+        if let regex = try? NSRegularExpression(pattern: #"(\d+)\s*[Ff]\s*([a-zA-Z])?"#),
+           let match = regex.firstMatch(in: folded as String, range: NSRange(location: 0, length: folded.length)) {
+            let floor = folded.substring(with: match.range(at: 1))
+            let wingRange = match.range(at: 2)
+            guard wingRange.location != NSNotFound else { return "\(floor)F" }
+            return "\(floor)F \(folded.substring(with: wingRange).lowercased())"
+        }
+
         var title = shopName.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.hasPrefix("카카오 ") {
             title.removeFirst("카카오 ".count)
@@ -513,9 +531,12 @@ struct CafeShopModeSwitcherFixtureView: View {
     @State private var isSearchPresented = false
 
     private let shops = [
-        Shop(id: 5, name: "카카오 판교 아지트 카페", kind: .cafe, isOpen: true),
-        Shop(id: 6, name: "카카오 제주 스페이스 카페", kind: .cafe, isOpen: true),
-        Shop(id: 8, name: "카카오 AI 캠퍼스 카페", kind: .cafe, isOpen: true),
+        // Real backend shop names, exercised here so the fixture matches
+        // what CafeShopSwitcherPolicy.modeTitle actually normalizes in
+        // production ("kafé" arrives with a precomposed diacritic).
+        Shop(id: 5, name: "춘식도락 with in the box(4F)", kind: .cafe, isOpen: true),
+        Shop(id: 6, name: "kafé 3F", kind: .cafe, isOpen: true),
+        Shop(id: 8, name: "kafé 5F b", kind: .cafe, isOpen: true),
     ]
 
     var body: some View {
