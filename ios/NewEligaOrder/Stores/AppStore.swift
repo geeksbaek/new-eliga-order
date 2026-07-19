@@ -44,6 +44,8 @@ final class AppStore {
     private(set) var favorites: Set<FavoriteMenu>
     private(set) var diningPreferenceText: String
     private(set) var diningAllergies: String
+    private(set) var cafePushPreferences: CafePushPreferences = .enabled
+    private(set) var isUpdatingCafePushPreferences = false
     private(set) var isBootstrapping = false
     private(set) var quickOrderSession: QuickOrderSession?
     var selectedShopID: Int?
@@ -140,6 +142,7 @@ final class AppStore {
         defer { isBootstrapping = false }
         do {
             try await recoverQuickOrderIfNeeded()
+            await syncCafePushPreferences(applyDefaults: true)
             let loadedShops = try await api.fetchShops()
             shops = loadedShops.map { shop in
                 if shop.id == 7 { return Shop(id: shop.id, name: shop.name, kind: .cafeteria, isOpen: shop.isOpen) }
@@ -158,6 +161,52 @@ final class AppStore {
             return
         } catch {
             globalError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func syncCafePushPreferences(applyDefaults: Bool = false) async {
+        guard authenticationState == .authenticated else { return }
+        do {
+            let registrationToken = PushTokenStore.registrationToken
+            let shouldApplyDefaults = applyDefaults && !preferences.hasAppliedCafePushDefaults(
+                accountID: userIDHint,
+                registrationToken: registrationToken
+            )
+            if shouldApplyDefaults {
+                _ = await PushNotificationCoordinator.requestAuthorizationIfNeeded()
+                cafePushPreferences = try await api.updateCafePushPreferences(.enabled)
+                preferences.markCafePushDefaultsApplied(
+                    accountID: userIDHint,
+                    registrationToken: registrationToken
+                )
+            } else {
+                cafePushPreferences = try await api.fetchCafePushPreferences()
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            // 카페 메뉴 등 핵심 화면은 알림 서버가 일시적으로 실패해도 계속 사용할 수 있어야 한다.
+        }
+    }
+
+    func updateCafePushPreferences(_ updated: CafePushPreferences) async throws {
+        guard authenticationState == .authenticated else { return }
+        if updated.appOrdersEnabled || updated.kioskOrdersEnabled {
+            _ = await PushNotificationCoordinator.requestAuthorizationIfNeeded()
+        }
+        let previous = cafePushPreferences
+        cafePushPreferences = updated
+        isUpdatingCafePushPreferences = true
+        defer { isUpdatingCafePushPreferences = false }
+        do {
+            cafePushPreferences = try await api.updateCafePushPreferences(updated)
+            preferences.markCafePushDefaultsApplied(
+                accountID: userIDHint,
+                registrationToken: PushTokenStore.registrationToken
+            )
+        } catch {
+            cafePushPreferences = previous
             throw error
         }
     }

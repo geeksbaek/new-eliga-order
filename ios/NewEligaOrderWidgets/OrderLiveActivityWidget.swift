@@ -17,8 +17,10 @@ struct OrderLiveActivityWidget: Widget {
                         .foregroundStyle(phaseColor(context.state.phase))
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.attributes.total, format: .currency(code: "KRW").precision(.fractionLength(0)))
-                        .font(.caption.monospacedDigit().weight(.semibold))
+                    if context.attributes.total > 0 {
+                        Text(context.attributes.total, format: .currency(code: "KRW").precision(.fractionLength(0)))
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                    }
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text(context.state.statusText)
@@ -117,8 +119,10 @@ private struct OrderLiveActivityLockScreenView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 12)
-                Text(context.attributes.total, format: .currency(code: "KRW").precision(.fractionLength(0)))
-                    .font(.headline.monospacedDigit())
+                if context.attributes.total > 0 {
+                    Text(context.attributes.total, format: .currency(code: "KRW").precision(.fractionLength(0)))
+                        .font(.headline.monospacedDigit())
+                }
             }
         }
         .padding(16)

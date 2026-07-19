@@ -1503,10 +1503,13 @@ final class NewEligaOrderTests: XCTestCase {
     }
 
     func testOrderActivityPhaseMapsTerminalStates() {
-        XCTAssertEqual(OrderActivityPhase(statusCode: "ORDER_RECEPTION"), .submitted)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "WAITING_FOR_ORDER"), .submitted)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "ORDER_RECEPTION"), .preparing)
         XCTAssertEqual(OrderActivityPhase(statusCode: "WAITING_FOR_PICKUP"), .ready)
         XCTAssertEqual(OrderActivityPhase(statusCode: "PICKUP_COMPLETE"), .completed)
         XCTAssertEqual(OrderActivityPhase(statusCode: "ORDER_CANCELLED"), .cancelled)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "WITHDRAW_ORDER"), .cancelled)
+        XCTAssertEqual(OrderActivityPhase(statusCode: "PAY_FAIL"), .cancelled)
         XCTAssertTrue(OrderActivityPhase(statusCode: "ORDER_COMPLETE").isTerminal)
         XCTAssertFalse(OrderActivityPhase(statusCode: "PREPARING").isTerminal)
     }
@@ -1523,6 +1526,48 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(values.orderID, 91)
         XCTAssertEqual(values.orderNumber, "B-91")
         XCTAssertEqual(values.status, "WAITING_FOR_PICKUP")
+    }
+
+    func testOfficialCafePushPayloadMapsOrderAndShop() {
+        let values = PushNotificationCoordinator.orderValues(from: [
+            "pushType": "CAFE_KIOSK_ORDER",
+            "orderId": "314",
+            "shopId": "5",
+            "userId": "user@example.com",
+        ])
+
+        XCTAssertTrue(values.isCafeOrderPush)
+        XCTAssertEqual(values.pushType, "CAFE_KIOSK_ORDER")
+        XCTAssertEqual(values.orderID, 314)
+        XCTAssertEqual(values.shopID, 5)
+    }
+
+    func testRemotePushPayloadDecodesJSONStringData() {
+        let values = PushNotificationCoordinator.orderValues(from: [
+            "data": #"{"pushType":"CAFE_MOBILE_ORDER","orderId":91,"orderStatus":"WAITING_FOR_PICKUP","orderNo":"B-91","shopName":"본사 카페","goodsName":"아이스 라떼","totalSalesPrice":4500}"#,
+        ])
+
+        XCTAssertTrue(values.isCafeOrderPush)
+        XCTAssertEqual(values.orderID, 91)
+        XCTAssertEqual(values.status, "WAITING_FOR_PICKUP")
+        XCTAssertEqual(values.orderNumber, "B-91")
+        XCTAssertEqual(values.shopName, "본사 카페")
+        XCTAssertEqual(values.itemSummary, "아이스 라떼")
+        XCTAssertEqual(values.total, 4_500)
+    }
+
+    func testCafePushDefaultsAreScopedToAccountAndRegistrationToken() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-push-default-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = PreferencesStore(defaults: defaults)
+
+        XCTAssertFalse(preferences.hasAppliedCafePushDefaults(accountID: "User@example.com", registrationToken: "token-a"))
+        preferences.markCafePushDefaultsApplied(accountID: "User@example.com", registrationToken: "token-a")
+
+        XCTAssertTrue(preferences.hasAppliedCafePushDefaults(accountID: "user@example.com", registrationToken: "token-a"))
+        XCTAssertFalse(preferences.hasAppliedCafePushDefaults(accountID: "user@example.com", registrationToken: "token-b"))
+        XCTAssertFalse(preferences.hasAppliedCafePushDefaults(accountID: "other@example.com", registrationToken: "token-a"))
     }
 
     func testOrderMonitoringStoragePersistsAndRemovesTrackedOrder() throws {

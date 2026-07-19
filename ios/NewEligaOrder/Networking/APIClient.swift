@@ -45,7 +45,7 @@ final class APIClient {
             "userId": .string(userID),
             "password": .string(password),
             "brandCode": .string(Self.brandCode),
-            "fcmToken": .string(PushTokenStore.deviceToken ?? "ios-native-new-eliga-order"),
+            "fcmToken": .string(PushTokenStore.registrationToken),
         ])
         let json = try await request(
             path: "customer/sign-in",

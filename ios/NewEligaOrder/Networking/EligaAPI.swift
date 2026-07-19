@@ -322,6 +322,38 @@ final class EligaAPI {
         )
     }
 
+    func fetchCafePushPreferences() async throws -> CafePushPreferences {
+        let customer = try await client.request(path: "customer/me", forceNetwork: true).content
+        return Self.cafePushPreferences(from: customer["customerPush"])
+    }
+
+    func updateCafePushPreferences(_ preferences: CafePushPreferences) async throws -> CafePushPreferences {
+        let customer = try await client.request(path: "customer/me", forceNetwork: true).content
+        let existing = customer["customerPush"].objectValue
+        let acceptedKeys = [
+            "rfidBarcodeYn",
+            "boardPushYn",
+            "surveyPushYn",
+            "cafeAppPushYn",
+            "cafeKioskPushYn",
+            "satisPushYn",
+            "favoriteMenuPushYn",
+        ]
+        var body = existing.filter { acceptedKeys.contains($0.key) }
+        body["cafeAppPushYn"] = .bool(preferences.appOrdersEnabled)
+        body["cafeKioskPushYn"] = .bool(preferences.kioskOrdersEnabled)
+
+        let raw = try await client.request(
+            path: "mobile-device/\(PushTokenStore.registrationToken)",
+            method: "PUT",
+            body: .object(body),
+            forceNetwork: true
+        )
+        let updated = raw.content
+        guard !updated.objectValue.isEmpty else { return preferences }
+        return Self.cafePushPreferences(from: updated)
+    }
+
     func fetchOrderStatus(orderID: Int) async throws -> OrderStatusSnapshot {
         let raw = try await client.request(path: "goods/order/status/\(orderID)")
         let direct = EligaMapper.orderStatus(raw, fallbackOrderID: orderID)
@@ -335,6 +367,13 @@ final class EligaAPI {
             )
         }
         return direct
+    }
+
+    private static func cafePushPreferences(from raw: JSONValue) -> CafePushPreferences {
+        CafePushPreferences(
+            appOrdersEnabled: raw["cafeAppPushYn"].boolValue,
+            kioskOrdersEnabled: raw["cafeKioskPushYn"].boolValue
+        )
     }
 
     func fetchRecentOrders(shopID: Int, forceRefresh: Bool = false) async throws -> [CafeQuickItem] {
