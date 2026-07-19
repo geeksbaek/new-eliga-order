@@ -13,6 +13,7 @@ struct DiningView: View {
     @State private var errorMessage: String?
     @State private var showsPreferences = false
     @State private var menuScrollPosition = ScrollPosition(idType: String.self)
+    @State private var preferenceFeedbackToken = 0
 
     var body: some View {
         Group {
@@ -86,6 +87,7 @@ struct DiningView: View {
                                             systemImage: isExactPreference ? "minus.circle" : "sparkles"
                                         ) {
                                             store.toggleDiningPreference(named: menuName)
+                                            preferenceFeedbackToken += 1
                                         }
                                     }
                                     .accessibilityHint("메뉴 상세 정보를 엽니다")
@@ -136,6 +138,7 @@ struct DiningView: View {
             menuScrollPosition = ScrollPosition(idType: String.self)
         }
         .sensoryFeedback(.selection, trigger: date)
+        .sensoryFeedback(.selection, trigger: preferenceFeedbackToken)
         .sheet(isPresented: $showsPreferences) {
             DiningPreferencesSheet(
                 currentPreference: store.diningPreferenceText,
@@ -264,10 +267,13 @@ struct DiningPersonalizationLabels: View {
     /// already announces "추천 메뉴"/"비추천 메뉴" via its own accessibility
     /// value, so this chip stays hidden from VoiceOver to avoid repeating it.
     private func iconChip(systemImage: String, color: Color) -> some View {
+        // Padding matches MenuLabelBadge's compact vertical padding (2pt) —
+        // any more and the chip becomes taller than the row's own text,
+        // stretching the whole row to fit it.
         Image(systemName: systemImage)
             .font(.caption2.weight(.bold))
             .foregroundStyle(.primary)
-            .padding(6)
+            .padding(2)
             .background(color.opacity(0.18), in: Circle())
             .accessibilityHidden(true)
     }
