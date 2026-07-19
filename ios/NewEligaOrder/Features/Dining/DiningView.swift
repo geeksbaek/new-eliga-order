@@ -9,6 +9,7 @@ struct DiningView: View {
     @State private var periods: [DiningPeriod] = []
     @State private var preparations: [String: DiningMenuPreparation] = [:]
     @State private var isLoading = false
+    @State private var isPreparing = false
     @State private var errorMessage: String?
     @State private var showsPreferences = false
     @State private var loadedRequestKeys: Set<String> = []
@@ -17,13 +18,30 @@ struct DiningView: View {
     var body: some View {
         Group {
             if isLoading && periods.isEmpty {
-                LoadingContentView(title: "식단과 맞춤 추천을 준비하는 중…")
+                LoadingContentView(title: "식단을 불러오는 중…")
             } else if let errorMessage, periods.isEmpty {
                 FailureContentView(message: errorMessage) { Task { await load(replacingContent: true) } }
             } else if periods.isEmpty {
                 ContentUnavailableView("등록된 식단이 없습니다", systemImage: "fork.knife")
             } else {
                 List {
+                    if isPreparing {
+                        Section {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("메뉴 정보를 준비하는 중…")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("기본 식단은 지금 바로 확인할 수 있어요.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("메뉴 정보를 준비하는 중입니다. 기본 식단은 확인할 수 있습니다.")
+                        }
+                    }
+
                     ForEach(periods) { period in
                         Section {
                             ForEach(period.courses) { course in
@@ -47,7 +65,7 @@ struct DiningView: View {
                                             courseName: course.name,
                                             congestion: course.congestion,
                                             isSoldOut: meal.isSoldOut || course.isSoldOut,
-                                            sideDishSummary: preparation?.sideDishSummary ?? "",
+                                            sideDishSummary: preparation?.sideDishSummary ?? meal.information,
                                             personalization: personalization
                                         )
                                     }
@@ -131,6 +149,7 @@ struct DiningView: View {
         let requestedDate = AppFormat.apiDate(date)
         let requestedKey = requestKey
         isLoading = true
+        isPreparing = false
         if replacingContent {
             periods = []
             preparations = [:]
@@ -140,19 +159,32 @@ struct DiningView: View {
         }
         errorMessage = nil
         do {
-            let loaded = try await store.preparedDiningDay(
+            let rawPeriods = try await store.diningDay(
                 shopID: shopID,
                 date: date,
                 forceRefresh: forceRefresh
             )
             guard !Task.isCancelled, requestedKey == requestKey else { return }
-            periods = loaded.periods
-            preparations = loaded.preparations
-            loadedRequestKeys.insert(requestedKey)
+            periods = rawPeriods
+            isLoading = false
             ImagePipeline.shared.preload(
-                periods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL),
+                rawPeriods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL),
                 targetSize: 72
             )
+
+            if let cached = await store.cachedPreparedDiningDay(periods: rawPeriods) {
+                guard !Task.isCancelled, requestedKey == requestKey else { return }
+                preparations = cached.preparations
+                loadedRequestKeys.insert(requestedKey)
+                return
+            }
+
+            isPreparing = !rawPeriods.isEmpty
+            let loaded = await store.prepareDiningDay(periods: rawPeriods)
+            guard !Task.isCancelled, requestedKey == requestKey else { return }
+            preparations = loaded.preparations
+            isPreparing = false
+            loadedRequestKeys.insert(requestedKey)
         } catch is CancellationError {
             return
         } catch {
@@ -179,6 +211,7 @@ struct DiningView: View {
             startTime: period.startTime,
             endTime: period.endTime,
             date: date,
+            shopID: shopID,
             preparedSurface: preparation?.dynamicSurface,
             personalization: preparation?.personalization
         )

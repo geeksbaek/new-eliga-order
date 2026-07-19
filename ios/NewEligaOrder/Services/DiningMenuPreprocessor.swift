@@ -12,6 +12,22 @@ struct DiningMenuPersonalization: Codable, Hashable, Sendable {
     let recommendation: DiningRecommendationState
     let reason: String?
     let hasAllergyWarning: Bool
+    let positiveComponents: [String]
+    let negativeComponents: [String]
+
+    init(
+        recommendation: DiningRecommendationState,
+        reason: String?,
+        hasAllergyWarning: Bool,
+        positiveComponents: [String] = [],
+        negativeComponents: [String] = []
+    ) {
+        self.recommendation = recommendation
+        self.reason = reason
+        self.hasAllergyWarning = hasAllergyWarning
+        self.positiveComponents = positiveComponents
+        self.negativeComponents = negativeComponents
+    }
 }
 
 struct DiningMenuPreparation: Hashable, Sendable {
@@ -27,9 +43,32 @@ struct PreparedDiningDay: Hashable, Sendable {
 
 enum DiningPreparationKey {
     static func make(period: DiningPeriod, course: DiningCourse, meal: DiningMenuItem) -> String {
-        let identity = "\(period.id)|\(course.id)|\(meal.id)"
+        make(periodID: period.id, courseID: course.id, mealID: meal.id)
+    }
+
+    static func make(periodID: String, courseID: String, mealID: String) -> String {
+        let identity = "\(periodID)|\(courseID)|\(mealID)"
         let digest = SHA256.hash(data: Data(identity.utf8))
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+enum DiningPreloadPolicy {
+    static func dates(relativeTo referenceDate: Date, calendar: Calendar = .autoupdatingCurrent) -> [Date] {
+        let today = calendar.startOfDay(for: referenceDate)
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) else { return [today] }
+        return [today, tomorrow]
+    }
+}
+
+enum DiningPersonalizationPolicy {
+    static func hasPreference(_ preference: String) -> Bool {
+        !preference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func hasAnyConfiguration(preference: String, allergies: String) -> Bool {
+        hasPreference(preference)
+            || !allergies.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -71,18 +110,24 @@ enum DiningPersonalizationFallback {
             let menuName = normalized(candidate.menuName)
             let components = candidate.components
                 .components(separatedBy: CharacterSet(charactersIn: ",\n;/ ·"))
-                .map(normalized)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
+            let normalizedComponents = components.map { (value: $0, normalized: normalized($0)) }
+            let positiveMatches = matchedComponents(
+                in: normalizedComponents,
+                terms: positiveTerms + explicitTerms
+            )
+            let negativeMatches = matchedComponents(in: normalizedComponents, terms: negativeTerms)
             let positive = (positiveTerms + explicitTerms).contains { term in
                 let normalizedTerm = normalized(term)
                 return menuName.contains(normalizedTerm)
-                    || components.contains(where: { $0.contains(normalizedTerm) })
+                    || normalizedComponents.contains(where: { $0.normalized.contains(normalizedTerm) })
             }
             let negative = negativeTerms.contains { term in
                 let normalizedTerm = normalized(term)
                 if menuName.contains(normalizedTerm) { return true }
-                let matchingComponents = components.filter { $0.contains(normalizedTerm) }.count
-                return !components.isEmpty && matchingComponents * 2 >= components.count
+                let matchingComponents = normalizedComponents.filter { $0.normalized.contains(normalizedTerm) }.count
+                return !normalizedComponents.isEmpty && matchingComponents * 2 >= normalizedComponents.count
             }
             let recommendation: DiningRecommendationState
             if negative {
@@ -99,10 +144,22 @@ enum DiningPersonalizationFallback {
                 DiningMenuPersonalization(
                     recommendation: recommendation,
                     reason: nil,
-                    hasAllergyWarning: hasAllergyWarning
+                    hasAllergyWarning: hasAllergyWarning,
+                    positiveComponents: positiveMatches,
+                    negativeComponents: negativeMatches
                 )
             )
         }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private static func matchedComponents(
+        in components: [(value: String, normalized: String)],
+        terms: [String]
+    ) -> [String] {
+        let normalizedTerms = terms.map(normalized).filter { !$0.isEmpty }
+        return components.compactMap { component in
+            normalizedTerms.contains(where: { component.normalized.contains($0) }) ? component.value : nil
+        }
     }
 
     private static func preferenceTerms(in text: String, markers: String) -> [String] {
@@ -156,10 +213,12 @@ actor DiningMenuPersonalizationService {
 
         단순 키워드 일치만으로 과도하게 판단하지 않는다. 사용자가 메뉴명만 입력해도 취향으로 해석한다. 모든 메뉴를 빠짐없이 반환하고 menuID는 입력값을 그대로 복사한다. reason은 근거가 명확할 때만 30자 이내로 작성하며 음식이나 사실을 새로 만들지 않는다.
 
+        recommended이면 선호 판단의 직접 근거가 된 메뉴 구성명만 positiveComponents에 입력값 그대로 반환한다. notRecommended이면 비선호 판단의 직접 근거가 된 메뉴 구성명만 negativeComponents에 입력값 그대로 반환한다. 근거가 아니거나 입력 메뉴 구성에 없는 항목은 반환하지 않는다.
+
         알러지는 추천 여부와 독립적으로 판단한다. 사용자가 입력한 알러지 유발 음식과 메뉴명 또는 메뉴 구성의 관련성이 있으면 hasAllergyWarning을 true로 한다. 알러지 입력이 비어 있으면 항상 false다. 의학적 안전을 보장한다고 표현하지 않는다.
         """
 
-    private let cacheDefaultsKey = "dining-menu-personalization-v1"
+    private let cacheDefaultsKey = "dining-menu-personalization-v2"
     private var cache: [String: [String: DiningMenuPersonalization]]
 
     private init() {
@@ -187,8 +246,10 @@ actor DiningMenuPersonalizationService {
         guard !candidates.isEmpty else { return [:] }
         let key = cacheKey(candidates: candidates, preference: preference, allergies: allergies)
         if let cached = cache[key] { return cached }
-        guard !preference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !allergies.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard DiningPersonalizationPolicy.hasAnyConfiguration(
+            preference: preference,
+            allergies: allergies
+        )
         else { return fallback }
         guard #available(iOS 26.0, *), FoundationModelRuntimePolicy.isEnabled else { return fallback }
         var generatedItems: [GeneratedDiningPersonalization] = []
@@ -211,9 +272,12 @@ actor DiningMenuPersonalizationService {
         )
         let normalized = Dictionary(candidates.map { candidate in
             guard let item = generatedByID[candidate.id],
-                  let recommendation = DiningRecommendationState(rawValue: item.recommendation)
+                  let generatedRecommendation = DiningRecommendationState(rawValue: item.recommendation)
             else { return (candidate.id, fallback[candidate.id]!) }
             let reason = item.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            let recommendation = DiningPersonalizationPolicy.hasPreference(preference)
+                ? generatedRecommendation
+                : .neutral
             return (
                 candidate.id,
                 DiningMenuPersonalization(
@@ -221,7 +285,15 @@ actor DiningMenuPersonalizationService {
                     reason: reason.isEmpty ? nil : String(reason.prefix(30)),
                     hasAllergyWarning: allergies.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? false
-                        : item.hasAllergyWarning
+                        : item.hasAllergyWarning,
+                    positiveComponents: verifiedComponents(
+                        item.positiveComponents,
+                        in: candidate.components
+                    ),
+                    negativeComponents: verifiedComponents(
+                        item.negativeComponents,
+                        in: candidate.components
+                    )
                 )
             )
         }, uniquingKeysWith: { first, _ in first })
@@ -231,6 +303,25 @@ actor DiningMenuPersonalizationService {
             UserDefaults.standard.set(data, forKey: cacheDefaultsKey)
         }
         return normalized
+    }
+
+    private func verifiedComponents(_ generated: [String], in source: String) -> [String] {
+        let sourceComponents = source
+            .components(separatedBy: CharacterSet(charactersIn: ",\n;/ ·"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let generatedKeys = Set(generated.map(normalizedComponent).filter { !$0.isEmpty })
+        return sourceComponents.filter { component in
+            let key = normalizedComponent(component)
+            guard !key.isEmpty else { return false }
+            return generatedKeys.contains(where: { key.contains($0) || $0.contains(key) })
+        }
+    }
+
+    private func normalizedComponent(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"[^가-힣A-Za-z0-9]"#, with: "", options: .regularExpression)
+            .lowercased()
     }
 
     private func cacheKey(
@@ -274,6 +365,12 @@ private struct GeneratedDiningPersonalization: Sendable {
 
     @Guide(description: "사용자 알러지와 메뉴가 관련되면 true")
     var hasAllergyWarning: Bool
+
+    @Guide(description: "선호 판단 근거인 메뉴 구성명을 입력값 그대로 반환", .maximumCount(12))
+    var positiveComponents: [String]
+
+    @Guide(description: "비선호 판단 근거인 메뉴 구성명을 입력값 그대로 반환", .maximumCount(12))
+    var negativeComponents: [String]
 }
 
 @available(iOS 26.0, *)
@@ -344,6 +441,14 @@ actor DiningMenuPreprocessor {
         return prepared
     }
 
+    func cached(
+        periods: [DiningPeriod],
+        preference: String,
+        allergies: String
+    ) -> PreparedDiningDay? {
+        cachedDays[dayKey(periods: periods, preference: preference, allergies: allergies)]
+    }
+
     private static func build(
         periods: [DiningPeriod],
         preference: String,
@@ -393,19 +498,27 @@ actor DiningMenuPreprocessor {
             }
         }
 
-        let personalizationTask = Task {
-            await DiningMenuPersonalizationService.shared.classify(
-                candidates: sources.map(\.candidate),
-                preference: preference,
-                allergies: allergies
-            )
+        let personalizationTask: Task<[String: DiningMenuPersonalization], Never>?
+        if DiningPersonalizationPolicy.hasAnyConfiguration(
+            preference: preference,
+            allergies: allergies
+        ) {
+            personalizationTask = Task {
+                await DiningMenuPersonalizationService.shared.classify(
+                    candidates: sources.map(\.candidate),
+                    preference: preference,
+                    allergies: allergies
+                )
+            }
+        } else {
+            personalizationTask = nil
         }
         var surfaces: [String: DiningDynamicUISurface] = [:]
         for source in sources {
             guard !Task.isCancelled else { break }
             surfaces[source.key] = await DiningMenuDynamicUIStructurer.shared.surface(for: source.input)
         }
-        let personalizations = await personalizationTask.value
+        let personalizations = await personalizationTask?.value ?? [:]
         let fallback = DiningPersonalizationFallback.classify(
             candidates: sources.map(\.candidate),
             preference: preference,

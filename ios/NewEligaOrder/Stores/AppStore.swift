@@ -196,8 +196,13 @@ final class AppStore {
         guard authenticationState == .authenticated else { return }
         var imageURLs: [URL] = []
 
-        if let dining = try? await preparedDiningDay(shopID: diningShopID, date: .now) {
-            imageURLs.append(contentsOf: dining.periods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL))
+        for preloadDate in DiningPreloadPolicy.dates(relativeTo: .now) {
+            guard !Task.isCancelled else { return }
+            if let dining = try? await preparedDiningDay(shopID: diningShopID, date: preloadDate) {
+                imageURLs.append(
+                    contentsOf: dining.periods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL)
+                )
+            }
         }
 
         for shop in cafeShops {
@@ -311,13 +316,38 @@ final class AppStore {
         date: Date,
         forceRefresh: Bool = false
     ) async throws -> PreparedDiningDay {
+        let periods = try await diningDay(
+            shopID: shopID,
+            date: date,
+            forceRefresh: forceRefresh
+        )
+        return await prepareDiningDay(periods: periods)
+    }
+
+    func diningDay(
+        shopID: Int,
+        date: Date,
+        forceRefresh: Bool = false
+    ) async throws -> [DiningPeriod] {
         let loaded = try await api.fetchDiningMenu(
             shopID: shopID,
             date: date,
             forceRefresh: forceRefresh
         )
+        return DiningMenuFilter.periodsWithMeals(loaded)
+    }
+
+    func prepareDiningDay(periods: [DiningPeriod]) async -> PreparedDiningDay {
         return await DiningMenuPreprocessor.shared.prepare(
-            periods: DiningMenuFilter.periodsWithMeals(loaded),
+            periods: periods,
+            preference: diningPreferenceText,
+            allergies: diningAllergies
+        )
+    }
+
+    func cachedPreparedDiningDay(periods: [DiningPeriod]) async -> PreparedDiningDay? {
+        await DiningMenuPreprocessor.shared.cached(
+            periods: periods,
             preference: diningPreferenceText,
             allergies: diningAllergies
         )

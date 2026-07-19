@@ -257,9 +257,35 @@ final class NewEligaOrderTests: XCTestCase {
         )
 
         XCTAssertEqual(result["meat"]?.recommendation, .recommended)
+        XCTAssertEqual(result["meat"]?.positiveComponents, ["돼지고기"])
         XCTAssertEqual(result["vegetables"]?.recommendation, .notRecommended)
+        XCTAssertEqual(result["vegetables"]?.negativeComponents, ["야채", "야채볶음"])
         XCTAssertEqual(result["neutral"]?.recommendation, .neutral)
         XCTAssertFalse(result.values.contains(where: \.hasAllergyWarning))
+    }
+
+    func testDiningPreloadPolicyIncludesOnlyTodayAndTomorrow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let reference = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 19, hour: 18))
+        )
+
+        let dates = DiningPreloadPolicy.dates(relativeTo: reference, calendar: calendar)
+
+        XCTAssertEqual(dates.count, 2)
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[0]), DateComponents(year: 2026, month: 7, day: 19))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[1]), DateComponents(year: 2026, month: 7, day: 20))
+    }
+
+    func testDiningPersonalizationPolicySkipsRecommendationWithoutPreference() {
+        XCTAssertFalse(DiningPersonalizationPolicy.hasPreference("  \n"))
+        XCTAssertFalse(
+            DiningPersonalizationPolicy.hasAnyConfiguration(preference: "", allergies: "")
+        )
+        XCTAssertTrue(
+            DiningPersonalizationPolicy.hasAnyConfiguration(preference: "", allergies: "새우")
+        )
     }
 
     func testDiningAllergyWarningIsIndependentFromRecommendation() {
@@ -291,6 +317,8 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertTrue(instructions.contains("neutral"))
         XCTAssertTrue(instructions.contains("알러지는 추천 여부와 독립적으로"))
         XCTAssertTrue(instructions.contains("메뉴의 대부분 또는 주요 구성"))
+        XCTAssertTrue(instructions.contains("positiveComponents"))
+        XCTAssertTrue(instructions.contains("negativeComponents"))
     }
 
     func testDiningPreferenceStorageMigratesLegacyMenusAndPersistsAllergies() throws {
@@ -1163,13 +1191,22 @@ final class NewEligaOrderTests: XCTestCase {
             periodName: "중식",
             startTime: "11:30",
             endTime: "13:30",
-            date: Date(timeIntervalSince1970: 0)
+            date: Date(timeIntervalSince1970: 0),
+            shopID: 7
         )
 
         XCTAssertTrue(context.isSoldOut)
         XCTAssertEqual(context.servingTime, "11:30–13:30")
         XCTAssertEqual(context.meal.nutrition, "단백질 12g")
         XCTAssertEqual(context.origin, "쌀 국내산")
+        XCTAssertEqual(
+            context.preparationKey,
+            DiningPreparationKey.make(
+                periodID: "중식|11:30|13:30",
+                courseID: "한식 코스|쌀 국내산",
+                mealID: meal.id
+            )
+        )
     }
 
     func testOrderDateFormattingAcceptsServerVariants() {

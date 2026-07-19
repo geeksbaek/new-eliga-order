@@ -193,11 +193,12 @@ struct AppMenuDetailSection<Content: View>: View {
 
 struct DiningDynamicSurfaceView: View {
     let surface: DiningDynamicUISurface
+    let personalization: DiningMenuPersonalization?
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 16) {
             ForEach(surface.blocks) { block in
-                DiningDynamicBlockView(block: block)
+                DiningDynamicBlockView(block: block, personalization: personalization)
             }
 
             if surface.isModelGenerated {
@@ -213,12 +214,13 @@ struct DiningDynamicSurfaceView: View {
 
 private struct DiningDynamicBlockView: View {
     let block: DiningDynamicUIBlock
+    let personalization: DiningMenuPersonalization?
 
     @ViewBuilder
     var body: some View {
         switch block.kind {
         case .chips:
-            DiningDynamicChipsBlock(block: block)
+            DiningDynamicChipsBlock(block: block, personalization: personalization)
         case .metrics:
             DiningDynamicMetricsBlock(block: block)
         case .note:
@@ -231,21 +233,31 @@ private struct DiningDynamicBlockView: View {
 
 private struct DiningDynamicChipsBlock: View {
     let block: DiningDynamicUIBlock
+    let personalization: DiningMenuPersonalization?
 
     var body: some View {
         AppMenuDetailSection(title: block.title, systemImage: "square.grid.2x2") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 116), spacing: 8)], spacing: 8) {
                 ForEach(Array(block.items.enumerated()), id: \.offset) { _, item in
-                    VStack(alignment: .leading, spacing: 3) {
-                        if !item.label.isEmpty {
-                            Text(item.label)
-                                .font(.caption2.weight(.semibold))
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if !item.label.isEmpty {
+                                Text(item.label)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            Text(item.value)
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
+                                .lineLimit(2)
                         }
-                        Text(item.value)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
+                        Spacer(minLength: 0)
+                        if let sentiment = sentiment(for: item.value) {
+                            Image(systemName: sentiment.systemImage)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(sentiment.color)
+                                .accessibilityLabel(sentiment.accessibilityLabel)
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -254,6 +266,58 @@ private struct DiningDynamicChipsBlock: View {
                     .accessibilityElement(children: .combine)
                 }
             }
+        }
+    }
+
+    private func sentiment(for component: String) -> DiningComponentSentiment? {
+        guard let personalization else { return nil }
+        switch personalization.recommendation {
+        case .recommended:
+            return matches(component, values: personalization.positiveComponents) ? .positive : nil
+        case .notRecommended:
+            return matches(component, values: personalization.negativeComponents) ? .negative : nil
+        case .neutral:
+            return nil
+        }
+    }
+
+    private func matches(_ component: String, values: [String]) -> Bool {
+        let componentKey = normalized(component)
+        guard !componentKey.isEmpty else { return false }
+        return values.map(normalized).contains { value in
+            !value.isEmpty && (componentKey.contains(value) || value.contains(componentKey))
+        }
+    }
+
+    private func normalized(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: #"[^가-힣A-Za-z0-9]"#, with: "", options: .regularExpression)
+            .lowercased()
+    }
+}
+
+private enum DiningComponentSentiment {
+    case positive
+    case negative
+
+    var systemImage: String {
+        switch self {
+        case .positive: "hand.thumbsup.fill"
+        case .negative: "hand.thumbsdown.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .positive: .green
+        case .negative: .red
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .positive: "선호 근거"
+        case .negative: "비선호 근거"
         }
     }
 }

@@ -319,6 +319,7 @@ struct DiningMenuDetailContext: Hashable, Sendable {
     let startTime: String
     let endTime: String
     let date: Date
+    let shopID: Int
     var preparedSurface: DiningDynamicUISurface? = nil
     var personalization: DiningMenuPersonalization? = nil
 
@@ -326,6 +327,14 @@ struct DiningMenuDetailContext: Hashable, Sendable {
 
     var servingTime: String {
         AppFormat.timeRange(start: startTime, end: endTime)
+    }
+
+    var preparationKey: String {
+        DiningPreparationKey.make(
+            periodID: "\(periodName)|\(startTime)|\(endTime)",
+            courseID: "\(courseName)|\(origin)",
+            mealID: meal.id
+        )
     }
 }
 

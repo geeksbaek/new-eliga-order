@@ -51,7 +51,8 @@ struct DiningMealIndexRecord: Codable, Hashable, Sendable {
             periodName: periodName,
             startTime: startTime,
             endTime: endTime,
-            date: date
+            date: date,
+            shopID: shopID
         )
     }
 }
