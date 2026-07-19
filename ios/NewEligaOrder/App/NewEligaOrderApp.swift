@@ -17,6 +17,8 @@ struct NewEligaOrderApp: App {
                     CafePrioritySectionsFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-holiday") {
                     CafeHolidayFixtureView()
+                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-shop-picker") {
+                    CafeShopPickerFixtureView()
                 } else {
                     authenticatedRoot
                 }

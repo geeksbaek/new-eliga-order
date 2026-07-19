@@ -116,36 +116,22 @@ struct CafeView: View {
             guard !Task.isCancelled else { return }
             withAnimation { actionError = nil }
         }
+        .onChange(of: store.selectedShopID) { _, selectedShopID in
+            guard
+                let selectedShopID,
+                store.cafeShops.contains(where: { $0.id == selectedShopID })
+            else { return }
+            selectShop(selectedShopID)
+        }
         .sensoryFeedback(.selection, trigger: selectedCategoryID)
     }
 
     private var shopMenu: some View {
-        Menu {
-            ForEach(store.cafeShops) { shop in
-                Button {
-                    selectShop(shop.id)
-                } label: {
-                    if shop.id == activeShopID {
-                        Label(shop.name, systemImage: "checkmark")
-                    } else {
-                        Text(shop.name)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Text(activeShopName)
-                    .font(.headline)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .accessibilityLabel("카페 매장")
-        .accessibilityValue(activeShopName)
+        CafeShopPickerMenu(
+            shops: store.cafeShops,
+            selectedShopID: activeShopID,
+            selectShop: selectShop
+        )
     }
 
     private var categoryPicker: some View {

@@ -239,6 +239,83 @@ struct SelectionChip: View {
     }
 }
 
+struct CafeShopPickerMenu: View {
+    let shops: [Shop]
+    let selectedShopID: Int
+    let selectShop: (Int) -> Void
+
+    private var selectedShopName: String {
+        shops.first(where: { $0.id == selectedShopID })?.name ?? "매장 선택"
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(shops) { shop in
+                Button {
+                    selectShop(shop.id)
+                } label: {
+                    if shop.id == selectedShopID {
+                        Label(shop.name, systemImage: "checkmark")
+                    } else {
+                        Text(shop.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(selectedShopName)
+                    .font(.headline)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .disabled(shops.isEmpty)
+        .accessibilityLabel("카페 매장")
+        .accessibilityValue(selectedShopName)
+        .accessibilityIdentifier("cafe.shop-picker")
+        .accessibilityShowsLargeContentViewer {
+            Label(selectedShopName, systemImage: "cup.and.saucer")
+        }
+    }
+}
+
+#if DEBUG
+struct CafeShopPickerFixtureView: View {
+    @State private var selectedShopID = 5
+
+    private let shops = [
+        Shop(id: 5, name: "엘리가 카페 본점", kind: .cafe, isOpen: true),
+        Shop(id: 6, name: "엘리가 카페 서초점", kind: .cafe, isOpen: true),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView(
+                "장바구니가 비어 있습니다",
+                systemImage: "bag",
+                description: Text("카페 메뉴에서 음료를 담아 보세요.")
+                    .foregroundStyle(.primary)
+            )
+            .navigationTitle("장바구니")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    CafeShopPickerMenu(
+                        shops: shops,
+                        selectedShopID: selectedShopID,
+                        selectShop: { selectedShopID = $0 }
+                    )
+                }
+            }
+        }
+    }
+}
+#endif
+
 struct MenuLabelBadge: View {
     enum Size {
         case compact

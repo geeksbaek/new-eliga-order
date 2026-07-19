@@ -626,6 +626,16 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertFalse(router.handle(url: webURL))
     }
 
+    func testSelectingCafeTabPreservesExistingCafeState() {
+        let router = AppRouter()
+        router.cafePath = [.menu(shopID: 5, displayID: 42)]
+
+        router.switchTo(.cafe)
+
+        XCTAssertEqual(router.selectedTab, .cafe)
+        XCTAssertEqual(router.cafePath, [.menu(shopID: 5, displayID: 42)])
+    }
+
     func testRouterHandlesWidgetMenuAndQuickOrderLinks() throws {
         let router = AppRouter()
         let menuURL = try XCTUnwrap(URL(string: "neweligaorder://menu?shopID=5&displayID=42"))

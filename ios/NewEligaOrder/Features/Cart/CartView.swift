@@ -3,43 +3,28 @@ import SwiftUI
 struct CartView: View {
     @Environment(AppStore.self) private var store
     @Environment(AppRouter.self) private var router
-    @State private var isLoading = false
+    @State private var loadingShopID: Int?
     @State private var errorMessage: String?
     @State private var feedbackToken = 0
 
     private var shopID: Int { store.selectedShopID ?? store.cafeShops.first?.id ?? 5 }
     private var cart: Cart { store.cart(for: shopID) }
+    private var isLoading: Bool { loadingShopID == shopID }
 
     var body: some View {
         VStack(spacing: 0) {
-            if !store.cafeShops.isEmpty {
-                ScrollView(.horizontal) {
-                    AppGlassGroup(spacing: 10) {
-                        HStack {
-                            ForEach(store.cafeShops) { shop in
-                                SelectionChip(title: shop.name, isSelected: shop.id == shopID) {
-                                    selectShop(shop.id)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .scrollIndicators(.hidden)
-                .padding(.vertical, 8)
-            }
-
             if isLoading && cart.items.isEmpty {
                 LoadingContentView(title: "장바구니를 불러오는 중…")
             } else if let errorMessage, cart.items.isEmpty {
                 FailureContentView(message: errorMessage) {
-                    Task { await refresh() }
+                    Task { await refresh(shopID: shopID) }
                 }
             } else if cart.items.isEmpty {
                 ContentUnavailableView(
                     "장바구니가 비어 있습니다",
                     systemImage: "bag",
                     description: Text("카페 메뉴에서 음료를 담아 보세요.")
+                        .foregroundStyle(.primary)
                 )
             } else {
                 List {
@@ -57,7 +42,7 @@ struct CartView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .refreshable { await refresh() }
+                .refreshable { await refresh(shopID: shopID) }
                 .appScrollEdgeStyle()
             }
 
@@ -69,6 +54,16 @@ struct CartView: View {
             }
         }
         .navigationTitle("장바구니")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                CafeShopPickerMenu(
+                    shops: store.cafeShops,
+                    selectedShopID: shopID,
+                    selectShop: selectShop
+                )
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if !cart.items.isEmpty {
                 AppBottomActionBar {
@@ -81,23 +76,31 @@ struct CartView: View {
                 }
             }
         }
-        .task { await refresh() }
+        .task(id: shopID) { await refresh(shopID: shopID) }
         .sensoryFeedback(.success, trigger: feedbackToken)
     }
 
-    private func refresh() async {
-        isLoading = true
-        defer { isLoading = false }
-        do { _ = try await store.refreshCart(shopID: shopID); errorMessage = nil }
+    private func refresh(shopID requestedShopID: Int) async {
+        loadingShopID = requestedShopID
+        defer {
+            if loadingShopID == requestedShopID { loadingShopID = nil }
+        }
+        do {
+            _ = try await store.refreshCart(shopID: requestedShopID)
+            guard !Task.isCancelled, requestedShopID == shopID else { return }
+            errorMessage = nil
+        }
         catch is CancellationError { return }
-        catch { errorMessage = error.localizedDescription }
+        catch {
+            guard requestedShopID == shopID else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func selectShop(_ id: Int) {
         guard id != shopID else { return }
         store.selectShop(id)
         errorMessage = nil
-        Task { await refresh() }
     }
 
     private func update(_ item: CartItem, delta: Int) {

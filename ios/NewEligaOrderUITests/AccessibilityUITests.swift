@@ -91,6 +91,34 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCartUsesAccessibleCafeShopPicker() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing-shop-picker",
+            "-AppleInterfaceStyle", "Dark",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+        ]
+        app.launch()
+
+        let picker = app.descendants(matching: .any)["cafe.shop-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        XCTAssertEqual(picker.value as? String, "엘리가 카페 본점")
+        assertFullyVisible(picker, in: app)
+
+        picker.tap()
+        let secondShop = app.buttons["엘리가 카페 서초점"]
+        XCTAssertTrue(secondShop.waitForExistence(timeout: 2))
+        secondShop.tap()
+        XCTAssertEqual(picker.value as? String, "엘리가 카페 서초점")
+
+        attachScreenshot(of: app, name: "장바구니 공통 매장 선택 메뉴")
+        try app.performAccessibilityAudit(
+            // 시스템 내비게이션 바는 글자 크기가 고정되므로 AXXXL 실화면과 Large Content Viewer로 직접 검증한다.
+            for: [.contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
     private func assertFullyVisible(
         _ element: XCUIElement,
         in app: XCUIApplication,
