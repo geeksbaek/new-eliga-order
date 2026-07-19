@@ -15,6 +15,8 @@ struct NewEligaOrderApp: App {
 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-sections") {
                     CafePrioritySectionsFixtureView()
+                } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-menu-detail-holiday") {
+                    CafeMenuDetailHolidayFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-cafe-holiday") {
                     CafeHolidayFixtureView()
                 } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-shop-picker") {

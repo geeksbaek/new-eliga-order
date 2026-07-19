@@ -514,7 +514,7 @@ struct CafeView: View {
     }
 }
 
-private struct CafeOrderCheckingCard: View {
+struct CafeOrderCheckingCard: View {
     var body: some View {
         HStack(spacing: 10) {
             ProgressView()
@@ -533,7 +533,7 @@ private struct CafeOrderCheckingCard: View {
     }
 }
 
-private struct CafeOrderAvailabilityCard: View {
+struct CafeOrderAvailabilityCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let closure: CafeOrderClosure
@@ -605,7 +605,7 @@ private struct CafeOrderAvailabilityCard: View {
 
     private var detailText: String {
         closure.reason == .holiday
-            ? "\(shopName)은 오늘 운영하지 않아요."
+            ? "\(shopName) 매장은 오늘 운영하지 않아요."
             : closure.detail
     }
 

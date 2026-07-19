@@ -55,6 +55,7 @@ struct MenuDetailView: View {
             } else if let detail, let variant {
                 AppMenuDetailScrollView {
                     menuHeader(detail: detail, variant: variant)
+                    availabilityNotice
 
                     if detail.variants.count > 1 {
                         AppMenuDetailSection(title: "온도 / 종류", systemImage: "thermometer.medium") {
@@ -82,6 +83,8 @@ struct MenuDetailView: View {
                         }
                         .frame(maxWidth: AppDesign.contentMaxWidth)
                         .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("cafe.menu-detail.actions")
                     }
                 }
             } else {
@@ -159,16 +162,23 @@ struct MenuDetailView: View {
                 .accessibilityAddTraits(.updatesFrequently)
         } else if variant.isSoldOut {
             actionStatusLabel("품절된 메뉴입니다", systemImage: "xmark.circle")
-        } else {
-            switch orderState {
-            case .checking:
-                actionStatusLabel("주문 가능 시간을 확인하는 중입니다", systemImage: "clock.arrow.circlepath")
-            case .closed(let closure):
-                actionStatusLabel(closure.compactMessage, systemImage: closure.reason.systemImage)
-            case .open:
-                EmptyView()
-            }
         }
+    }
+
+    @ViewBuilder
+    private var availabilityNotice: some View {
+        switch orderState {
+        case .checking:
+            CafeOrderCheckingCard()
+        case .closed(let closure):
+            CafeOrderAvailabilityCard(closure: closure, shopName: shopName)
+        case .open:
+            EmptyView()
+        }
+    }
+
+    private var shopName: String {
+        store.cafeShops.first(where: { $0.id == shopID })?.name ?? "선택한 매장"
     }
 
     private func actionStatusLabel(_ title: String, systemImage: String) -> some View {
@@ -479,3 +489,59 @@ private struct MenuQuantitySelector: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+#if DEBUG
+struct CafeMenuDetailHolidayFixtureView: View {
+    private let closure = CafeOrderClosure(
+        reason: .holiday,
+        title: "오늘은 휴무예요",
+        detail: "선택한 매장은 오늘 운영하지 않아요.",
+        schedule: "다음 영업 · 월요일 09:00–19:00"
+    )
+
+    var body: some View {
+        NavigationStack {
+            AppMenuDetailScrollView {
+                AppMenuDetailHeader(
+                    imageURL: nil,
+                    imageAccessibilityLabel: "시그니처 라떼 메뉴 사진",
+                    placeholderSystemImage: "cup.and.saucer"
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("시그니처 라떼")
+                            .font(.title2.bold())
+                        Text("부드러운 우유와 에스프레소")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                        PriceText(amount: 4_500)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                CafeOrderAvailabilityCard(closure: closure, shopName: "엘리가 카페")
+
+                AppMenuDetailSection(title: "주문 수량", systemImage: "number") {
+                    Text("휴무일에는 주문 수량을 변경할 수 없습니다.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                AppBottomActionBar {
+                    HStack(spacing: 12) {
+                        AppSecondaryActionButton(title: "담기", systemImage: "bag.badge.plus") {}
+                            .disabled(true)
+                        AppPrimaryActionButton(title: "바로 주문", systemImage: "bolt.fill") {}
+                            .disabled(true)
+                    }
+                    .frame(maxWidth: AppDesign.contentMaxWidth)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("cafe.menu-detail.actions")
+                }
+            }
+            .navigationTitle("시그니처 라떼")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+#endif

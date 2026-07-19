@@ -91,6 +91,32 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCafeMenuDetailKeepsHolidayNoticeSeparateFromActions() throws {
+        continueAfterFailure = true
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-cafe-menu-detail-holiday")
+        app.launch()
+
+        let card = app.descendants(matching: .any)["cafe.availability.holiday"]
+        let actions = app.descendants(matching: .any)["cafe.menu-detail.actions"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(actions.waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            card.frame.intersects(actions.frame),
+            "휴무 안내는 하단 주문 액션 영역과 겹치지 않아야 합니다."
+        )
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label == %@", "오늘은 휴무예요")).count,
+            1
+        )
+        attachScreenshot(of: app, name: "카페 상세 휴무 안내와 주문 액션 분리")
+        try app.performAccessibilityAudit(
+            // 비활성 시스템 버튼의 명암은 XCTest가 실패로 판정하므로 카드 명암은 전용 휴무 카드 테스트에서 검증한다.
+            for: [.dynamicType, .elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
     func testCartUsesAccessibleCafeShopPicker() throws {
         let app = XCUIApplication()
         app.launchArguments += [
