@@ -4,6 +4,7 @@ struct CafeView: View {
     @Environment(AppStore.self) private var store
     @Environment(AppRouter.self) private var router
     let transitionNamespace: Namespace.ID
+    private let searchHistoryStore = CafeSearchHistoryStore()
 
     @State private var shopID: Int?
     @State private var categories: [CafeCategory] = []
@@ -14,6 +15,7 @@ struct CafeView: View {
     @State private var errorMessage: String?
     @State private var actionError: String?
     @State private var searchText = ""
+    @State private var searchHistory: [String] = []
     @State private var menusByShop: [Int: [CafeMenuItem]] = [:]
     @State private var categoriesByShop: [Int: [CafeCategory]] = [:]
     @State private var quickItemsByShop: [Int: [CafeQuickItem]] = [:]
@@ -79,10 +81,32 @@ struct CafeView: View {
         )
         .searchSuggestions {
             if searchText.isEmpty {
-                ForEach(quickItems.prefix(5)) { item in
-                    Label(item.name, systemImage: "clock.arrow.circlepath")
-                        .searchCompletion(item.name)
+                if !searchHistory.isEmpty {
+                    Section("최근 검색") {
+                        ForEach(searchHistory, id: \.self) { query in
+                            Label(query, systemImage: "clock.arrow.circlepath")
+                                .searchCompletion(query)
+                        }
+                    }
                 }
+
+                if !quickItems.isEmpty {
+                    Section("최근·인기 메뉴") {
+                        ForEach(quickItems.prefix(5)) { item in
+                            Label(item.name, systemImage: "sparkles")
+                                .searchCompletion(item.name)
+                        }
+                    }
+                }
+            }
+        }
+        .onSubmit(of: .search) {
+            recordCurrentSearch()
+        }
+        .onChange(of: searchText) { previousValue, newValue in
+            if !previousValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                recordSearch(previousValue)
             }
         }
         .navigationTitle("카페")
@@ -107,6 +131,9 @@ struct CafeView: View {
             guard !loadedShopIDs.contains(activeShopID) else { return }
             await load(shopID: activeShopID, replacingContent: true)
         }
+        .task(id: store.userIDHint) {
+            searchHistory = searchHistoryStore.history(accountID: store.userIDHint)
+        }
         .task(id: isSearchActive) {
             if isSearchActive { await loadAllShopMenus() }
         }
@@ -122,6 +149,9 @@ struct CafeView: View {
                 store.cafeShops.contains(where: { $0.id == selectedShopID })
             else { return }
             selectShop(selectedShopID)
+        }
+        .onDisappear {
+            recordCurrentSearch()
         }
         .sensoryFeedback(.selection, trigger: selectedCategoryID)
     }
@@ -486,14 +516,25 @@ struct CafeView: View {
     }
 
     private func openDetail(_ item: CafeMenuItem, shopID: Int? = nil) {
+        recordCurrentSearch()
         let destinationShopID = shopID ?? activeShopID
         store.selectShop(destinationShopID)
         router.push(.menu(shopID: destinationShopID, displayID: item.displayID), on: .cafe)
     }
 
     private func openQuickOrder(_ item: CafeMenuItem, shopID: Int) {
+        recordCurrentSearch()
         store.selectShop(shopID)
         router.push(.quickOrder(shopID: shopID, displayID: item.displayID), on: .cafe)
+    }
+
+    private func recordCurrentSearch() {
+        guard isSearchActive else { return }
+        recordSearch(searchText)
+    }
+
+    private func recordSearch(_ query: String) {
+        searchHistory = searchHistoryStore.record(query, accountID: store.userIDHint)
     }
 
     private func mutate(_ menu: CafeMenuItem, shopID: Int? = nil, delta: Int) {

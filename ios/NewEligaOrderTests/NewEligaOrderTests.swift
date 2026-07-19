@@ -3,6 +3,39 @@ import XCTest
 
 @MainActor
 final class NewEligaOrderTests: XCTestCase {
+    func testCafeSearchHistoryPersistsNewestFirstAndDeduplicates() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-search-history-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = CafeSearchHistoryStore(defaults: defaults)
+
+        storage.record("  아메리카노  ", accountID: "USER@example.com")
+        storage.record("말차 라떼", accountID: "user@example.com")
+        storage.record("아메리카노", accountID: "user@example.com")
+
+        XCTAssertEqual(
+            CafeSearchHistoryStore(defaults: defaults).history(accountID: "user@example.com"),
+            ["아메리카노", "말차 라떼"]
+        )
+    }
+
+    func testCafeSearchHistoryKeepsTenQueriesPerAccount() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-search-history-limit-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = CafeSearchHistoryStore(defaults: defaults)
+
+        for index in 1...12 {
+            storage.record("검색어 \(index)", accountID: "first@example.com")
+        }
+        storage.record("다른 계정 검색", accountID: "second@example.com")
+
+        XCTAssertEqual(storage.history(accountID: "first@example.com").count, 10)
+        XCTAssertEqual(storage.history(accountID: "first@example.com").first, "검색어 12")
+        XCTAssertEqual(storage.history(accountID: "first@example.com").last, "검색어 3")
+        XCTAssertEqual(storage.history(accountID: "second@example.com"), ["다른 계정 검색"])
+    }
+
     func testCafeMenuOptionSelectionPersistsWithoutOrdering() throws {
         let suiteName = "com.leeari95.NewEligaOrder.cafe-option-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
