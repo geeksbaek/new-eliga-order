@@ -364,52 +364,7 @@ struct CafeView: View {
         ScrollView(.horizontal) {
             LazyHStack {
                 ForEach(quickItems) { item in
-                    Button {
-                        router.push(.menu(shopID: activeShopID, displayID: item.displayID), on: .cafe)
-                    } label: {
-                        VStack(alignment: .leading) {
-                            CafeMenuThumbnail(
-                                url: item.thumbnailURL,
-                                size: 72,
-                                isSoldOut: item.isSoldOut
-                            )
-                            Text(item.name)
-                                .font(.caption.weight(.semibold))
-                                .lineLimit(2)
-                        }
-                        .frame(width: 80, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(item.displayID == 0)
-                    .contextMenu {
-                        if item.displayID != 0 {
-                            let isFavorite = store.isFavorite(shopID: activeShopID, displayID: item.displayID)
-                            Button(
-                                isFavorite ? "즐겨찾기 해제" : "즐겨찾기에 추가",
-                                systemImage: isFavorite ? "star.slash" : "star"
-                            ) {
-                                store.toggleFavorite(shopID: activeShopID, displayID: item.displayID, name: item.name)
-                            }
-                            Button("상세 보기", systemImage: "info.circle") {
-                                router.push(.menu(shopID: activeShopID, displayID: item.displayID), on: .cafe)
-                            }
-                        }
-                    }
-                    .accessibilityLabel(item.isSoldOut ? "\(item.name), 품절" : item.name)
-                    .accessibilityHint(
-                        item.isSoldOut
-                            ? "메뉴 상세 정보를 엽니다. 현재 품절입니다"
-                            : "메뉴 상세 정보를 엽니다"
-                    )
-                    .accessibilityAction(
-                        named: Text(
-                            store.isFavorite(shopID: activeShopID, displayID: item.displayID)
-                                ? "즐겨찾기 해제"
-                                : "즐겨찾기에 추가"
-                        )
-                    ) {
-                        store.toggleFavorite(shopID: activeShopID, displayID: item.displayID, name: item.name)
-                    }
+                    CafeQuickItemButton(item: item, shopID: activeShopID)
                 }
             }
             .scrollTargetLayout()
@@ -764,6 +719,71 @@ struct CafeOrderAvailabilityCard: View {
         [closure.title, detailText, closure.schedule]
             .compactMap { $0 }
             .joined(separator: ", ")
+    }
+}
+
+/// One item in the "최근·인기 메뉴" rail. Long-press actions use a local
+/// `@State`-driven confirmation dialog rather than `.contextMenu` —
+/// `.contextMenu` on a button inside a single shared `List` row (this rail
+/// is one List row hosting many buttons) isn't reliably scoped per button;
+/// long-pressing any item ended up showing the wrong item's menu. Owning
+/// the presented state per-instance here guarantees it's tied to the exact
+/// item that was pressed.
+private struct CafeQuickItemButton: View {
+    @Environment(AppStore.self) private var store
+    @Environment(AppRouter.self) private var router
+    let item: CafeQuickItem
+    let shopID: Int
+    @State private var showsActions = false
+
+    private var isFavorite: Bool { store.isFavorite(shopID: shopID, displayID: item.displayID) }
+
+    var body: some View {
+        Button {
+            router.push(.menu(shopID: shopID, displayID: item.displayID), on: .cafe)
+        } label: {
+            VStack(alignment: .leading) {
+                CafeMenuThumbnail(
+                    url: item.thumbnailURL,
+                    size: 72,
+                    isSoldOut: item.isSoldOut
+                )
+                Text(item.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(2)
+            }
+            .frame(width: 80, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .disabled(item.displayID == 0)
+        .onLongPressGesture {
+            guard item.displayID != 0 else { return }
+            showsActions = true
+        }
+        .confirmationDialog(item.name, isPresented: $showsActions, titleVisibility: .visible) {
+            Button(isFavorite ? "즐겨찾기 해제" : "즐겨찾기에 추가") {
+                store.toggleFavorite(shopID: shopID, displayID: item.displayID, name: item.name)
+            }
+            Button("상세 보기") {
+                router.push(.menu(shopID: shopID, displayID: item.displayID), on: .cafe)
+            }
+            Button("취소", role: .cancel) {}
+        }
+        .accessibilityLabel(item.isSoldOut ? "\(item.name), 품절" : item.name)
+        .accessibilityHint(
+            item.isSoldOut
+                ? "메뉴 상세 정보를 엽니다. 현재 품절입니다"
+                : "메뉴 상세 정보를 엽니다"
+        )
+        .accessibilityAction(
+            named: Text(isFavorite ? "즐겨찾기 해제" : "즐겨찾기에 추가")
+        ) {
+            store.toggleFavorite(shopID: shopID, displayID: item.displayID, name: item.name)
+        }
+        // `.contextMenu` normally gives a tick when it appears — since this
+        // uses a plain long-press instead, that has to be added back by hand.
+        .sensoryFeedback(.selection, trigger: showsActions)
+        .sensoryFeedback(.selection, trigger: isFavorite)
     }
 }
 
