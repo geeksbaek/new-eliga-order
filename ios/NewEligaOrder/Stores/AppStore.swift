@@ -315,8 +315,11 @@ final class AppStore {
         }
     }
 
-    func toggleFavorite(shopID: Int, item: CafeMenuItem) {
-        let favorite = FavoriteMenu(shopID: shopID, displayID: item.displayID, name: item.name)
+    /// Takes just `displayID`/`name` (not a whole `CafeMenuItem`) so it works
+    /// equally for the full menu list and for lighter-weight item types like
+    /// `CafeQuickItem` (recent/popular rail) that don't carry a full item.
+    func toggleFavorite(shopID: Int, displayID: Int, name: String) {
+        let favorite = FavoriteMenu(shopID: shopID, displayID: displayID, name: name)
         if favorites.contains(favorite) {
             favorites.remove(favorite)
         } else {

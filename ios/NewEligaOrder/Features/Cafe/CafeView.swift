@@ -381,12 +381,35 @@ struct CafeView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(item.displayID == 0)
+                    .contextMenu {
+                        if item.displayID != 0 {
+                            let isFavorite = store.isFavorite(shopID: activeShopID, displayID: item.displayID)
+                            Button(
+                                isFavorite ? "즐겨찾기 해제" : "즐겨찾기에 추가",
+                                systemImage: isFavorite ? "star.slash" : "star"
+                            ) {
+                                store.toggleFavorite(shopID: activeShopID, displayID: item.displayID, name: item.name)
+                            }
+                            Button("상세 보기", systemImage: "info.circle") {
+                                router.push(.menu(shopID: activeShopID, displayID: item.displayID), on: .cafe)
+                            }
+                        }
+                    }
                     .accessibilityLabel(item.isSoldOut ? "\(item.name), 품절" : item.name)
                     .accessibilityHint(
                         item.isSoldOut
                             ? "메뉴 상세 정보를 엽니다. 현재 품절입니다"
                             : "메뉴 상세 정보를 엽니다"
                     )
+                    .accessibilityAction(
+                        named: Text(
+                            store.isFavorite(shopID: activeShopID, displayID: item.displayID)
+                                ? "즐겨찾기 해제"
+                                : "즐겨찾기에 추가"
+                        )
+                    ) {
+                        store.toggleFavorite(shopID: activeShopID, displayID: item.displayID, name: item.name)
+                    }
                 }
             }
             .scrollTargetLayout()
@@ -522,7 +545,7 @@ struct CafeView: View {
             isFavorite: store.isFavorite(shopID: shopID, displayID: item.displayID),
             quantity: quantity(for: item.goodsID, shopID: shopID),
             orderState: CafeRules.state(for: store.cafePlansByShop[shopID] ?? nil),
-            toggleFavorite: { store.toggleFavorite(shopID: shopID, item: item) },
+            toggleFavorite: { store.toggleFavorite(shopID: shopID, displayID: item.displayID, name: item.name) },
             decrease: { mutate(item, shopID: shopID, delta: -1) },
             increase: { mutate(item, shopID: shopID, delta: 1) },
             openDetail: { openDetail(item, shopID: shopID) },

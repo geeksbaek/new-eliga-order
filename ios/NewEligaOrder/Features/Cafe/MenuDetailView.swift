@@ -94,6 +94,20 @@ struct MenuDetailView: View {
         }
         .navigationTitle(variant?.name ?? "메뉴")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let variant {
+                ToolbarItem(placement: .topBarTrailing) {
+                    let isFavorite = store.isFavorite(shopID: shopID, displayID: displayID)
+                    Button {
+                        store.toggleFavorite(shopID: shopID, displayID: displayID, name: variant.name)
+                    } label: {
+                        Image(systemName: isFavorite ? "star.fill" : "star")
+                    }
+                    .tint(isFavorite ? .yellow : nil)
+                    .accessibilityLabel(isFavorite ? "즐겨찾기 해제" : "즐겨찾기에 추가")
+                }
+            }
+        }
         .task { await load() }
         .onDisappear { actionTask?.cancel() }
         .task(id: successMessage) {
