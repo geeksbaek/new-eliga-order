@@ -195,10 +195,17 @@ final class AppStore {
     func preloadPrimaryContent() async {
         guard authenticationState == .authenticated else { return }
         var imageURLs: [URL] = []
+        let notificationScheduler = MealNotificationScheduler()
+        try? await notificationScheduler.refreshRollingSchedules(preferences: preferences)
 
         for preloadDate in DiningPreloadPolicy.dates(relativeTo: .now) {
             guard !Task.isCancelled else { return }
             if let dining = try? await preparedDiningDay(shopID: diningShopID, date: preloadDate) {
+                try? await notificationScheduler.personalize(
+                    date: preloadDate,
+                    preparedDay: dining,
+                    preferences: preferences
+                )
                 imageURLs.append(
                     contentsOf: dining.periods.flatMap(\.courses).flatMap(\.menus).compactMap(\.imageURL)
                 )
@@ -225,6 +232,22 @@ final class AppStore {
         }
 
         ImagePipeline.shared.preload(imageURLs, targetSize: 96, limit: 64)
+    }
+
+    /// 알림 시각 변경 직후에는 새 추론을 시작하지 않고, 이미 전처리된 오늘/내일 결과만 다시 반영한다.
+    func refreshMealNotificationsFromPreparedCache() async {
+        let scheduler = MealNotificationScheduler()
+        for date in DiningPreloadPolicy.dates(relativeTo: .now) {
+            guard !Task.isCancelled,
+                  let periods = try? await diningDay(shopID: diningShopID, date: date),
+                  let prepared = await cachedPreparedDiningDay(periods: periods)
+            else { continue }
+            try? await scheduler.personalize(
+                date: date,
+                preparedDay: prepared,
+                preferences: preferences
+            )
+        }
     }
 
     @discardableResult

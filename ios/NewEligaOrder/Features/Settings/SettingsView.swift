@@ -148,6 +148,7 @@ struct SettingsView: View {
                     preferences.dinnerNotificationEnabled = enabled
                     preferences.dinnerTime = time
                 }
+                await store.refreshMealNotificationsFromPreparedCache()
                 await load()
             }
             catch {

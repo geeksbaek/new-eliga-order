@@ -1258,6 +1258,140 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertTrue(DiningMenuFilter.periodsWithMeals(periods).isEmpty)
     }
 
+    func testMealNotificationSelectsOnlyFirstAvailableRecommendedMenuForMatchingMeal() {
+        let first = DiningMenuItem(
+            name: "[밸런스바이츠] 제육볶음",
+            calorie: 620,
+            nutrition: "",
+            information: "김치, 멸치볶음",
+            imageURL: nil,
+            isSoldOut: false
+        )
+        let second = DiningMenuItem(
+            name: "닭갈비",
+            calorie: 580,
+            nutrition: "",
+            information: "무생채",
+            imageURL: nil,
+            isSoldOut: false
+        )
+        let course = DiningCourse(
+            name: "한식",
+            price: 7_000,
+            menus: [first, second],
+            isSoldOut: false,
+            congestion: nil,
+            origin: ""
+        )
+        let period = DiningPeriod(time: "중식", startTime: "11:30", endTime: "13:30", courses: [course])
+        let preparations = Dictionary(uniqueKeysWithValues: [first, second].map { menu in
+            (
+                DiningPreparationKey.make(period: period, course: course, meal: menu),
+                DiningMenuPreparation(
+                    sideDishSummary: menu.information,
+                    dynamicSurface: DiningDynamicUIFallback.surface(
+                        for: DiningDynamicUIInput(
+                            menuName: menu.titlePresentation.displayName,
+                            information: menu.information,
+                            sideDishSummary: menu.information,
+                            calorie: menu.calorie,
+                            nutrition: menu.nutrition,
+                            origin: course.origin
+                        )
+                    ),
+                    personalization: DiningMenuPersonalization(
+                        recommendation: .recommended,
+                        reason: "고기 선호와 잘 맞아요",
+                        hasAllergyWarning: false
+                    )
+                )
+            )
+        })
+        let prepared = PreparedDiningDay(periods: [period], preparations: preparations)
+
+        let candidate = MealNotificationPolicy.candidate(for: .lunch, in: prepared)
+
+        XCTAssertEqual(candidate?.menuName, "제육볶음")
+        XCTAssertEqual(candidate?.otherMenuNames, ["닭갈비"])
+        XCTAssertNil(MealNotificationPolicy.candidate(for: .dinner, in: prepared))
+    }
+
+    func testMealNotificationDoesNotRecommendSoldOutMenu() {
+        let menu = DiningMenuItem(
+            name: "품절 제육볶음",
+            calorie: nil,
+            nutrition: "",
+            information: "",
+            imageURL: nil,
+            isSoldOut: true
+        )
+        let course = DiningCourse(
+            name: "한식",
+            price: 0,
+            menus: [menu],
+            isSoldOut: false,
+            congestion: nil,
+            origin: ""
+        )
+        let period = DiningPeriod(time: "점심", startTime: "11:30", endTime: "13:30", courses: [course])
+        let key = DiningPreparationKey.make(period: period, course: course, meal: menu)
+        let prepared = PreparedDiningDay(
+            periods: [period],
+            preparations: [
+                key: DiningMenuPreparation(
+                    sideDishSummary: "",
+                    dynamicSurface: DiningDynamicUISurface(blocks: [], isModelGenerated: false),
+                    personalization: DiningMenuPersonalization(
+                        recommendation: .recommended,
+                        reason: nil,
+                        hasAllergyWarning: false
+                    )
+                ),
+            ]
+        )
+
+        XCTAssertNil(MealNotificationPolicy.candidate(for: .lunch, in: prepared))
+    }
+
+    func testMealNotificationCopyEmphasizesSelectedMenuAndRejectsAnotherMenu() {
+        let candidate = MealNotificationCandidate(
+            meal: .dinner,
+            menuName: "제육볶음",
+            reason: "고기 취향과 잘 맞아요",
+            otherMenuNames: ["닭갈비", "비빔밥"]
+        )
+
+        let fallback = MealNotificationPolicy.fallbackCopy(for: candidate)
+        XCTAssertTrue(fallback.title.contains("제육볶음"))
+        XCTAssertFalse(fallback.title.contains("닭갈비"))
+        XCTAssertNotNil(MealNotificationPolicy.validated(fallback, for: candidate))
+        XCTAssertNil(
+            MealNotificationPolicy.validated(
+                MealNotificationCopy(title: "제육볶음 추천", body: "닭갈비도 함께 추천해요."),
+                for: candidate
+            )
+        )
+        XCTAssertNil(
+            MealNotificationPolicy.validated(
+                MealNotificationCopy(title: "오늘의 추천", body: "맛있는 메뉴를 확인하세요."),
+                for: candidate
+            )
+        )
+    }
+
+    func testMealNotificationPeriodMatchingSupportsKoreanServiceNames() {
+        XCTAssertTrue(MealNotificationScheduler.Meal.lunch.matches(periodName: "중식 1부"))
+        XCTAssertTrue(MealNotificationScheduler.Meal.dinner.matches(periodName: "석식"))
+        XCTAssertFalse(MealNotificationScheduler.Meal.dinner.matches(periodName: "중식"))
+    }
+
+    func testMealNotificationModelInstructionsRequireExactlyOneGroundedMenu() {
+        let instructions = MealNotificationCopyGenerator.instructions
+        XCTAssertTrue(instructions.contains("정확히 하나만"))
+        XCTAssertTrue(instructions.contains("메뉴명을 원문 그대로 반드시 포함"))
+        XCTAssertTrue(instructions.contains("사실을 만들지 않는다"))
+    }
+
     func testDiningMenuDetailContextIncludesCourseAvailabilityAndServingTime() {
         let meal = DiningMenuItem(
             name: "계란말이",
