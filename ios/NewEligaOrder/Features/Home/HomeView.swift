@@ -4,10 +4,19 @@ struct HomeView: View {
     @Environment(AppStore.self) private var store
     @Environment(AppRouter.self) private var router
     @State private var periods: [DiningPeriod] = []
-    @State private var diningPersonalizations: [String: DiningMenuPersonalization] = [:]
+    @State private var diningPreparations: [String: DiningMenuPreparation] = [:]
     @State private var recentItems: [HomeRecentItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+
+    /// Keeps the owning course alongside each dish — needed to build a full
+    /// `DiningMenuDetailContext` for tap-to-detail navigation, which a plain
+    /// `courses.flatMap(\.menus)` would otherwise lose.
+    private struct FeaturedDish: Identifiable {
+        let id: String
+        let course: DiningCourse
+        let meal: DiningMenuItem
+    }
 
     private var featuredPeriod: DiningPeriod? {
         let now = Calendar.current.dateComponents([.hour, .minute], from: .now)
@@ -22,8 +31,17 @@ struct HomeView: View {
             ?? periods.first
     }
 
-    private var dishes: [DiningMenuItem] {
-        featuredPeriod?.courses.flatMap(\.menus) ?? []
+    private var dishes: [FeaturedDish] {
+        guard let period = featuredPeriod else { return [] }
+        return period.courses.flatMap { course in
+            course.menus.map { meal in
+                FeaturedDish(
+                    id: DiningPreparationKey.make(period: period, course: course, meal: meal),
+                    course: course,
+                    meal: meal
+                )
+            }
+        }
     }
 
     var body: some View {
@@ -112,44 +130,54 @@ struct HomeView: View {
                     ForEach(Array(dishes.prefix(6).enumerated()), id: \.offset) { index, dish in
                         if index > 0 { Divider() }
                         let personalization = personalization(for: dish)
-                        HStack(spacing: 10) {
-                            Image(systemName: recommendationIcon(for: personalization.recommendation))
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(recommendationColor(for: personalization.recommendation))
-                                .frame(width: 22)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 5) {
+                        Button {
+                            router.switchTo(
+                                .dining,
+                                route: .diningMenu(context: detailContext(for: dish, personalization: personalization))
+                            )
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: recommendationIcon(for: personalization.recommendation))
+                                    .symbolRenderingMode(.hierarchical)
+                                    .foregroundStyle(recommendationColor(for: personalization.recommendation))
+                                    .frame(width: 22)
+                                    .accessibilityHidden(true)
                                 HStack(spacing: 5) {
-                                    ForEach(Array(dish.titlePresentation.badges.enumerated()), id: \.offset) { _, badge in
+                                    ForEach(Array(dish.meal.titlePresentation.badges.enumerated()), id: \.offset) { _, badge in
                                         MenuLabelBadge(text: badge)
                                     }
-                                    Text(dish.titlePresentation.displayName)
+                                    Text(dish.meal.titlePresentation.displayName)
                                         .font(.body)
+                                        .foregroundStyle(.primary)
                                         .lineLimit(2)
-                                }
-                                if personalization.recommendation != .neutral || personalization.hasAllergyWarning {
-                                    HStack(spacing: 5) {
+                                    if personalization.recommendation != .neutral || personalization.hasAllergyWarning {
                                         DiningPersonalizationLabels(personalization: personalization)
                                     }
                                 }
-                            }
-                            Spacer(minLength: 8)
-                            if dish.isSoldOut {
-                                Text("품절")
+                                Spacer(minLength: 8)
+                                if dish.meal.isSoldOut {
+                                    Text("품절")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(.red.opacity(0.14), in: Capsule())
+                                }
+                                Image(systemName: "chevron.right")
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(.red.opacity(0.14), in: Capsule())
+                                    .foregroundStyle(.tertiary)
                             }
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 8)
+                            .background(
+                                DiningPersonalizationStyle.background(for: personalization.recommendation),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                            .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 8)
-                        .background(
-                            DiningPersonalizationStyle.background(for: personalization.recommendation),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        )
-                        .accessibilityElement(children: .combine)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(accessibilityLabel(for: dish, personalization: personalization))
+                        .accessibilityHint("메뉴 상세 정보를 엽니다")
                     }
 
                     if dishes.count > 6 {
@@ -310,7 +338,7 @@ struct HomeView: View {
         do {
             let prepared = try await diningRequest
             periods = prepared.periods
-            diningPersonalizations = Self.personalizationMap(from: prepared)
+            diningPreparations = prepared.preparations
         } catch is CancellationError {
             return
         } catch {
@@ -364,35 +392,55 @@ struct HomeView: View {
         }
         guard !Task.isCancelled else { return }
         periods = prepared.periods
-        diningPersonalizations = Self.personalizationMap(from: prepared)
+        diningPreparations = prepared.preparations
     }
 
-    private static func personalizationMap(from prepared: PreparedDiningDay) -> [String: DiningMenuPersonalization] {
-        var values: [String: DiningMenuPersonalization] = [:]
-        for period in prepared.periods {
-            for course in period.courses {
-                for meal in course.menus {
-                    let key = DiningPreparationKey.make(period: period, course: course, meal: meal)
-                    if let personalization = prepared.preparations[key]?.personalization {
-                        values[meal.id] = personalization
-                    }
-                }
-            }
-        }
-        return values
-    }
-
-    private func personalization(for meal: DiningMenuItem) -> DiningMenuPersonalization {
-        diningPersonalizations[meal.id] ?? DiningMenuPersonalization(
+    private func personalization(for dish: FeaturedDish) -> DiningMenuPersonalization {
+        diningPreparations[dish.id]?.personalization ?? DiningMenuPersonalization(
             recommendation: .neutral,
             reason: nil,
             hasAllergyWarning: false
         )
     }
 
+    private func detailContext(
+        for dish: FeaturedDish,
+        personalization: DiningMenuPersonalization
+    ) -> DiningMenuDetailContext {
+        let preparation = diningPreparations[dish.id]
+        return DiningMenuDetailContext(
+            meal: dish.meal,
+            sideDishSummary: preparation?.sideDishSummary ?? "",
+            courseName: dish.course.name,
+            coursePrice: dish.course.price,
+            courseIsSoldOut: dish.course.isSoldOut,
+            congestion: dish.course.congestion,
+            origin: dish.course.origin,
+            periodName: featuredPeriod?.time ?? "",
+            startTime: featuredPeriod?.startTime ?? "",
+            endTime: featuredPeriod?.endTime ?? "",
+            date: .now,
+            shopID: store.diningShopID,
+            preparedSurface: preparation?.dynamicSurface,
+            personalization: preparation?.personalization
+        )
+    }
+
+    private func accessibilityLabel(for dish: FeaturedDish, personalization: DiningMenuPersonalization) -> String {
+        var values: [String] = [dish.meal.titlePresentation.displayName]
+        switch personalization.recommendation {
+        case .recommended: values.append("추천 메뉴")
+        case .notRecommended: values.append("비추천 메뉴")
+        case .neutral: break
+        }
+        if personalization.hasAllergyWarning { values.append("알러지 주의") }
+        if dish.meal.isSoldOut { values.append("품절") }
+        return values.joined(separator: ", ")
+    }
+
     private func recommendationIcon(for state: DiningRecommendationState) -> String {
         switch state {
-        case .recommended: "sparkles"
+        case .recommended: "hand.thumbsup.fill"
         case .notRecommended: "hand.thumbsdown.fill"
         case .neutral: "fork.knife"
         }

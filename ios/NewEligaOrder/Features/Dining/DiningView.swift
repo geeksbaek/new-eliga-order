@@ -247,7 +247,7 @@ struct DiningPersonalizationLabels: View {
         Group {
             switch personalization.recommendation {
             case .recommended:
-                label("추천", systemImage: "sparkles", color: .green)
+                label("추천", systemImage: "hand.thumbsup.fill", color: .green)
             case .notRecommended:
                 label("비추천", systemImage: "hand.thumbsdown.fill", color: .red)
             case .neutral:
@@ -306,10 +306,7 @@ private struct DiningMealRow: View {
                     Text(title.displayName)
                         .font(.body.weight(.medium))
                         .lineLimit(2)
-                }
-
-                if personalization.recommendation != .neutral || personalization.hasAllergyWarning {
-                    HStack(spacing: 5) {
+                    if personalization.recommendation != .neutral || personalization.hasAllergyWarning {
                         DiningPersonalizationLabels(personalization: personalization)
                     }
                 }
