@@ -239,50 +239,6 @@ struct SelectionChip: View {
     }
 }
 
-struct CafeShopPickerMenu: View {
-    let shops: [Shop]
-    let selectedShopID: Int
-    let selectShop: (Int) -> Void
-
-    private var selectedShopName: String {
-        shops.first(where: { $0.id == selectedShopID })?.name ?? "매장 선택"
-    }
-
-    var body: some View {
-        Menu {
-            ForEach(shops) { shop in
-                Button {
-                    selectShop(shop.id)
-                } label: {
-                    if shop.id == selectedShopID {
-                        Label(shop.name, systemImage: "checkmark")
-                    } else {
-                        Text(shop.name)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Text(selectedShopName)
-                    .font(.headline)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .disabled(shops.isEmpty)
-        .accessibilityLabel("카페 매장")
-        .accessibilityValue(selectedShopName)
-        .accessibilityIdentifier("cafe.shop-picker")
-        .accessibilityShowsLargeContentViewer {
-            Label(selectedShopName, systemImage: "cup.and.saucer")
-        }
-    }
-}
-
 enum CafeShopSwitcherPolicy {
     static func adjacentShopID(
         in shops: [Shop],
@@ -611,12 +567,14 @@ struct CafeShopModeSwitcherFixtureView: View {
     }
 }
 
-struct CafeShopPickerFixtureView: View {
+/// Exercises the cart screen's own shop switcher (same segmented control as
+/// CafeView, no search button) without needing a real cart/API session.
+struct CartShopSwitcherFixtureView: View {
     @State private var selectedShopID = 5
 
     private let shops = [
-        Shop(id: 5, name: "엘리가 카페 본점", kind: .cafe, isOpen: true),
-        Shop(id: 6, name: "엘리가 카페 서초점", kind: .cafe, isOpen: true),
+        Shop(id: 5, name: "kafé 3F", kind: .cafe, isOpen: true),
+        Shop(id: 6, name: "kafé 5F b", kind: .cafe, isOpen: true),
     ]
 
     var body: some View {
@@ -631,7 +589,7 @@ struct CafeShopPickerFixtureView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    CafeShopPickerMenu(
+                    CafeShopModeSwitcher(
                         shops: shops,
                         selectedShopID: selectedShopID,
                         selectShop: { selectedShopID = $0 }

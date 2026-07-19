@@ -56,12 +56,18 @@ struct CartView: View {
         .navigationTitle("장바구니")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                CafeShopPickerMenu(
-                    shops: store.cafeShops,
-                    selectedShopID: shopID,
-                    selectShop: selectShop
-                )
+            // Same segmented-control shop switcher as CafeView, minus the
+            // search button — the cart doesn't need cross-shop menu search.
+            // Hidden with just 0-1 shops, same as CafeView: nothing to
+            // switch between, so the plain "장바구니" title shows instead.
+            if store.cafeShops.count > 1 {
+                ToolbarItem(placement: .principal) {
+                    CafeShopModeSwitcher(
+                        shops: store.cafeShops,
+                        selectedShopID: shopID,
+                        selectShop: selectShop
+                    )
+                }
             }
         }
         .safeAreaInset(edge: .bottom) {

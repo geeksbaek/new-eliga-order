@@ -153,27 +153,31 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
-    func testCartUsesAccessibleCafeShopPicker() throws {
+    func testCartUsesSameShopSwitcherAsCafeWithoutSearchButton() throws {
         let app = XCUIApplication()
         app.launchArguments += [
-            "-ui-testing-shop-picker",
+            "-ui-testing-cart-shop-switcher",
             "-AppleInterfaceStyle", "Dark",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
         ]
         app.launch()
 
-        let picker = app.descendants(matching: .any)["cafe.shop-picker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertEqual(picker.value as? String, "엘리가 카페 본점")
-        assertFullyVisible(picker, in: app)
+        let firstShop = app.buttons["cafe.shop-mode.5"]
+        let secondShop = app.buttons["cafe.shop-mode.6"]
+        XCTAssertTrue(firstShop.waitForExistence(timeout: 5))
+        XCTAssertTrue(secondShop.exists)
+        XCTAssertEqual(firstShop.value as? String, "선택됨")
+        assertFullyVisible(firstShop, in: app)
 
-        picker.tap()
-        let secondShop = app.buttons["엘리가 카페 서초점"]
-        XCTAssertTrue(secondShop.waitForExistence(timeout: 2))
+        XCTAssertFalse(
+            app.buttons["cafe.search.accessory"].exists,
+            "장바구니에는 검색 버튼이 없어야 합니다."
+        )
+
         secondShop.tap()
-        XCTAssertEqual(picker.value as? String, "엘리가 카페 서초점")
+        XCTAssertEqual(secondShop.value as? String, "선택됨")
 
-        attachScreenshot(of: app, name: "장바구니 공통 매장 선택 메뉴")
+        attachScreenshot(of: app, name: "장바구니 매장 스위처")
         try app.performAccessibilityAudit(
             // 시스템 내비게이션 바는 글자 크기가 고정되므로 AXXXL 실화면과 Large Content Viewer로 직접 검증한다.
             for: [.contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .trait]
