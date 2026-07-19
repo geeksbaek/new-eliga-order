@@ -131,17 +131,16 @@ struct HomeView: View {
                         if index > 0 { Divider() }
                         let personalization = personalization(for: dish)
                         Button {
-                            router.switchTo(
-                                .dining,
-                                route: .diningMenu(context: detailContext(for: dish, personalization: personalization))
+                            // Pushed onto the home tab's own stack (not
+                            // `.switchTo`), so the tab bar stays on 홈 and
+                            // the back button returns here instead of
+                            // stranding the user on the dining tab.
+                            router.push(
+                                .diningMenu(context: detailContext(for: dish, personalization: personalization)),
+                                on: .home
                             )
                         } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: recommendationIcon(for: personalization.recommendation))
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(recommendationColor(for: personalization.recommendation))
-                                    .frame(width: 22)
-                                    .accessibilityHidden(true)
                                 HStack(spacing: 5) {
                                     ForEach(Array(dish.meal.titlePresentation.badges.enumerated()), id: \.offset) { _, badge in
                                         MenuLabelBadge(text: badge)
@@ -436,22 +435,6 @@ struct HomeView: View {
         if personalization.hasAllergyWarning { values.append("알러지 주의") }
         if dish.meal.isSoldOut { values.append("품절") }
         return values.joined(separator: ", ")
-    }
-
-    private func recommendationIcon(for state: DiningRecommendationState) -> String {
-        switch state {
-        case .recommended: "hand.thumbsup.fill"
-        case .notRecommended: "hand.thumbsdown.fill"
-        case .neutral: "fork.knife"
-        }
-    }
-
-    private func recommendationColor(for state: DiningRecommendationState) -> Color {
-        switch state {
-        case .recommended: .green
-        case .notRecommended: .red
-        case .neutral: .secondary
-        }
     }
 
     private func minutes(from time: String) -> Int? {

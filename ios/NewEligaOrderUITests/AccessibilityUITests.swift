@@ -418,8 +418,16 @@ final class AccessibilityUITests: XCTestCase {
         app.launchArguments.append("-ui-testing-dining-personalization")
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["추천"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["비추천"].exists)
+        // 추천/비추천은 아이콘 전용 칩(글자 없음)이라 화면에 "추천"/"비추천"
+        // 텍스트 자체는 없다 — 대신 행의 결합된 접근성 값으로 전달된다.
+        let recommendedRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "value == %@", "추천 메뉴"))
+            .firstMatch
+        XCTAssertTrue(recommendedRow.waitForExistence(timeout: 5))
+        let notRecommendedRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "value BEGINSWITH %@", "비추천 메뉴"))
+            .firstMatch
+        XCTAssertTrue(notRecommendedRow.exists)
         XCTAssertTrue(app.staticTexts["알러지 주의"].exists)
         XCTAssertTrue(app.staticTexts["두부 된장국"].exists)
         attachScreenshot(of: app, name: "식단 추천 비추천 및 알러지 레이블")

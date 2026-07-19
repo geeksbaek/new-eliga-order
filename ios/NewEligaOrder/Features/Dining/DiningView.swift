@@ -231,12 +231,12 @@ private extension DiningMenuPersonalization {
 }
 
 enum DiningPersonalizationStyle {
+    /// Row background always stays the plain default surface — it must
+    /// never vary by recommendation state, regardless of recommend/avoid/
+    /// neutral. Recommendation is communicated only via the chip, not by
+    /// tinting the row itself.
     static func background(for recommendation: DiningRecommendationState) -> Color {
-        switch recommendation {
-        case .recommended: Color.green.opacity(0.10)
-        case .notRecommended: Color.red.opacity(0.09)
-        case .neutral: Color(.secondarySystemGroupedBackground)
-        }
+        Color(.secondarySystemGroupedBackground)
     }
 }
 
@@ -247,9 +247,9 @@ struct DiningPersonalizationLabels: View {
         Group {
             switch personalization.recommendation {
             case .recommended:
-                label("추천", systemImage: "hand.thumbsup.fill", color: .green)
+                iconChip(systemImage: "hand.thumbsup.fill", color: .green)
             case .notRecommended:
-                label("비추천", systemImage: "hand.thumbsdown.fill", color: .red)
+                iconChip(systemImage: "hand.thumbsdown.fill", color: .red)
             case .neutral:
                 EmptyView()
             }
@@ -260,13 +260,30 @@ struct DiningPersonalizationLabels: View {
         }
     }
 
-    private func label(_ title: String, systemImage: String, color: Color) -> some View {
-        Label(title, systemImage: systemImage)
+    /// Recommend/avoid is an icon-only chip (no text) — the surrounding row
+    /// already announces "추천 메뉴"/"비추천 메뉴" via its own accessibility
+    /// value, so this chip stays hidden from VoiceOver to avoid repeating it.
+    private func iconChip(systemImage: String, color: Color) -> some View {
+        Image(systemName: systemImage)
             .font(.caption2.weight(.bold))
             .foregroundStyle(.primary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
-            .background(color.opacity(0.18), in: Capsule())
+            .padding(6)
+            .background(color.opacity(0.18), in: Circle())
+            .accessibilityHidden(true)
+    }
+
+    private func label(_ title: String, systemImage: String, color: Color) -> some View {
+        // Built manually instead of `Label` — `Label`'s default icon/title
+        // spacing renders noticeably wider than intended for a compact chip.
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(title)
+        }
+        .font(.caption2.weight(.bold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.18), in: Capsule())
     }
 }
 
