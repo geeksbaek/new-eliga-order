@@ -311,7 +311,7 @@ struct CafeShopThumbSwitcher: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             switchButton(
                 title: "이전 매장",
                 systemImage: "chevron.left",
@@ -321,11 +321,12 @@ struct CafeShopThumbSwitcher: View {
             Button {
                 isShopListPresented = true
             } label: {
-                HStack(spacing: 7) {
+                HStack(spacing: 5) {
                     Image(systemName: "cup.and.saucer.fill")
+                        .font(.caption)
                         .foregroundStyle(AppPalette.brand)
                     Text(selectedShopName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.caption.weight(.semibold))
                         .lineLimit(1)
                     Image(systemName: "chevron.up")
                         .font(.caption2.weight(.bold))
@@ -346,9 +347,9 @@ struct CafeShopThumbSwitcher: View {
                 offset: 1
             )
         }
-        .padding(6)
-        .frame(maxWidth: 430)
-        .appGlassSurface(cornerRadius: 28, isInteractive: true)
+        .padding(.horizontal, 2)
+        .frame(maxWidth: 380, minHeight: 44, maxHeight: 44)
+        .appGlassSurface(cornerRadius: 22, isInteractive: true)
         .contentShape(Rectangle())
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
@@ -376,7 +377,7 @@ struct CafeShopThumbSwitcher: View {
             selectAdjacentShop(offset: offset)
         } label: {
             Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }

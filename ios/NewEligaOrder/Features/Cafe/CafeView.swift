@@ -120,8 +120,7 @@ struct CafeView: View {
                     selectShop: selectShop
                 )
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.top, 4)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -132,7 +131,7 @@ struct CafeView: View {
                     .padding()
                     .appGlassSurface(cornerRadius: 22, tint: .red)
                     .padding()
-                    .padding(.bottom, !isSearchActive && store.cafeShops.count > 1 ? 72 : 0)
+                    .padding(.bottom, !isSearchActive && store.cafeShops.count > 1 ? 56 : 0)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .accessibilityAddTraits(.updatesFrequently)
             }
