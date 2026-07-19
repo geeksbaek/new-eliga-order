@@ -213,7 +213,14 @@ enum DiningDynamicUINormalizer {
             var items = generated.items.compactMap { item -> DiningDynamicUIItem? in
                 let value = DiningDynamicUIFallback.cleaned(item.value, maximumLength: 180)
                 guard !value.isEmpty,
-                      let verifiedItem = fallbackBlock.items.first(where: { isGrounded(value, in: $0.value) })
+                      let verifiedItem = fallbackBlock.items.first(where: { candidate in
+                          isGrounded(value, in: candidate.value)
+                              && labelsMatchIfNeeded(
+                                  generated: item.label,
+                                  verified: candidate.label,
+                                  kind: fallbackBlock.kind
+                              )
+                      })
                 else { return nil }
                 return DiningDynamicUIItem(
                     label: verifiedItem.label,
@@ -221,7 +228,11 @@ enum DiningDynamicUINormalizer {
                     emphasis: verifiedItem.emphasis
                 )
             }
-            for fallbackItem in fallbackBlock.items where !contains(fallbackItem, in: items) {
+            for fallbackItem in fallbackBlock.items where !contains(
+                fallbackItem,
+                in: items,
+                kind: fallbackBlock.kind
+            ) {
                 items.append(fallbackItem)
             }
             return DiningDynamicUIFallback.block(
@@ -233,12 +244,33 @@ enum DiningDynamicUINormalizer {
         return DiningDynamicUISurface(blocks: blocks, isModelGenerated: true)
     }
 
-    private static func contains(_ expected: DiningDynamicUIItem, in items: [DiningDynamicUIItem]) -> Bool {
+    private static func contains(
+        _ expected: DiningDynamicUIItem,
+        in items: [DiningDynamicUIItem],
+        kind: DiningDynamicUIBlockKind
+    ) -> Bool {
         let expectedValue = DiningDynamicUIFallback.normalized(expected.value)
         return items.contains { item in
             let value = DiningDynamicUIFallback.normalized(item.value)
-            return !value.isEmpty && (value.contains(expectedValue) || expectedValue.contains(value))
+            let valueMatches = !value.isEmpty
+                && (value.contains(expectedValue) || expectedValue.contains(value))
+            return valueMatches && labelsMatchIfNeeded(
+                generated: item.label,
+                verified: expected.label,
+                kind: kind
+            )
         }
+    }
+
+    private static func labelsMatchIfNeeded(
+        generated: String,
+        verified: String,
+        kind: DiningDynamicUIBlockKind
+    ) -> Bool {
+        guard kind == .metrics else { return true }
+        let generatedLabel = DiningDynamicUIFallback.normalized(generated)
+        let verifiedLabel = DiningDynamicUIFallback.normalized(verified)
+        return !generatedLabel.isEmpty && generatedLabel == verifiedLabel
     }
 
     private static func isGrounded(_ value: String, in source: String) -> Bool {

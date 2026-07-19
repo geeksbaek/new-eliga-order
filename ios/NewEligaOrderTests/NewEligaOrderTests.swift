@@ -608,7 +608,20 @@ final class NewEligaOrderTests: XCTestCase {
         )
 
         let fallback = DiningDynamicUIFallback.surface(for: input)
-        let normalized = DiningDynamicUINormalizer.normalize(generatedBlocks: [], fallback: fallback)
+        let modelStructuredNutrition = DiningDynamicUIBlock(
+            id: "model-nutrition",
+            kind: .metrics,
+            title: "영양 정보",
+            items: [
+                DiningDynamicUIItem(label: "열량", value: "902 kcal", emphasis: .primary),
+                DiningDynamicUIItem(label: "탄수화물", value: "120.6g", emphasis: .primary),
+                DiningDynamicUIItem(label: "단백질", value: "32g", emphasis: .primary),
+            ]
+        )
+        let normalized = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [modelStructuredNutrition],
+            fallback: fallback
+        )
         let metrics = normalized.blocks.first(where: { $0.kind == .metrics })?.items ?? []
 
         XCTAssertEqual(metrics.count, 13)
@@ -616,6 +629,35 @@ final class NewEligaOrderTests: XCTestCase {
         for label in ["탄수화물", "단백질", "지방", "포화지방", "트랜스지방", "당류", "식이섬유", "콜레스테롤", "나트륨", "칼륨", "칼슘", "철분"] {
             XCTAssertTrue(metrics.contains(where: { $0.label == label }), "\(label)이 영양 정보 UI에 유지되어야 합니다")
         }
+    }
+
+    func testDiningDynamicUINutritionGroundingKeepsEqualValuesForDifferentNutrients() {
+        let input = DiningDynamicUIInput(
+            menuName: "테스트 식단",
+            information: "",
+            sideDishSummary: "쌀밥",
+            calorie: nil,
+            nutrition: "단백질 27g / 지방 27g",
+            origin: ""
+        )
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let generated = DiningDynamicUIBlock(
+            id: "model-nutrition-equal-values",
+            kind: .metrics,
+            title: "영양 정보",
+            items: [
+                DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary),
+                DiningDynamicUIItem(label: "지방", value: "27g", emphasis: .primary),
+            ]
+        )
+
+        let surface = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [generated],
+            fallback: fallback
+        )
+        let metrics = surface.blocks.first(where: { $0.kind == .metrics })?.items ?? []
+
+        XCTAssertEqual(metrics.map(\.label), ["단백질", "지방"])
     }
 
     func testDiningDynamicUIFallbackSelectsComponentsFromAvailableData() {
@@ -670,7 +712,7 @@ final class NewEligaOrderTests: XCTestCase {
     func testDiningDynamicUIInstructionsUseDeclarativeTrustedComponentCatalog() {
         let instructions = DiningMenuDynamicUIStructurer.instructions
 
-        XCTAssertTrue(instructions.contains("허용되는 블록과 순서는 정확히"))
+        XCTAssertTrue(instructions.contains("blocks에는 허용되는 블록"))
         XCTAssertTrue(instructions.contains("원문에 없는 사실"))
         XCTAssertTrue(instructions.contains("메뉴명을 블록에 반복하지 않는다"))
         XCTAssertTrue(instructions.contains("'메뉴 구성'"))
@@ -679,6 +721,8 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertTrue(instructions.contains("'알러지 주의 음식'"))
         XCTAssertTrue(instructions.contains("이용 안내"))
         XCTAssertTrue(instructions.contains("모든 항목은 누락하거나 새로 만들지 말고"))
+        XCTAssertTrue(instructions.contains("반드시 nutritionItems에 구조화"))
+        XCTAssertTrue(instructions.contains("단순 복사하지 말고"))
         XCTAssertTrue(instructions.contains("모든 영양소를 하나도 누락하지 않는다"))
         XCTAssertTrue(instructions.contains("숫자 및 단위는 절대 수정하지 않는다"))
     }
