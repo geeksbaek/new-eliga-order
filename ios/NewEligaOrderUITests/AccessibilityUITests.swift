@@ -153,6 +153,11 @@ final class AccessibilityUITests: XCTestCase {
         for title in ["메뉴 구성", "영양 정보", "원산지"] {
             XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 5), "\(title) 섹션이 필요합니다.")
         }
+        XCTAssertEqual(
+            app.staticTexts.matching(NSPredicate(format: "label == %@", "영양 정보")).count,
+            1,
+            "생성 결과에 중복 영양 블록이 있어도 화면에는 한 번만 표시되어야 합니다."
+        )
         XCTAssertFalse(app.staticTexts["중식 이용 안내"].exists)
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "제육볶음")).count, 1)
 

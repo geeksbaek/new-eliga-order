@@ -660,6 +660,54 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(metrics.map(\.label), ["단백질", "지방"])
     }
 
+    func testDiningDynamicUINormalizerRemovesDuplicateNutritionItems() {
+        let input = DiningDynamicUIInput(
+            menuName: "테스트 식단",
+            information: "",
+            sideDishSummary: "쌀밥",
+            calorie: nil,
+            nutrition: "단백질 27g / 지방 18g",
+            origin: ""
+        )
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let generated = DiningDynamicUIBlock(
+            id: "duplicated-model-nutrition",
+            kind: .metrics,
+            title: "영양 정보",
+            items: [
+                DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary),
+                DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary),
+                DiningDynamicUIItem(label: "지방", value: "18g", emphasis: .primary),
+            ]
+        )
+
+        let surface = DiningDynamicUINormalizer.normalize(
+            generatedBlocks: [generated],
+            fallback: fallback
+        )
+        let metrics = surface.blocks.first(where: { $0.kind == .metrics })?.items ?? []
+
+        XCTAssertEqual(metrics.map(\.label), ["단백질", "지방"])
+        XCTAssertEqual(Set(metrics.map(\.label)).count, metrics.count)
+    }
+
+    func testDiningDynamicUIDeduplicatorMergesDuplicateNutritionBlocks() {
+        let protein = DiningDynamicUIItem(label: "단백질", value: "27g", emphasis: .primary)
+        let fat = DiningDynamicUIItem(label: "지방", value: "18g", emphasis: .primary)
+        let surface = DiningDynamicUISurface(
+            blocks: [
+                DiningDynamicUIFallback.block(kind: .metrics, title: "영양 정보", items: [protein, protein]),
+                DiningDynamicUIFallback.block(kind: .metrics, title: "영양 정보", items: [protein, fat]),
+            ],
+            isModelGenerated: true
+        )
+
+        let deduplicated = DiningDynamicUIDeduplicator.surface(surface)
+
+        XCTAssertEqual(deduplicated.blocks.count, 1)
+        XCTAssertEqual(deduplicated.blocks.first?.items.map(\.label), ["단백질", "지방"])
+    }
+
     func testDiningDynamicUIFallbackSelectsComponentsFromAvailableData() {
         let input = dynamicDiningInput()
 

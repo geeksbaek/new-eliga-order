@@ -166,6 +166,12 @@ struct DiningMenuDetailFixtureView: View {
             nutrition: meal.nutrition,
             origin: "돼지고기 국내산"
         )
+        let fallbackSurface = DiningDynamicUIFallback.surface(for: input)
+        let nutritionBlock = fallbackSurface.blocks.first(where: { $0.kind == .metrics })
+        let duplicatedSurface = DiningDynamicUISurface(
+            blocks: fallbackSurface.blocks + (nutritionBlock.map { [$0] } ?? []),
+            isModelGenerated: false
+        )
         return DiningMenuDetailContext(
             meal: meal,
             sideDishSummary: sideDishSummary,
@@ -179,7 +185,8 @@ struct DiningMenuDetailFixtureView: View {
             endTime: "13:30:00",
             date: .now,
             shopID: 7,
-            preparedSurface: DiningDynamicUIFallback.surface(for: input),
+            // UI 테스트가 손상된 생성 결과를 재현해 화면 최종 방어선까지 검증한다.
+            preparedSurface: duplicatedSurface,
             personalization: DiningMenuPersonalization(
                 recommendation: .recommended,
                 reason: "쌀밥 선호",

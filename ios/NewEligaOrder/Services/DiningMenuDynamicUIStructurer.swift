@@ -4,7 +4,7 @@ import FoundationModels
 
 // MARK: - Declarative generative dining UI
 
-enum DiningDynamicUIBlockKind: String, Codable, CaseIterable, Sendable {
+enum DiningDynamicUIBlockKind: String, Codable, CaseIterable, Hashable, Sendable {
     case chips
     case metrics
     case note
@@ -35,6 +35,54 @@ struct DiningDynamicUIBlock: Identifiable, Hashable, Sendable, Codable {
 struct DiningDynamicUISurface: Hashable, Sendable, Codable {
     let blocks: [DiningDynamicUIBlock]
     let isModelGenerated: Bool
+}
+
+enum DiningDynamicUIDeduplicator {
+    static func surface(_ surface: DiningDynamicUISurface) -> DiningDynamicUISurface {
+        var blocks: [DiningDynamicUIBlock] = []
+        var blockIndexByKind: [DiningDynamicUIBlockKind: Int] = [:]
+
+        for block in surface.blocks {
+            let items = uniqueItems(block.items, kind: block.kind)
+            if let index = blockIndexByKind[block.kind] {
+                let existing = blocks[index]
+                blocks[index] = DiningDynamicUIFallback.block(
+                    kind: existing.kind,
+                    title: existing.title,
+                    items: uniqueItems(existing.items + items, kind: existing.kind)
+                )
+            } else {
+                blockIndexByKind[block.kind] = blocks.count
+                blocks.append(
+                    DiningDynamicUIFallback.block(
+                        kind: block.kind,
+                        title: block.title,
+                        items: items
+                    )
+                )
+            }
+        }
+
+        return DiningDynamicUISurface(
+            blocks: blocks,
+            isModelGenerated: surface.isModelGenerated
+        )
+    }
+
+    private static func uniqueItems(
+        _ items: [DiningDynamicUIItem],
+        kind: DiningDynamicUIBlockKind
+    ) -> [DiningDynamicUIItem] {
+        var seen = Set<String>()
+        return items.filter { item in
+            let normalizedLabel = DiningDynamicUIFallback.normalized(item.label)
+            let normalizedValue = DiningDynamicUIFallback.normalized(item.value)
+            let key = kind == .metrics && !normalizedLabel.isEmpty
+                ? normalizedLabel
+                : "\(normalizedLabel)|\(normalizedValue)"
+            return !key.isEmpty && seen.insert(key).inserted
+        }
+    }
 }
 
 struct DiningDynamicUIInput: Hashable, Sendable {
@@ -210,30 +258,24 @@ enum DiningDynamicUINormalizer {
             guard let generated = generatedBlocks.first(where: { $0.kind == fallbackBlock.kind }) else {
                 return fallbackBlock
             }
-            var items = generated.items.compactMap { item -> DiningDynamicUIItem? in
-                let value = DiningDynamicUIFallback.cleaned(item.value, maximumLength: 180)
-                guard !value.isEmpty,
-                      let verifiedItem = fallbackBlock.items.first(where: { candidate in
-                          isGrounded(value, in: candidate.value)
-                              && labelsMatchIfNeeded(
-                                  generated: item.label,
-                                  verified: candidate.label,
-                                  kind: fallbackBlock.kind
-                              )
-                      })
-                else { return nil }
+            let items = fallbackBlock.items.map { fallbackItem in
+                guard let generatedItem = generated.items.first(where: { item in
+                    let value = DiningDynamicUIFallback.cleaned(item.value, maximumLength: 180)
+                    return !value.isEmpty
+                        && isGrounded(value, in: fallbackItem.value)
+                        && labelsMatchIfNeeded(
+                            generated: item.label,
+                            verified: fallbackItem.label,
+                            kind: fallbackBlock.kind
+                        )
+                }) else {
+                    return fallbackItem
+                }
                 return DiningDynamicUIItem(
-                    label: verifiedItem.label,
-                    value: value,
-                    emphasis: verifiedItem.emphasis
+                    label: fallbackItem.label,
+                    value: DiningDynamicUIFallback.cleaned(generatedItem.value, maximumLength: 180),
+                    emphasis: fallbackItem.emphasis
                 )
-            }
-            for fallbackItem in fallbackBlock.items where !contains(
-                fallbackItem,
-                in: items,
-                kind: fallbackBlock.kind
-            ) {
-                items.append(fallbackItem)
             }
             return DiningDynamicUIFallback.block(
                 kind: fallbackBlock.kind,
@@ -241,25 +283,9 @@ enum DiningDynamicUINormalizer {
                 items: fallbackBlock.kind == .metrics ? items : Array(items.prefix(12))
             )
         }
-        return DiningDynamicUISurface(blocks: blocks, isModelGenerated: true)
-    }
-
-    private static func contains(
-        _ expected: DiningDynamicUIItem,
-        in items: [DiningDynamicUIItem],
-        kind: DiningDynamicUIBlockKind
-    ) -> Bool {
-        let expectedValue = DiningDynamicUIFallback.normalized(expected.value)
-        return items.contains { item in
-            let value = DiningDynamicUIFallback.normalized(item.value)
-            let valueMatches = !value.isEmpty
-                && (value.contains(expectedValue) || expectedValue.contains(value))
-            return valueMatches && labelsMatchIfNeeded(
-                generated: item.label,
-                verified: expected.label,
-                kind: kind
-            )
-        }
+        return DiningDynamicUIDeduplicator.surface(
+            DiningDynamicUISurface(blocks: blocks, isModelGenerated: true)
+        )
     }
 
     private static func labelsMatchIfNeeded(

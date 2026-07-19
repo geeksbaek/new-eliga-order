@@ -18,13 +18,13 @@ actor DiningMenuDynamicUIStructurer {
         status, facts, 이용 안내, 식사 시간, 코스, 가격, 혼잡도, 홍보 문구 등 다른 블록이나 정보는 절대 만들지 않는다. 리스트반찬의 모든 항목은 누락하거나 새로 만들지 말고 chips에 원래 순서대로 포함한다. nutrition과 calorie의 숫자 및 단위는 절대 수정하지 않는다. item의 value는 검증된 사실을 그대로 사용하고 같은 내용을 반복하지 않는다.
         """
 
-    private let cacheDefaultsKey = "dining-menu-dynamic-ui-v4"
+    private let cacheDefaultsKey = "dining-menu-dynamic-ui-v5"
     private var cache: [String: DiningDynamicUISurface]
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: cacheDefaultsKey),
            let decoded = try? JSONDecoder().decode([String: DiningDynamicUISurface].self, from: data) {
-            cache = decoded
+            cache = decoded.mapValues(DiningDynamicUIDeduplicator.surface)
         } else {
             cache = [:]
         }
@@ -33,7 +33,9 @@ actor DiningMenuDynamicUIStructurer {
     func surface(for input: DiningDynamicUIInput) async -> DiningDynamicUISurface {
         let fallback = DiningDynamicUIFallback.surface(for: input)
         let key = cacheKey(for: input)
-        if let cached = cache[key] { return cached }
+        if let cached = cache[key] {
+            return DiningDynamicUIDeduplicator.surface(cached)
+        }
 
         guard #available(iOS 26.0, *) else { return fallback }
         guard FoundationModelRuntimePolicy.isEnabled else { return fallback }
@@ -67,9 +69,11 @@ actor DiningMenuDynamicUIStructurer {
                 )
             )
         }
-        let normalized = DiningDynamicUINormalizer.normalize(
-            generatedBlocks: generatedBlocks,
-            fallback: fallback
+        let normalized = DiningDynamicUIDeduplicator.surface(
+            DiningDynamicUINormalizer.normalize(
+                generatedBlocks: generatedBlocks,
+                fallback: fallback
+            )
         )
         cache[key] = normalized
         trimCacheIfNeeded()

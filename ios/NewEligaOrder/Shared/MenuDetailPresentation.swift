@@ -195,13 +195,17 @@ struct DiningDynamicSurfaceView: View {
     let surface: DiningDynamicUISurface
     let personalization: DiningMenuPersonalization?
 
+    private var displaySurface: DiningDynamicUISurface {
+        DiningDynamicUIDeduplicator.surface(surface)
+    }
+
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 16) {
-            ForEach(surface.blocks) { block in
+            ForEach(displaySurface.blocks) { block in
                 DiningDynamicBlockView(block: block, personalization: personalization)
             }
 
-            if surface.isModelGenerated {
+            if displaySurface.isModelGenerated {
                 Label("기기에서 맞춤 구성됨", systemImage: "apple.intelligence")
                     .font(.caption)
                     .foregroundStyle(.primary)
