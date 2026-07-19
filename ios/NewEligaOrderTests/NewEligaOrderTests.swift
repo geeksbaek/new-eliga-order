@@ -3,11 +3,157 @@ import XCTest
 
 @MainActor
 final class NewEligaOrderTests: XCTestCase {
+    func testCafeMenuOptionSelectionPersistsWithoutOrdering() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-option-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let detail = cafeOptionDetail()
+
+        CafeMenuOptionSelectionStore(defaults: defaults).save(
+            accountID: "user@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail,
+            variantID: 102,
+            selectedMenus: [22: [222], 21: [212, 211]]
+        )
+
+        let restored = CafeMenuOptionSelectionStore(defaults: defaults).restore(
+            accountID: "user@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail
+        )
+        XCTAssertEqual(restored?.variantID, 102)
+        XCTAssertEqual(restored?.selectedMenus, [21: [211, 212], 22: [222]])
+    }
+
+    func testCafeMenuOptionSelectionIsSeparatedByAccountShopAndMenu() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-option-scope-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let detail = cafeOptionDetail()
+        let storage = CafeMenuOptionSelectionStore(defaults: defaults)
+
+        storage.save(
+            accountID: "first@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail,
+            variantID: 101,
+            selectedMenus: [11: [112]]
+        )
+
+        XCTAssertNil(storage.restore(accountID: "second@example.com", shopID: 5, displayID: detail.displayID, detail: detail))
+        XCTAssertNil(storage.restore(accountID: "first@example.com", shopID: 6, displayID: detail.displayID, detail: detail))
+        XCTAssertNil(storage.restore(accountID: "first@example.com", shopID: 5, displayID: 999, detail: detail))
+    }
+
+    func testCafeMenuOptionSelectionResetsWhenOptionCatalogChanges() throws {
+        let suiteName = "com.leeari95.NewEligaOrder.cafe-option-invalidation-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let detail = cafeOptionDetail()
+        let storage = CafeMenuOptionSelectionStore(defaults: defaults)
+
+        storage.save(
+            accountID: "user@example.com",
+            shopID: 5,
+            displayID: detail.displayID,
+            detail: detail,
+            variantID: 101,
+            selectedMenus: [11: [112]]
+        )
+
+        let changedDetail = cafeOptionDetail(firstMilkName: "락토프리 우유")
+        XCTAssertNil(
+            storage.restore(
+                accountID: "user@example.com",
+                shopID: 5,
+                displayID: detail.displayID,
+                detail: changedDetail
+            )
+        )
+        XCTAssertNil(
+            storage.restore(
+                accountID: "user@example.com",
+                shopID: 5,
+                displayID: detail.displayID,
+                detail: detail
+            ),
+            "옵션 변경으로 무효화된 과거 선택은 다시 복원되지 않아야 합니다."
+        )
+    }
+
     func testDiningMenuTitleSeparatesLeadingBadge() {
         let title = DiningMenuTitlePresentation(rawValue: "[밸런스바이츠] 닭가슴살 포케")
 
         XCTAssertEqual(title.displayName, "닭가슴살 포케")
         XCTAssertEqual(title.badges, ["밸런스바이츠"])
+    }
+
+    private func cafeOptionDetail(firstMilkName: String = "일반 우유") -> MenuDetail {
+        MenuDetail(
+            displayID: 900,
+            shopID: 5,
+            label: nil,
+            thumbnailURL: nil,
+            variants: [
+                GoodsVariant(
+                    id: 101,
+                    name: "아이스 라떼",
+                    displayName: "아이스",
+                    price: 4_500,
+                    isSoldOut: false,
+                    description: nil,
+                    calorie: nil,
+                    nutrition: nil,
+                    thumbnailURL: nil,
+                    options: [
+                        GoodsOption(
+                            id: 11,
+                            name: "우유",
+                            allowsMultipleSelection: false,
+                            menus: [
+                                OptionMenu(id: 111, name: firstMilkName, price: 0),
+                                OptionMenu(id: 112, name: "두유", price: 500),
+                            ]
+                        ),
+                    ]
+                ),
+                GoodsVariant(
+                    id: 102,
+                    name: "핫 라떼",
+                    displayName: "따뜻하게",
+                    price: 4_500,
+                    isSoldOut: false,
+                    description: nil,
+                    calorie: nil,
+                    nutrition: nil,
+                    thumbnailURL: nil,
+                    options: [
+                        GoodsOption(
+                            id: 21,
+                            name: "추가",
+                            allowsMultipleSelection: true,
+                            menus: [
+                                OptionMenu(id: 211, name: "샷 추가", price: 500),
+                                OptionMenu(id: 212, name: "시럽 추가", price: 300),
+                            ]
+                        ),
+                        GoodsOption(
+                            id: 22,
+                            name: "우유",
+                            allowsMultipleSelection: false,
+                            menus: [
+                                OptionMenu(id: 221, name: "일반 우유", price: 0),
+                                OptionMenu(id: 222, name: "오트 우유", price: 700),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
     }
 
     func testDiningMenuTitleSupportsConsecutiveBadges() {

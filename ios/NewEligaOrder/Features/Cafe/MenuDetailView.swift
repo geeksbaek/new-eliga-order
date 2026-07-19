@@ -11,6 +11,7 @@ struct MenuDetailView: View {
     let shopID: Int
     let displayID: Int
     let transitionNamespace: Namespace.ID
+    private let optionSelectionStore = CafeMenuOptionSelectionStore()
 
     @State private var detail: MenuDetail?
     @State private var selectedVariantID: Int?
@@ -242,6 +243,7 @@ struct MenuDetailView: View {
                         let isSelected = selectedMenus[option.id]?.contains(menu.id) == true
                         Button {
                             selectedMenus[option.id] = [menu.id]
+                            persistSelection()
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -361,7 +363,17 @@ struct MenuDetailView: View {
                 targetSize: 180,
                 limit: 8
             )
-            if let first = loaded.variants.first { selectVariant(first.id) }
+            if let restored = optionSelectionStore.restore(
+                accountID: store.userIDHint,
+                shopID: shopID,
+                displayID: displayID,
+                detail: loaded
+            ) {
+                selectedVariantID = restored.variantID
+                selectedMenus = restored.selectedMenus
+            } else if let first = loaded.variants.first {
+                selectVariant(first.id)
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -376,6 +388,7 @@ struct MenuDetailView: View {
         for option in variant.options where !option.allowsMultipleSelection {
             if let first = option.menus.first { selectedMenus[option.id] = [first.id] }
         }
+        persistSelection()
     }
 
     private func optionBinding(optionID: Int, menuID: Int) -> Binding<Bool> {
@@ -385,7 +398,20 @@ struct MenuDetailView: View {
                 var values = selectedMenus[optionID] ?? []
                 if selected { values.insert(menuID) } else { values.remove(menuID) }
                 selectedMenus[optionID] = values
+                persistSelection()
             }
+        )
+    }
+
+    private func persistSelection() {
+        guard let detail, let selectedVariantID else { return }
+        optionSelectionStore.save(
+            accountID: store.userIDHint,
+            shopID: shopID,
+            displayID: displayID,
+            detail: detail,
+            variantID: selectedVariantID,
+            selectedMenus: selectedMenus
         )
     }
 
