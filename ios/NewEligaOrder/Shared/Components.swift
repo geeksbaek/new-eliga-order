@@ -316,15 +316,6 @@ struct CafeShopModeSwitcher: View {
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
-    /// Hides the outer capsule glass so this doesn't stack a second Liquid Glass
-    /// surface directly on a neighboring one (the collapsed GNB pill sits right
-    /// next to this when the tab bar is minimized).
-    var showsTrackGlass: Bool = true
-    /// Non-nil only when hosted in the unified bottom accessory: reports active
-    /// drag/settle so the parent can slide its side buttons away and let this
-    /// grow to fill the row, and switches sizing to flow with the parent's
-    /// frame instead of the legacy fixed capsule width.
-    var isEngaged: Binding<Bool>? = nil
 
     @State private var centeredShopID: Int?
     @Namespace private var selectionNamespace
@@ -338,38 +329,28 @@ struct CafeShopModeSwitcher: View {
     }
 
     var body: some View {
-        Group {
-            if isEngaged != nil {
-                modeStrip.frame(height: trackHeight)
-            } else {
-                modeStrip.frame(width: viewportWidth, height: trackHeight)
+        modeStrip
+            .frame(width: viewportWidth, height: trackHeight)
+            .frame(maxWidth: .infinity)
+            .onAppear {
+                centeredShopID = selectedShopID
             }
-        }
-        .frame(maxWidth: .infinity)
-        .onAppear {
-            centeredShopID = selectedShopID
-        }
-        .onChange(of: selectedShopID) { _, newValue in
-            guard centeredShopID != newValue else { return }
-            withAnimation(.snappy(duration: 0.28)) {
-                centeredShopID = newValue
+            .onChange(of: selectedShopID) { _, newValue in
+                guard centeredShopID != newValue else { return }
+                withAnimation(.snappy(duration: 0.28)) {
+                    centeredShopID = newValue
+                }
             }
-        }
-        .sensoryFeedback(.selection, trigger: selectedShopID)
+            .sensoryFeedback(.selection, trigger: selectedShopID)
     }
 
     @ViewBuilder
     private var modeStrip: some View {
         if #available(iOS 26, *), !reduceTransparency {
             // Camera-like Liquid Glass: pure system glass track + morphing selection pill.
-            // Avoid stacked dark fills — they muddy the material and fight the tab accessory glass.
             GlassEffectContainer(spacing: 12) {
-                if showsTrackGlass {
-                    modeScroll
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                } else {
-                    modeScroll
-                }
+                modeScroll
+                    .glassEffect(.regular.interactive(), in: .capsule)
             }
         } else {
             modeScroll
@@ -398,19 +379,6 @@ struct CafeShopModeSwitcher: View {
         .scrollIndicators(.hidden)
         .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
         .scrollPosition(id: $centeredShopID, anchor: .center)
-        .onScrollPhaseChange { _, newPhase in
-            guard let isEngaged else { return }
-            // Camera's mode strip only reacts to an actual finger on the
-            // glass: tracking/interacting/decelerating are touch-driven, but
-            // `.animating` also fires for the *programmatic* scroll this view
-            // does when a chip is tapped (see `modeButton`/`onChange` below) —
-            // excluding it keeps a plain tap from hiding the side buttons.
-            let engaged = newPhase == .tracking || newPhase == .interacting || newPhase == .decelerating
-            guard isEngaged.wrappedValue != engaged else { return }
-            withAnimation(.smooth(duration: 0.3)) {
-                isEngaged.wrappedValue = engaged
-            }
-        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -501,6 +469,53 @@ struct CafeShopModeSwitcher: View {
     }
 }
 
+/// CafeView's own bottom row: shop switcher (when there's more than one shop
+/// to pick between) plus a small circular search-trigger button. Lives
+/// entirely in CafeView's view tree via `.safeAreaInset` — no
+/// `tabViewBottomAccessory`, no syncing with the GNB's own collapse
+/// behavior. Each control keeps its own Liquid Glass surface, so they read
+/// as two distinct floating shapes rather than one shared system bar.
+struct CafeBottomControlsRow: View {
+    let shops: [Shop]
+    let selectedShopID: Int
+    let selectShop: (Int) -> Void
+    let searchAction: () -> Void
+
+    private let controlHeight: CGFloat = 44
+
+    var body: some View {
+        AppGlassGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                if shops.count > 1 {
+                    CafeShopModeSwitcher(
+                        shops: shops,
+                        selectedShopID: selectedShopID,
+                        selectShop: selectShop
+                    )
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Spacer(minLength: 0)
+                }
+                searchButton
+            }
+        }
+        .frame(height: controlHeight)
+    }
+
+    private var searchButton: some View {
+        Button(action: searchAction) {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(.semibold))
+                .frame(width: controlHeight, height: controlHeight)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .appGlassSurface(cornerRadius: controlHeight / 2, isInteractive: true)
+        .accessibilityLabel("메뉴 검색")
+        .accessibilityIdentifier("cafe.search.accessory")
+    }
+}
+
 #if DEBUG
 struct CafeShopModeSwitcherFixtureView: View {
     @State private var selectedTab = 2
@@ -544,6 +559,19 @@ struct CafeShopModeSwitcherFixtureView: View {
                             isPresented: $isSearchPresented
                         )
                     )
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if !isSearchPresented {
+                            CafeBottomControlsRow(
+                                shops: shops,
+                                selectedShopID: selectedShopID,
+                                selectShop: { selectedShopID = $0 },
+                                searchAction: { isSearchPresented = true }
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.top, 6)
+                            .padding(.bottom, 8)
+                        }
+                    }
                 }
             }
             Tab("장바구니", systemImage: "bag", value: 3) { Color.clear }
@@ -551,14 +579,6 @@ struct CafeShopModeSwitcherFixtureView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .appTabBarBehavior()
-        .appCafeBottomAccessory(
-            isEnabled: selectedTab == 2 && !isSearchPresented,
-            shops: shops,
-            selectedShopID: selectedShopID,
-            selectShop: { selectedShopID = $0 }
-        ) {
-            isSearchPresented = true
-        }
         .tint(AppPalette.brand)
     }
 

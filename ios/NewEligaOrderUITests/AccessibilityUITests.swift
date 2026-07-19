@@ -227,7 +227,7 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
-    func testCafeSearchLivesAtTrailingEdgeOfCollapsedTabBar() throws {
+    func testCafeSearchStaysFixedRegardlessOfGNBCollapse() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-cafe-mode-switcher")
         app.launch()
@@ -238,25 +238,24 @@ final class AccessibilityUITests: XCTestCase {
         let searchButton = app.buttons["cafe.search.accessory"]
         XCTAssertTrue(
             searchButton.waitForExistence(timeout: 3),
-            "카페 탭에서는 하단 검색 액세서리가 보여야 합니다."
+            "카페 탭에서는 하단 검색 버튼이 보여야 합니다."
         )
 
         let modeSwitcher = app.scrollViews["cafe.shop-mode-switcher"]
-        if modeSwitcher.exists {
-            // GNB가 펼쳐진 상태에서는 매장 스위처와 검색 버튼이 같은 줄에
-            // 나란히 배치된다 (카메라 앱 모드 전환 UI 벤치마크).
-            XCTAssertLessThanOrEqual(
-                modeSwitcher.frame.maxX + 8,
-                searchButton.frame.minX,
-                "매장 스위처와 검색 버튼은 같은 줄에서 겹치지 않아야 합니다."
-            )
-            XCTAssertEqual(
-                modeSwitcher.frame.midY,
-                searchButton.frame.midY,
-                accuracy: 4,
-                "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
-            )
-        }
+        XCTAssertTrue(modeSwitcher.exists)
+        // CafeView가 직접 소유하는 행이므로 GNB 상태와 무관하게 매장
+        // 스위처와 검색 버튼은 같은 줄에서 겹치지 않고 나란히 있어야 한다.
+        XCTAssertLessThanOrEqual(
+            modeSwitcher.frame.maxX + 8,
+            searchButton.frame.minX,
+            "매장 스위처와 검색 버튼은 같은 줄에서 겹치지 않아야 합니다."
+        )
+        XCTAssertEqual(
+            modeSwitcher.frame.midY,
+            searchButton.frame.midY,
+            accuracy: 4,
+            "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
+        )
 
         let menuList = app.collectionViews.firstMatch
         XCTAssertTrue(menuList.exists)
@@ -266,20 +265,17 @@ final class AccessibilityUITests: XCTestCase {
         XCTAssertEqual(collapsedCafeTab.value as? String, "축소됨")
         XCTAssertTrue(
             searchButton.waitForExistence(timeout: 3),
-            "GNB가 축소된 뒤에도 우측 검색 버튼이 보여야 합니다."
+            "GNB가 축소된 뒤에도 검색 버튼이 계속 보여야 합니다."
         )
-        XCTAssertGreaterThan(
-            searchButton.frame.minX,
-            collapsedCafeTab.frame.maxX,
-            "검색 버튼은 축소된 GNB의 우측에 배치되어야 합니다."
+        // 의도적으로 GNB와 동기화하지 않는다: 검색 버튼(과 매장 스위처)은
+        // 축소된 GNB 알약과 나란한 줄로 옮겨가지 않고, 그 위에 계속 떠
+        // 있어야 한다.
+        XCTAssertLessThanOrEqual(
+            searchButton.frame.maxY,
+            collapsedCafeTab.frame.minY + 4,
+            "검색 버튼은 축소된 GNB 알약과 합쳐지지 않고 그 위에 떠 있어야 합니다."
         )
-        XCTAssertEqual(
-            searchButton.frame.midY,
-            collapsedCafeTab.frame.midY,
-            accuracy: 4,
-            "검색 버튼과 축소된 GNB는 같은 줄에 있어야 합니다."
-        )
-        attachScreenshot(of: app, name: "축소 GNB 우측 네이티브 검색 버튼")
+        attachScreenshot(of: app, name: "GNB 축소와 무관하게 고정된 검색 행")
 
         searchButton.tap()
         let searchField = app.searchFields["모든 매장의 메뉴 검색"]

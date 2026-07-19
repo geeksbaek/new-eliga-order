@@ -42,15 +42,9 @@ struct CafeView: View {
     private var isLoading: Bool { loadingShopID != nil }
     private var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var isSearchMode: Bool { isSearchPresented || isSearchActive }
-    /// Space above the pre-iOS 26 fallback shop switcher inset. On iOS 26+ the
-    /// switcher lives in the shared `tabViewBottomAccessory` (see
-    /// `AppShellView`/`CafeBottomAccessory`) instead of this local inset, so
-    /// the accessory's own safe area reservation handles clearance.
-    private var shopSwitcherBottomPadding: CGFloat { 8 }
     private var actionErrorBottomPadding: CGFloat {
-        guard !isSearchMode, store.cafeShops.count > 1 else { return 0 }
-        if #available(iOS 26, *) { return 0 }
-        return 56 + (shopSwitcherBottomPadding - 8)
+        guard !isSearchMode else { return 0 }
+        return 56
     }
     private var orderState: CafeOrderState { CafeRules.state(for: store.cafePlansByShop[activeShopID] ?? nil) }
     private var visibleMenus: [CafeMenuItem] {
@@ -112,23 +106,21 @@ struct CafeView: View {
         .navigationTitle("카페")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            // iOS 26+ renders the switcher in the shared bottom accessory
-            // (`AppShellView` + `CafeBottomAccessory`) so it can share a row
-            // with the search button and the collapsed GNB pill. This inset
-            // only backs the pre-iOS 26 fallback.
-            if #unavailable(iOS 26) {
-                if !isSearchMode, store.cafeShops.count > 1 {
-                    CafeShopModeSwitcher(
-                        shops: store.cafeShops,
-                        selectedShopID: activeShopID,
-                        selectShop: selectShop
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 6)
-                    .padding(.bottom, shopSwitcherBottomPadding)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+            // Owned entirely by CafeView — no `tabViewBottomAccessory`, no
+            // syncing with the GNB's own collapse behavior. It just floats
+            // in the safe area above whatever the (untouched) tab bar is
+            // doing, which the system keeps in sync for free.
+            if !isSearchMode {
+                CafeBottomControlsRow(
+                    shops: store.cafeShops,
+                    selectedShopID: activeShopID,
+                    selectShop: selectShop,
+                    searchAction: { isSearchPresented = true }
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .overlay(alignment: .bottom) {

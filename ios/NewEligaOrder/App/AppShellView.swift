@@ -54,14 +54,6 @@ struct AppShellView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .appTabBarBehavior()
-        .appCafeBottomAccessory(
-            isEnabled: router.selectedTab == .cafe && router.cafePath.isEmpty && !isCafeSearchPresented,
-            shops: store.cafeShops,
-            selectedShopID: store.selectedShopID ?? store.cafeShops.first?.id ?? 5,
-            selectShop: { store.selectShop($0) }
-        ) {
-            isCafeSearchPresented = true
-        }
         .safeAreaInset(edge: .top) {
             if !network.isConnected {
                 NetworkStatusBanner()
