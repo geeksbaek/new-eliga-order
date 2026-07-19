@@ -55,29 +55,30 @@ struct CartView: View {
         }
         .navigationTitle("장바구니")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Same segmented-control shop switcher as CafeView, minus the
-            // search button — the cart doesn't need cross-shop menu search.
-            // Hidden with just 0-1 shops, same as CafeView: nothing to
-            // switch between, so the plain "장바구니" title shows instead.
-            if store.cafeShops.count > 1 {
-                ToolbarItem(placement: .principal) {
-                    CafeShopModeSwitcher(
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                // Same bottom-row shop switcher as CafeView, minus the search
+                // button (the cart has nothing to search across shops for).
+                // No horizontal padding: the switcher alone must match the
+                // GNB's own edge-to-edge width exactly.
+                if store.cafeShops.count > 1 {
+                    CafeBottomControlsRow(
                         shops: store.cafeShops,
                         selectedShopID: shopID,
                         selectShop: selectShop
                     )
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
                 }
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
-            if !cart.items.isEmpty {
-                AppBottomActionBar {
-                    AppPrimaryActionButton(
-                        title: "주문 확인 · \(AppFormat.won(cart.total))",
-                        systemImage: "checkmark.circle.fill"
-                    ) {
-                        router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
+
+                if !cart.items.isEmpty {
+                    AppBottomActionBar {
+                        AppPrimaryActionButton(
+                            title: "주문 확인 · \(AppFormat.won(cart.total))",
+                            systemImage: "checkmark.circle.fill"
+                        ) {
+                            router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
+                        }
                     }
                 }
             }

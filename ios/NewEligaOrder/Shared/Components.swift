@@ -260,26 +260,51 @@ enum CafeShopSwitcherPolicy {
     /// the legacy "strip 카카오 prefix / 카페 suffix" trimming for names
     /// without a floor number.
     static func modeTitle(for shopName: String) -> String {
-        // Real shop names can carry a combining/precomposed diacritic (e.g.
-        // "kafé") that isn't relevant to the floor pattern — fold it away
-        // before matching.
-        let folded = shopName.folding(options: .diacriticInsensitive, locale: nil) as NSString
-        if let regex = try? NSRegularExpression(pattern: #"(\d+)\s*[Ff]\s*([a-zA-Z])?"#),
-           let match = regex.firstMatch(in: folded as String, range: NSRange(location: 0, length: folded.length)) {
-            let floor = folded.substring(with: match.range(at: 1))
-            let wingRange = match.range(at: 2)
-            guard wingRange.location != NSNotFound else { return "\(floor)F" }
-            return "\(floor)F \(folded.substring(with: wingRange).lowercased())"
+        guard let match = floorMatch(for: shopName) else {
+            var title = shopName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.hasPrefix("카카오 ") {
+                title.removeFirst("카카오 ".count)
+            }
+            if title.hasSuffix(" 카페") {
+                title.removeLast(" 카페".count)
+            }
+            return title.isEmpty ? shopName : title
         }
+        guard !match.wing.isEmpty else { return "\(match.floor)F" }
+        return "\(match.floor)F \(match.wing)"
+    }
 
-        var title = shopName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title.hasPrefix("카카오 ") {
-            title.removeFirst("카카오 ".count)
+    /// Orders shops by ascending floor (then by wing letter, so e.g. `"5F"`
+    /// sorts before `"5F b"`) regardless of the raw API order. Shops without
+    /// a parseable floor number sort after every floor-numbered shop,
+    /// alphabetically by name among themselves.
+    static func sortedByFloor(_ shops: [Shop]) -> [Shop] {
+        shops.sorted { lhs, rhs in
+            switch (floorMatch(for: lhs.name), floorMatch(for: rhs.name)) {
+            case let (l?, r?):
+                return l.floor != r.floor ? l.floor < r.floor : l.wing < r.wing
+            case (nil, .some):
+                return false
+            case (.some, nil):
+                return true
+            case (nil, nil):
+                return lhs.name < rhs.name
+            }
         }
-        if title.hasSuffix(" 카페") {
-            title.removeLast(" 카페".count)
-        }
-        return title.isEmpty ? shopName : title
+    }
+
+    /// Real shop names can carry a combining/precomposed diacritic (e.g.
+    /// "kafé") that isn't relevant to the floor pattern — fold it away
+    /// before matching.
+    private static func floorMatch(for shopName: String) -> (floor: Int, wing: String)? {
+        let folded = shopName.folding(options: .diacriticInsensitive, locale: nil) as NSString
+        guard let regex = try? NSRegularExpression(pattern: #"(\d+)\s*[Ff]\s*([a-zA-Z])?"#),
+              let match = regex.firstMatch(in: folded as String, range: NSRange(location: 0, length: folded.length)),
+              let floor = Int(folded.substring(with: match.range(at: 1)))
+        else { return nil }
+        let wingRange = match.range(at: 2)
+        let wing = wingRange.location != NSNotFound ? folded.substring(with: wingRange).lowercased() : ""
+        return (floor, wing)
     }
 }
 
@@ -301,6 +326,11 @@ struct CafeShopModeSwitcher: View {
 
     @Namespace private var selectionNamespace
     private let trackHeight: CGFloat = 44
+
+    /// Ascending-floor order, regardless of the raw API order — used for
+    /// both the displayed chip order and swipe-to-step navigation, so the
+    /// two never disagree about "next"/"previous".
+    private var sortedShops: [Shop] { CafeShopSwitcherPolicy.sortedByFloor(shops) }
 
     var body: some View {
         modeStrip
@@ -330,7 +360,7 @@ struct CafeShopModeSwitcher: View {
 
     private var modeRow: some View {
         HStack(spacing: 2) {
-            ForEach(shops) { shop in
+            ForEach(sortedShops) { shop in
                 modeButton(for: shop)
             }
         }
@@ -422,7 +452,7 @@ struct CafeShopModeSwitcher: View {
 
     private func selectAdjacentShop(offset: Int) {
         guard let shopID = CafeShopSwitcherPolicy.adjacentShopID(
-            in: shops,
+            in: sortedShops,
             selectedShopID: selectedShopID,
             offset: offset
         ) else { return }
@@ -442,7 +472,11 @@ struct CafeBottomControlsRow: View {
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
-    let searchAction: () -> Void
+    /// `nil` hides the search button entirely (e.g. CartView, which has
+    /// nothing to search across shops for) — the switcher then expands to
+    /// fill the whole row by itself, so the row's total width still matches
+    /// the GNB's width edge-to-edge, just without a trailing button.
+    var searchAction: (() -> Void)? = nil
 
     private let controlHeight: CGFloat = 44
 
@@ -459,14 +493,16 @@ struct CafeBottomControlsRow: View {
                 } else {
                     Spacer(minLength: 0)
                 }
-                searchButton
+                if let searchAction {
+                    searchButton(action: searchAction)
+                }
             }
         }
         .frame(height: controlHeight)
     }
 
-    private var searchButton: some View {
-        Button(action: searchAction) {
+    private func searchButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Image(systemName: "magnifyingglass")
                 .font(.body.weight(.semibold))
                 .frame(width: controlHeight, height: controlHeight)
@@ -533,7 +569,6 @@ struct CafeShopModeSwitcherFixtureView: View {
                                 selectShop: { selectedShopID = $0 },
                                 searchAction: { isSearchPresented = true }
                             )
-                            .padding(.horizontal, 12)
                             .padding(.top, 6)
                             .padding(.bottom, 8)
                         }
@@ -567,36 +602,52 @@ struct CafeShopModeSwitcherFixtureView: View {
     }
 }
 
-/// Exercises the cart screen's own shop switcher (same segmented control as
-/// CafeView, no search button) without needing a real cart/API session.
+/// Exercises the cart screen's own shop switcher (same bottom-row segmented
+/// control as CafeView, minus the search button) without needing a real
+/// cart/API session. Wrapped in a TabView, like CafeShopModeSwitcherFixtureView,
+/// so the switcher sits above a real GNB — matching production layout.
 struct CartShopSwitcherFixtureView: View {
+    @State private var selectedTab = 3
     @State private var selectedShopID = 5
 
+    // Deliberately stored out of floor order (5F b before 3F) so the
+    // fixture also exercises CafeShopSwitcherPolicy.sortedByFloor.
     private let shops = [
-        Shop(id: 5, name: "kafé 3F", kind: .cafe, isOpen: true),
-        Shop(id: 6, name: "kafé 5F b", kind: .cafe, isOpen: true),
+        Shop(id: 5, name: "kafé 5F b", kind: .cafe, isOpen: true),
+        Shop(id: 6, name: "kafé 3F", kind: .cafe, isOpen: true),
     ]
 
     var body: some View {
-        NavigationStack {
-            ContentUnavailableView(
-                "장바구니가 비어 있습니다",
-                systemImage: "bag",
-                description: Text("카페 메뉴에서 음료를 담아 보세요.")
-                    .foregroundStyle(.primary)
-            )
-            .navigationTitle("장바구니")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    CafeShopModeSwitcher(
-                        shops: shops,
-                        selectedShopID: selectedShopID,
-                        selectShop: { selectedShopID = $0 }
+        TabView(selection: $selectedTab) {
+            Tab("홈", systemImage: "house", value: 0) { Color.clear }
+            Tab("식단", systemImage: "fork.knife", value: 1) { Color.clear }
+            Tab("카페", systemImage: "cup.and.saucer", value: 2) { Color.clear }
+            Tab("장바구니", systemImage: "bag", value: 3) {
+                NavigationStack {
+                    ContentUnavailableView(
+                        "장바구니가 비어 있습니다",
+                        systemImage: "bag",
+                        description: Text("카페 메뉴에서 음료를 담아 보세요.")
+                            .foregroundStyle(.primary)
                     )
+                    .navigationTitle("장바구니")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        CafeBottomControlsRow(
+                            shops: shops,
+                            selectedShopID: selectedShopID,
+                            selectShop: { selectedShopID = $0 }
+                        )
+                        .padding(.top, 6)
+                        .padding(.bottom, 8)
+                    }
                 }
             }
+            Tab("내역", systemImage: "receipt", value: 4) { Color.clear }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        .appTabBarBehavior()
+        .tint(AppPalette.brand)
     }
 }
 

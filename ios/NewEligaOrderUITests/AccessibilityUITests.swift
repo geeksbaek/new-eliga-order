@@ -162,20 +162,55 @@ final class AccessibilityUITests: XCTestCase {
         ]
         app.launch()
 
-        let firstShop = app.buttons["cafe.shop-mode.5"]
-        let secondShop = app.buttons["cafe.shop-mode.6"]
-        XCTAssertTrue(firstShop.waitForExistence(timeout: 5))
-        XCTAssertTrue(secondShop.exists)
-        XCTAssertEqual(firstShop.value as? String, "선택됨")
-        assertFullyVisible(firstShop, in: app)
+        // Fixture stores shops out of floor order (id 5 = "5F b", id 6 =
+        // "3F") specifically to exercise ascending-floor sorting here.
+        let floor5b = app.buttons["cafe.shop-mode.5"]
+        let floor3 = app.buttons["cafe.shop-mode.6"]
+        XCTAssertTrue(floor3.waitForExistence(timeout: 5))
+        XCTAssertTrue(floor5b.exists)
+        XCTAssertEqual(floor5b.value as? String, "선택됨")
+        assertFullyVisible(floor5b, in: app)
+        XCTAssertLessThan(
+            floor3.frame.minX,
+            floor5b.frame.minX,
+            "매장은 원본 순서와 무관하게 층수 오름차순(3F 다음 5F b)으로 표시되어야 합니다."
+        )
+
+        // Same bottom row as CafeView, not a nav-bar toolbar item.
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.exists)
+        XCTAssertGreaterThanOrEqual(
+            tabBar.frame.minY - floor5b.frame.maxY,
+            8,
+            "매장 스위처는 카페 화면과 동일하게 하단 GNB 바로 위에 있어야 합니다."
+        )
 
         XCTAssertFalse(
             app.buttons["cafe.search.accessory"].exists,
             "장바구니에는 검색 버튼이 없어야 합니다."
         )
 
-        secondShop.tap()
-        XCTAssertEqual(secondShop.value as? String, "선택됨")
+        // 검색 버튼이 없으므로 스위처 혼자 GNB와 동일한 폭을 채워야 한다.
+        // accuracy 6은 스위처 트랙 내부의 의도된 3pt 여백(.padding(3))이
+        // `.accessibilityElement(children: .contain)`의 프레임 계산에
+        // 자식 버튼들의 바운딩 박스로 반영되는 것을 흡수하기 위함이다.
+        let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
+        XCTAssertTrue(modeSwitcher.exists)
+        XCTAssertEqual(
+            modeSwitcher.frame.minX,
+            tabBar.frame.minX,
+            accuracy: 6,
+            "장바구니의 매장 스위처는 검색 버튼 없이 그 자체로 GNB와 같은 폭이어야 합니다."
+        )
+        XCTAssertEqual(
+            modeSwitcher.frame.maxX,
+            tabBar.frame.maxX,
+            accuracy: 6,
+            "장바구니의 매장 스위처는 검색 버튼 없이 그 자체로 GNB와 같은 폭이어야 합니다."
+        )
+
+        floor3.tap()
+        XCTAssertEqual(floor3.value as? String, "선택됨")
 
         attachScreenshot(of: app, name: "장바구니 매장 스위처")
         try app.performAccessibilityAudit(
@@ -213,15 +248,18 @@ final class AccessibilityUITests: XCTestCase {
 
         let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
+        // Chips are shown/stepped in ascending-floor order (3F id6, 4F id5,
+        // 5F b id8), not raw fixture order — starting from 4F (id5), the
+        // next chip is 5F b (id8), not the raw-order-adjacent id6.
         modeSwitcher.swipeLeft()
         let swipeSelection = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "선택됨"),
-            object: secondShop
+            object: thirdShop
         )
         XCTAssertEqual(XCTWaiter.wait(for: [swipeSelection], timeout: 2), .completed)
 
-        thirdShop.tap()
-        XCTAssertEqual(thirdShop.value as? String, "선택됨")
+        secondShop.tap()
+        XCTAssertEqual(secondShop.value as? String, "선택됨")
 
         attachScreenshot(of: app, name: "한 손 카페 매장 스위처")
         try app.performAccessibilityAudit(
@@ -259,6 +297,24 @@ final class AccessibilityUITests: XCTestCase {
             searchButton.frame.midY,
             accuracy: 4,
             "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
+        )
+
+        // 스위처+검색 버튼을 합친 폭은 항상 GNB(탭바)와 같아야 한다. accuracy 6은
+        // 스위처 트랙 내부의 의도된 3pt 여백(.padding(3))이 접근성 프레임 계산에
+        // 자식 버튼 바운딩 박스로 반영되는 것을 흡수하기 위함이다.
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.exists)
+        XCTAssertEqual(
+            modeSwitcher.frame.minX,
+            tabBar.frame.minX,
+            accuracy: 6,
+            "스위처+검색 버튼을 합친 행의 왼쪽 끝은 GNB의 왼쪽 끝과 같아야 합니다."
+        )
+        XCTAssertEqual(
+            searchButton.frame.maxX,
+            tabBar.frame.maxX,
+            accuracy: 6,
+            "스위처+검색 버튼을 합친 행의 오른쪽 끝은 GNB의 오른쪽 끝과 같아야 합니다."
         )
         let restingFrame = searchButton.frame
 
