@@ -14,10 +14,10 @@ actor DiningMenuDynamicUIStructurer {
         3. text, 제목 '원산지': 검증된 원산지
         4. note, 제목 '알러지 주의 음식': 알러지 정보가 실제로 있을 때만 조건부 포함
 
-        status, facts, 이용 안내, 식사 시간, 코스, 가격, 혼잡도, 홍보 문구 등 다른 블록이나 정보는 절대 만들지 않는다. 리스트반찬의 모든 항목은 누락하거나 새로 만들지 말고 chips에 원래 순서대로 포함한다. nutrition과 calorie의 숫자 및 단위는 절대 수정하지 않는다. item의 value는 검증된 사실을 그대로 사용하고 같은 내용을 반복하지 않는다.
+        status, facts, 이용 안내, 식사 시간, 코스, 가격, 혼잡도, 홍보 문구 등 다른 블록이나 정보는 절대 만들지 않는다. 리스트반찬의 모든 항목은 누락하거나 새로 만들지 말고 chips에 원래 순서대로 포함한다. nutrition에 값이 있는 모든 영양소를 하나도 누락하지 않는다. nutrition과 calorie의 숫자 및 단위는 절대 수정하지 않는다. item의 value는 검증된 사실을 그대로 사용하고 같은 내용을 반복하지 않는다.
         """
 
-    private let cacheDefaultsKey = "dining-menu-dynamic-ui-v2"
+    private let cacheDefaultsKey = "dining-menu-dynamic-ui-v3"
     private var cache: [String: DiningDynamicUISurface]
 
     private init() {
@@ -93,7 +93,7 @@ private struct GeneratedDiningDynamicBlock: Sendable {
     @Guide(description: "30자 이내의 짧은 한국어 블록 제목")
     var title: String
 
-    @Guide(description: "블록에 표시할 근거 있는 데이터", .maximumCount(12))
+    @Guide(description: "블록에 표시할 근거 있는 데이터. 영양 정보는 원문의 모든 항목", .maximumCount(24))
     var items: [GeneratedDiningDynamicItem]
 }
 

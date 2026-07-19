@@ -153,7 +153,7 @@ struct DiningMenuDetailFixtureView: View {
         let meal = DiningMenuItem(
             name: "[밸런스바이츠] 제육볶음",
             calorie: 650,
-            nutrition: "단백질 27g, 나트륨 1200mg",
+            nutrition: "탄수화물 88g / 단백질 27g / 지방 18g / 포화지방 5g / 당류 9g / 식이섬유 7g / 나트륨 1,200mg",
             information: information,
             imageURL: nil,
             isSoldOut: false

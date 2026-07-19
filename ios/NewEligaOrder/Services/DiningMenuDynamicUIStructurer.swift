@@ -210,7 +210,7 @@ enum DiningDynamicUINormalizer {
             guard let generated = generatedBlocks.first(where: { $0.kind == fallbackBlock.kind }) else {
                 return fallbackBlock
             }
-            var items = generated.items.prefix(12).compactMap { item -> DiningDynamicUIItem? in
+            var items = generated.items.compactMap { item -> DiningDynamicUIItem? in
                 let value = DiningDynamicUIFallback.cleaned(item.value, maximumLength: 180)
                 guard !value.isEmpty,
                       let verifiedItem = fallbackBlock.items.first(where: { isGrounded(value, in: $0.value) })
@@ -227,7 +227,7 @@ enum DiningDynamicUINormalizer {
             return DiningDynamicUIFallback.block(
                 kind: fallbackBlock.kind,
                 title: fallbackBlock.title,
-                items: Array(items.prefix(12))
+                items: fallbackBlock.kind == .metrics ? items : Array(items.prefix(12))
             )
         }
         return DiningDynamicUISurface(blocks: blocks, isModelGenerated: true)

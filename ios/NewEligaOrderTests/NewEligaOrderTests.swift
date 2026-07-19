@@ -577,6 +577,47 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertFalse(details.isModelGenerated)
     }
 
+    func testDiningNutritionFactsParsesEverySlashDelimitedNutrient() {
+        let rows = DiningMenuDetailFallback.nutritionFacts(
+            from: "탄수화물 : 120.6g / 단백질 : 32g / 지방 : 21.5g / 포화지방 : 7g / 당류 : 12g / 식이섬유 : 9g / 나트륨 : 1,200mg / 열량 : 902Kcal",
+            excludingCalorie: true
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                DiningMenuDetailRow(label: "탄수화물", value: "120.6g"),
+                DiningMenuDetailRow(label: "단백질", value: "32g"),
+                DiningMenuDetailRow(label: "지방", value: "21.5g"),
+                DiningMenuDetailRow(label: "포화지방", value: "7g"),
+                DiningMenuDetailRow(label: "당류", value: "12g"),
+                DiningMenuDetailRow(label: "식이섬유", value: "9g"),
+                DiningMenuDetailRow(label: "나트륨", value: "1,200mg"),
+            ]
+        )
+    }
+
+    func testDiningDynamicUIKeepsAllStructuredNutritionMetrics() {
+        let input = DiningDynamicUIInput(
+            menuName: "마늘보쌈",
+            information: "",
+            sideDishSummary: "쌀밥, 배추김치",
+            calorie: 902,
+            nutrition: "탄수화물 120.6g / 단백질 32g / 지방 21.5g / 포화지방 7g / 트랜스지방 0g / 당류 12g / 식이섬유 9g / 콜레스테롤 85mg / 나트륨 1,200mg / 칼륨 700mg / 칼슘 80mg / 철분 3mg",
+            origin: ""
+        )
+
+        let fallback = DiningDynamicUIFallback.surface(for: input)
+        let normalized = DiningDynamicUINormalizer.normalize(generatedBlocks: [], fallback: fallback)
+        let metrics = normalized.blocks.first(where: { $0.kind == .metrics })?.items ?? []
+
+        XCTAssertEqual(metrics.count, 13)
+        XCTAssertEqual(metrics.first?.label, "열량")
+        for label in ["탄수화물", "단백질", "지방", "포화지방", "트랜스지방", "당류", "식이섬유", "콜레스테롤", "나트륨", "칼륨", "칼슘", "철분"] {
+            XCTAssertTrue(metrics.contains(where: { $0.label == label }), "\(label)이 영양 정보 UI에 유지되어야 합니다")
+        }
+    }
+
     func testDiningDynamicUIFallbackSelectsComponentsFromAvailableData() {
         let input = dynamicDiningInput()
 
@@ -638,6 +679,7 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertTrue(instructions.contains("'알러지 주의 음식'"))
         XCTAssertTrue(instructions.contains("이용 안내"))
         XCTAssertTrue(instructions.contains("모든 항목은 누락하거나 새로 만들지 말고"))
+        XCTAssertTrue(instructions.contains("모든 영양소를 하나도 누락하지 않는다"))
         XCTAssertTrue(instructions.contains("숫자 및 단위는 절대 수정하지 않는다"))
     }
 
@@ -671,6 +713,7 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertTrue(instructions.contains("모든 음식이 menuRows에 정확히 한 번씩 포함"))
         XCTAssertTrue(instructions.contains("음식을 누락하지 말고"))
         XCTAssertTrue(instructions.contains("nutritionRows"))
+        XCTAssertTrue(instructions.contains("모든 영양소 이름"))
         XCTAssertTrue(instructions.contains("값이 없는 영양소는 만들지 않는다"))
     }
 

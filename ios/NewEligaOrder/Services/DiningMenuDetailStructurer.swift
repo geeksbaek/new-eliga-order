@@ -95,10 +95,7 @@ enum DiningMenuDetailFallback {
     }
 
     static func nutritionFacts(from rawValue: String, excludingCalorie: Bool) -> [DiningMenuDetailRow] {
-        let lines = normalizedLines(rawValue)
-            .flatMap { line in
-                line.components(separatedBy: CharacterSet(charactersIn: ",;"))
-            }
+        let lines = nutritionSegments(from: rawValue)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
@@ -106,20 +103,71 @@ enum DiningMenuDetailFallback {
         var seen = Set<String>()
         for line in lines {
             guard let match = line.firstMatch(
-                of: /^(?<label>[가-힣A-Za-z\s]+?)\s*[:：]?\s*(?<value>[0-9.,]+\s*(?:kcal|Kcal|g|mg|㎎|%))$/
+                of: /^(?<label>[가-힣A-Za-z][가-힣A-Za-z0-9\s()（）·._-]*?)\s*[:：]?\s*(?<value>[0-9][0-9.,]*\s*(?:[kK][cC][aA][lL]|[kK][jJ]|[mM][gG]|[µμu]g|㎍|㎎|㎉|[gG]|%)(?:\s*[\(（]\s*[0-9][0-9.,]*\s*%\s*[\)）])?)$/
             ) else { continue }
 
-            let label = String(match.output.label).trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = String(match.output.value).trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = canonicalNutritionLabel(String(match.output.label))
+            let value = String(match.output.value)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !label.isEmpty, !value.isEmpty else { continue }
-            if excludingCalorie, label.contains("열량") || label.localizedCaseInsensitiveContains("calorie") {
+            if excludingCalorie, label == "열량" {
                 continue
             }
             let key = label.lowercased()
             guard seen.insert(key).inserted else { continue }
             rows.append(DiningMenuDetailRow(label: label, value: value))
         }
-        return Array(rows.prefix(10))
+        return rows
+    }
+
+    private static func nutritionSegments(from rawValue: String) -> [String] {
+        normalizedLines(rawValue).flatMap { line in
+            line
+                .replacingOccurrences(
+                    of: #"(?<!\d),(?!\d)|[;；/／|｜•·]"#,
+                    with: "\n",
+                    options: .regularExpression
+                )
+                .replacingOccurrences(
+                    of: #"\s+(?=(?:열량|칼로리|에너지|탄수화물|당류|식이섬유|단백질|포화지방|트랜스지방|지방|콜레스테롤|나트륨|칼륨|칼슘|철분|비타민)\s*[:：]?\s*[0-9])"#,
+                    with: "\n",
+                    options: [.regularExpression, .caseInsensitive]
+                )
+                .components(separatedBy: .newlines)
+        }
+    }
+
+    private static func canonicalNutritionLabel(_ rawValue: String) -> String {
+        let cleaned = rawValue
+            .replacingOccurrences(
+                of: #"^(?:1\s*회\s*제공량당|1\s*회분당|100\s*g당|영양정보)\s*"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r,;:：-"))
+        let key = cleaned
+            .replacingOccurrences(of: #"[^가-힣A-Za-z0-9]"#, with: "", options: .regularExpression)
+            .lowercased()
+        let aliases: [(label: String, keys: [String])] = [
+            ("포화지방", ["포화지방", "saturatedfat"]),
+            ("트랜스지방", ["트랜스지방", "transfat"]),
+            ("식이섬유", ["식이섬유", "dietaryfiber", "fiber"]),
+            ("콜레스테롤", ["콜레스테롤", "cholesterol"]),
+            ("탄수화물", ["총탄수화물", "탄수화물", "totalcarbohydrate", "carbohydrate", "carbs"]),
+            ("단백질", ["단백질", "protein"]),
+            ("당류", ["총당류", "당류", "totalsugars", "sugars", "sugar"]),
+            ("지방", ["총지방", "지방", "totalfat", "fat"]),
+            ("나트륨", ["나트륨", "sodium"]),
+            ("칼륨", ["칼륨", "potassium"]),
+            ("칼슘", ["칼슘", "calcium"]),
+            ("철분", ["철분", "iron"]),
+            ("열량", ["열량", "칼로리", "에너지", "calories", "calorie", "energy"]),
+        ]
+        for alias in aliases where alias.keys.contains(where: { key.hasSuffix($0) }) {
+            return alias.label
+        }
+        return String(cleaned.prefix(24))
     }
 
     private static func normalizedLines(_ rawValue: String) -> [String] {
@@ -273,11 +321,11 @@ actor DiningMenuDetailStructurer {
 
         nutritionRows 규칙:
         - calorie 값이 있으면 label '열량', value는 숫자와 kcal 단위로 만든다.
-        - nutrition 원문에 명시된 영양소 이름, 수치, 단위를 각각 label과 value로 만든다.
+        - nutrition 원문에 명시된 모든 영양소 이름, 수치, 단위를 각각 label과 value로 만들고 하나도 누락하지 않는다.
         - 값이 없는 영양소는 만들지 않는다.
         """
 
-    private let cacheDefaultsKey = "dining-menu-structured-details-v2"
+    private let cacheDefaultsKey = "dining-menu-structured-details-v3"
     private var cache: [String: DiningMenuStructuredDetails]
 
     private init() {
@@ -361,7 +409,7 @@ actor DiningMenuDetailStructurer {
         var valuesByLabel: [String: [String]] = [:]
         var labels: [String] = []
 
-        for row in rows.prefix(12) {
+        for row in rows.prefix(24) {
             let label = clean(row.label, maximumLength: 16)
             let value = clean(row.value, maximumLength: 100)
             guard !label.isEmpty, !value.isEmpty else { continue }
@@ -408,7 +456,7 @@ private struct GeneratedDiningMenuDetails: Sendable {
     @Guide(description: "메뉴 구성 행", .maximumCount(8))
     var menuRows: [GeneratedDiningMenuDetailRow]
 
-    @Guide(description: "영양 정보 행", .maximumCount(10))
+    @Guide(description: "원문에 값이 있는 모든 영양 정보 행", .maximumCount(20))
     var nutritionRows: [GeneratedDiningMenuDetailRow]
 }
 
