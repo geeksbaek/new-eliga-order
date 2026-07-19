@@ -163,8 +163,8 @@ struct MenuDetailView: View {
             switch orderState {
             case .checking:
                 actionStatusLabel("주문 가능 시간을 확인하는 중입니다", systemImage: "clock.arrow.circlepath")
-            case .closed(let message):
-                actionStatusLabel(message, systemImage: "clock.badge.exclamationmark")
+            case .closed(let closure):
+                actionStatusLabel(closure.compactMessage, systemImage: closure.reason.systemImage)
             case .open:
                 EmptyView()
             }

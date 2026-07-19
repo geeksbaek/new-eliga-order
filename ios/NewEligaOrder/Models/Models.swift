@@ -455,10 +455,41 @@ struct CafeSalesPlan: Hashable, Sendable {
     let isOrderPaused: Bool
 }
 
+enum CafeOrderClosureReason: Equatable, Sendable {
+    case holiday
+    case breakTime
+    case paused
+    case outsideHours
+    case lastOrderEnded
+
+    var systemImage: String {
+        switch self {
+        case .holiday: "calendar.badge.exclamationmark"
+        case .breakTime: "cup.and.heat.waves"
+        case .paused: "pause.circle.fill"
+        case .outsideHours: "clock.badge.xmark"
+        case .lastOrderEnded: "moon.stars.fill"
+        }
+    }
+}
+
+struct CafeOrderClosure: Equatable, Sendable {
+    let reason: CafeOrderClosureReason
+    let title: String
+    let detail: String
+    let schedule: String?
+
+    var compactMessage: String {
+        [title, schedule]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+}
+
 enum CafeOrderState: Equatable, Sendable {
     case checking
     case open(hours: String)
-    case closed(message: String)
+    case closed(CafeOrderClosure)
 
     var isOrderable: Bool {
         if case .open = self { return true }

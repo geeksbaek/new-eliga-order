@@ -71,6 +71,26 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCafeHolidayCardAtLargestTextSize() throws {
+        continueAfterFailure = true
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing-cafe-holiday",
+            "-AppleInterfaceStyle", "Dark",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+        ]
+        app.launch()
+
+        let card = app.descendants(matching: .any)["cafe.availability.holiday"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        assertFullyVisible(card, in: app)
+        attachScreenshot(of: app, name: "카페 휴무 안내 Dark AXXXL")
+        try app.performAccessibilityAudit(
+            for: [.contrast, .elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
     private func assertFullyVisible(
         _ element: XCUIElement,
         in app: XCUIApplication,

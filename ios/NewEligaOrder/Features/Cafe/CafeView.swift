@@ -178,21 +178,13 @@ struct CafeView: View {
     private var orderBanner: some View {
         switch orderState {
         case .checking:
-            Label("주문 가능 시간을 확인하는 중입니다", systemImage: "clock.arrow.circlepath")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                .accessibilityElement(children: .combine)
-        case .closed(let message):
-            Label(message, systemImage: "clock.badge.exclamationmark")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                .accessibilityElement(children: .combine)
+            CafeOrderCheckingCard()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+        case .closed(let closure):
+            CafeOrderAvailabilityCard(closure: closure, shopName: activeShopName)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
         case .open:
             EmptyView()
         }
@@ -232,7 +224,9 @@ struct CafeView: View {
             if !quickItems.isEmpty {
                 Section("최근·인기 메뉴") {
                     quickMenuRail
+                        .listRowSeparator(.hidden)
                 }
+                .listSectionSeparator(.hidden)
             }
 
             ForEach(prioritySections) { section in
@@ -534,6 +528,108 @@ struct CafeView: View {
     }
 }
 
+private struct CafeOrderCheckingCard: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("주문 가능 시간을 확인하고 있어요")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("주문 가능 시간을 확인하고 있어요")
+    }
+}
+
+private struct CafeOrderAvailabilityCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let closure: CafeOrderClosure
+    let shopName: String
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) {
+                    statusIcon
+                    content
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    statusIcon
+                    content
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            closure.reason.tint.opacity(0.09),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(closure.reason.tint.opacity(0.22), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("cafe.availability.\(closure.reason.accessibilityID)")
+    }
+
+    private var statusIcon: some View {
+        Image(systemName: closure.reason.systemImage)
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(.primary)
+            .frame(width: 42, height: 42)
+            .background(closure.reason.tint.opacity(0.14), in: Circle())
+            .accessibilityHidden(true)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(closure.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(detailText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let schedule = closure.schedule {
+                Label(schedule, systemImage: "calendar")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(closure.reason.tint.opacity(0.10), in: Capsule())
+                    .padding(.top, 3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var detailText: String {
+        closure.reason == .holiday
+            ? "\(shopName)은 오늘 운영하지 않아요."
+            : closure.detail
+    }
+
+    private var accessibilityLabel: String {
+        [closure.title, detailText, closure.schedule]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+    }
+}
+
 private struct CafePrioritySectionHeader: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -615,6 +711,28 @@ private extension CafeMenuPriorityGroup {
     }
 }
 
+private extension CafeOrderClosureReason {
+    var tint: Color {
+        switch self {
+        case .holiday: .orange
+        case .breakTime: .blue
+        case .paused: .orange
+        case .outsideHours: .secondary
+        case .lastOrderEnded: .indigo
+        }
+    }
+
+    var accessibilityID: String {
+        switch self {
+        case .holiday: "holiday"
+        case .breakTime: "break"
+        case .paused: "paused"
+        case .outsideHours: "closed"
+        case .lastOrderEnded: "last-order"
+        }
+    }
+}
+
 private struct CafeCategoryTab: View {
     let title: String
     let count: Int
@@ -655,6 +773,28 @@ private struct CafeShopMenuLoadResult: Sendable {
 }
 
 #if DEBUG
+struct CafeHolidayFixtureView: View {
+    private let closure = CafeOrderClosure(
+        reason: .holiday,
+        title: "오늘은 휴무예요",
+        detail: "선택한 매장은 오늘 운영하지 않아요.",
+        schedule: "다음 영업 · 월요일 09:00–19:00"
+    )
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                CafeOrderAvailabilityCard(closure: closure, shopName: "엘리가 카페")
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                Spacer()
+            }
+            .navigationTitle("카페")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
 struct CafePrioritySectionsFixtureView: View {
     private var sections: [CafeMenuPrioritySection] {
         let allSections = CafeMenuFilter.prioritySections(

@@ -832,19 +832,65 @@ enum EligaMapper {
 
 enum CafeRules {
     private static let dayCodes = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+    private static let dayNames = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"]
 
     static func state(for plan: CafeSalesPlan?, now: Date = .now, calendar: Calendar = .current) -> CafeOrderState {
         guard let plan else { return .checking }
         let hours = hoursLabel(open: plan.autoOpenTime, close: plan.autoCloseTime)
-        if plan.isOrderPaused { return .closed(message: "주문이 일시 중지되었습니다. \(hours)") }
-        if plan.isBreakTime { return .closed(message: "브레이크 타임입니다. \(hours)") }
+        if plan.isOrderPaused {
+            return .closed(
+                closure(
+                    reason: .paused,
+                    title: "주문이 잠시 중지됐어요",
+                    detail: "매장 상황에 따라 주문 접수가 일시 중지됐어요.",
+                    schedule: hoursSchedule(hours)
+                )
+            )
+        }
+        if plan.isBreakTime {
+            return .closed(
+                closure(
+                    reason: .breakTime,
+                    title: "지금은 브레이크 타임이에요",
+                    detail: "잠시 뒤 다시 주문할 수 있어요.",
+                    schedule: hoursSchedule(hours)
+                )
+            )
+        }
         let weekday = calendar.component(.weekday, from: now) - 1
         if !plan.openDays.isEmpty, !plan.openDays.contains(dayCodes[weekday]) {
-            return .closed(message: "오늘은 휴무입니다. \(hours)")
+            let nextDay = nextOpenDayName(openDays: plan.openDays, after: weekday)
+            let nextSchedule = [nextDay, hours.isEmpty ? nil : hours]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            return .closed(
+                closure(
+                    reason: .holiday,
+                    title: "오늘은 휴무예요",
+                    detail: "선택한 매장은 오늘 운영하지 않아요.",
+                    schedule: nextSchedule.isEmpty ? nil : "다음 영업 · \(nextSchedule)"
+                )
+            )
         }
-        guard plan.isOpen else { return .closed(message: "지금은 주문할 수 없습니다. \(hours)") }
+        guard plan.isOpen else {
+            return .closed(
+                closure(
+                    reason: .outsideHours,
+                    title: "지금은 주문 시간이 아니에요",
+                    detail: "영업시간에 다시 이용해 주세요.",
+                    schedule: hoursSchedule(hours)
+                )
+            )
+        }
         if plan.usesLastOrder, let cutoff = minutes(plan.lastOrderTime), currentMinutes(now, calendar: calendar) >= cutoff {
-            return .closed(message: "라스트 오더가 종료되었습니다. \(hours)")
+            return .closed(
+                closure(
+                    reason: .lastOrderEnded,
+                    title: "오늘 주문이 마감됐어요",
+                    detail: "다음 영업시간에 다시 주문해 주세요.",
+                    schedule: hoursSchedule(hours)
+                )
+            )
         }
         return .open(hours: hours)
     }
@@ -862,5 +908,29 @@ enum CafeRules {
 
     private static func currentMinutes(_ date: Date, calendar: Calendar) -> Int {
         calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
+    }
+
+    private static func closure(
+        reason: CafeOrderClosureReason,
+        title: String,
+        detail: String,
+        schedule: String?
+    ) -> CafeOrderClosure {
+        CafeOrderClosure(reason: reason, title: title, detail: detail, schedule: schedule)
+    }
+
+    private static func hoursSchedule(_ hours: String) -> String? {
+        hours.isEmpty ? nil : "영업시간 · \(hours)"
+    }
+
+    private static func nextOpenDayName(openDays: [String], after weekday: Int) -> String? {
+        let normalizedDays = Set(openDays.map { $0.uppercased() })
+        for offset in 1...7 {
+            let index = (weekday + offset) % dayCodes.count
+            if normalizedDays.contains(dayCodes[index]) {
+                return dayNames[index]
+            }
+        }
+        return nil
     }
 }

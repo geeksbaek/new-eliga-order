@@ -571,10 +571,38 @@ final class NewEligaOrderTests: XCTestCase {
         let state = CafeRules.state(for: plan)
 
         XCTAssertFalse(state.isOrderable)
-        guard case .closed(let message) = state else { return XCTFail("closed 상태여야 합니다") }
-        XCTAssertTrue(message.contains("일시 중지"))
-        XCTAssertTrue(message.contains("09:00–19:00"))
-        XCTAssertFalse(message.contains("09:00:00"))
+        guard case .closed(let closure) = state else { return XCTFail("closed 상태여야 합니다") }
+        XCTAssertEqual(closure.reason, .paused)
+        XCTAssertTrue(closure.compactMessage.contains("잠시 중지"))
+        XCTAssertTrue(closure.compactMessage.contains("09:00–19:00"))
+        XCTAssertFalse(closure.compactMessage.contains("09:00:00"))
+    }
+
+    func testCafeRulesHolidayProvidesNextOpenDayAndHours() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
+        let sunday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 19, hour: 12))
+        )
+        let plan = CafeSalesPlan(
+            shopID: 5,
+            isOpen: false,
+            isBreakTime: false,
+            isLastOrder: false,
+            autoOpenTime: "09:00:00",
+            autoCloseTime: "19:00:00",
+            usesLastOrder: false,
+            lastOrderTime: nil,
+            openDays: ["MON", "TUE", "WED", "THU", "FRI"],
+            isOrderPaused: false
+        )
+
+        let state = CafeRules.state(for: plan, now: sunday, calendar: calendar)
+
+        guard case .closed(let closure) = state else { return XCTFail("closed 상태여야 합니다") }
+        XCTAssertEqual(closure.reason, .holiday)
+        XCTAssertEqual(closure.title, "오늘은 휴무예요")
+        XCTAssertEqual(closure.schedule, "다음 영업 · 월요일 09:00–19:00")
     }
 
     func testTimePresentationRemovesSecondsFromRangesAndEmbeddedText() {
