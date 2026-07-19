@@ -15,7 +15,7 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(.systemGroupedBackground).ignoresSafeArea()
+                AppAmbientBackground().ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: dynamicTypeSize.isAccessibilitySize ? 20 : 32) {

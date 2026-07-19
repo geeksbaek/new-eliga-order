@@ -36,6 +36,7 @@ struct NewEligaOrderApp: App {
             .environment(router)
             .environment(network)
             .environment(intentHandoff)
+            .tint(AppPalette.brand)
             .task(id: store.authenticationState) {
                 guard store.authenticationState == .authenticated else { return }
                 if store.shops.isEmpty {

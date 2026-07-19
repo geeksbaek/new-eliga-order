@@ -62,7 +62,7 @@ struct OrderLiveActivityWidget: Widget {
 
     private func phaseColor(_ phase: OrderActivityPhase) -> Color {
         switch phase {
-        case .submitted, .preparing: .orange
+        case .submitted, .preparing: WidgetPalette.brand
         case .ready: .green
         case .completed: .mint
         case .cancelled: .red
@@ -97,7 +97,7 @@ private struct OrderLiveActivityLockScreenView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "cup.and.saucer.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(WidgetPalette.brand)
                 Text(context.attributes.shopName)
                     .font(.headline)
                     .lineLimit(1)

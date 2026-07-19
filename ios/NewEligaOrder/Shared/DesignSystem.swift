@@ -6,6 +6,11 @@ enum AppDesign {
     static let contentMaxWidth: CGFloat = 720
 }
 
+enum AppPalette {
+    /// Dominant background color sampled from the production app icon (#B6574C).
+    static let brand = Color.accentColor
+}
+
 struct AppAmbientBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -32,9 +37,9 @@ struct AppAmbientBackground: View {
     private var meshColors: [Color] {
         let tintOpacity = colorScheme == .dark ? 0.24 : 0.15
         return [
-            .orange.opacity(tintOpacity), .clear, .blue.opacity(tintOpacity * 0.55),
-            .clear, .orange.opacity(tintOpacity * 0.45), .clear,
-            .mint.opacity(tintOpacity * 0.45), .clear, .orange.opacity(tintOpacity * 0.7),
+            AppPalette.brand.opacity(tintOpacity), .clear, AppPalette.brand.opacity(tintOpacity * 0.55),
+            .clear, AppPalette.brand.opacity(tintOpacity * 0.45), .clear,
+            AppPalette.brand.opacity(tintOpacity * 0.35), .clear, AppPalette.brand.opacity(tintOpacity * 0.7),
         ]
     }
 }

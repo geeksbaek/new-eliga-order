@@ -143,7 +143,7 @@ struct DiningNowWidgetView: View {
                 HStack(spacing: 6) {
                     Image(systemName: dish.isSoldOut ? "xmark.circle.fill" : "checkmark.circle.fill")
                         .font(.caption2)
-                        .foregroundStyle(dish.isSoldOut ? .secondary : WidgetPalette.orange)
+                        .foregroundStyle(dish.isSoldOut ? .secondary : WidgetPalette.brand)
                         .widgetAccentable(!dish.isSoldOut)
                     if let badge = dish.badge, !badge.isEmpty {
                         Text(badge)
@@ -151,7 +151,7 @@ struct DiningNowWidgetView: View {
                             .foregroundStyle(.primary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(WidgetPalette.orange.opacity(0.14), in: Capsule())
+                            .background(WidgetPalette.brand.opacity(0.14), in: Capsule())
                             .lineLimit(1)
                     }
                     Text(dish.name)

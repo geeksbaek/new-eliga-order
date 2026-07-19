@@ -3,9 +3,9 @@ import UIKit
 import WidgetKit
 
 enum WidgetPalette {
-    static let orange = Color(red: 0.96, green: 0.38, blue: 0.08)
-    static let warm = Color(red: 1.00, green: 0.72, blue: 0.30)
-    static let espresso = Color(red: 0.24, green: 0.12, blue: 0.08)
+    /// Dominant background color sampled from the production app icon (#B6574C).
+    static let brand = Color(red: 182 / 255, green: 87 / 255, blue: 76 / 255)
+    static let brandWarm = Color(red: 231 / 255, green: 166 / 255, blue: 160 / 255)
 }
 
 struct WidgetHeader: View {
@@ -16,7 +16,7 @@ struct WidgetHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .foregroundStyle(WidgetPalette.orange)
+                .foregroundStyle(WidgetPalette.brand)
                 .widgetAccentable()
             Text(title)
                 .font(.caption.weight(.bold))
@@ -47,7 +47,7 @@ struct WidgetStatusPill: View {
             .padding(.vertical, 5)
             .foregroundStyle(isEmphasized ? Color.primary : .secondary)
             .background(
-                (isEmphasized ? WidgetPalette.orange : Color.secondary).opacity(0.12),
+                (isEmphasized ? WidgetPalette.brand : Color.secondary).opacity(0.12),
                 in: Capsule()
             )
             .widgetAccentable(isEmphasized)
@@ -64,7 +64,7 @@ struct WidgetEmptyState: View {
         VStack(alignment: .leading, spacing: compact ? 4 : 8) {
             Image(systemName: systemImage)
                 .font(compact ? .headline : .title2)
-                .foregroundStyle(WidgetPalette.orange)
+                .foregroundStyle(WidgetPalette.brand)
                 .widgetAccentable()
             Text(title)
                 .font(compact ? .caption.weight(.bold) : .headline)
@@ -95,14 +95,14 @@ struct WidgetThumbnail: View {
                     .scaledToFill()
             } else {
                 LinearGradient(
-                    colors: [WidgetPalette.orange.opacity(0.24), WidgetPalette.warm.opacity(0.12)],
+                    colors: [WidgetPalette.brand.opacity(0.24), WidgetPalette.brandWarm.opacity(0.12)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
                 .overlay {
                     Image(systemName: "cup.and.saucer.fill")
                         .font(size >= 56 ? .title2 : .body)
-                        .foregroundStyle(WidgetPalette.orange)
+                        .foregroundStyle(WidgetPalette.brand)
                         .widgetAccentable()
                 }
             }
@@ -207,12 +207,12 @@ private struct EligaWidgetBackground: View {
             ZStack {
                 Color(.secondarySystemBackground)
                 LinearGradient(
-                    colors: [WidgetPalette.warm.opacity(0.15), WidgetPalette.orange.opacity(0.06), .clear],
+                    colors: [WidgetPalette.brandWarm.opacity(0.15), WidgetPalette.brand.opacity(0.06), .clear],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
                 Circle()
-                    .fill(WidgetPalette.orange.opacity(0.08))
+                    .fill(WidgetPalette.brand.opacity(0.08))
                     .frame(width: 150, height: 150)
                     .blur(radius: 2)
                     .offset(x: 70, y: -80)
