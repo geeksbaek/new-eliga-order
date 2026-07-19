@@ -204,7 +204,10 @@ struct AppBottomActionBar<Content: View>: View {
         AppGlassGroup(spacing: 8) {
             content
         }
-        .padding(.horizontal)
+        // Matches the GNB's own visual inset (see
+        // CafeBottomControlsRow.gnbHorizontalInset) so every bottom action
+        // bar's width lines up with the tab bar beneath it.
+        .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
         .padding(.top, 10)
         .padding(.bottom, 8)
         .background(.bar.opacity(0.001))
