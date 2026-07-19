@@ -182,6 +182,13 @@ struct MenuDetailView: View {
         store.cafeShops.first(where: { $0.id == shopID })?.name ?? "선택한 매장"
     }
 
+    // Same floor-only normalization as the shop switcher chips ("3F", "5F b"),
+    // so the detail page's shop label reads consistently with the rest of
+    // the cafe UI instead of the raw backend name.
+    private var shopDisplayName: String {
+        CafeShopSwitcherPolicy.modeTitle(for: shopName)
+    }
+
     private func actionStatusLabel(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .font(.footnote)
@@ -204,6 +211,10 @@ struct MenuDetailView: View {
 
     private func menuSummary(detail: MenuDetail, variant: GoodsVariant) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            Label(shopDisplayName, systemImage: "mappin.and.ellipse")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("cafe.menu-detail.shop")
             if let label = detail.label, !label.isEmpty {
                 MenuLabelBadge(text: label, size: .regular)
             }
