@@ -181,6 +181,40 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCafeThumbSwitcherChangesShopWithOneTap() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing-cafe-thumb-switcher",
+            "-AppleInterfaceStyle", "Dark",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+        ]
+        app.launch()
+
+        let currentShop = app.buttons["cafe.shop-thumb-switcher.current"]
+        let nextShop = app.buttons["cafe.shop-thumb-switcher.next"]
+        XCTAssertTrue(currentShop.waitForExistence(timeout: 5))
+        XCTAssertTrue(nextShop.exists)
+        XCTAssertEqual(currentShop.value as? String, "카카오 판교 아지트 카페")
+        assertFullyVisible(currentShop, in: app)
+        assertFullyVisible(nextShop, in: app)
+
+        nextShop.tap()
+        XCTAssertEqual(currentShop.value as? String, "카카오 제주 스페이스 카페")
+
+        currentShop.tap()
+        let thirdShop = app.buttons["카카오 AI 캠퍼스 카페"]
+        XCTAssertTrue(thirdShop.waitForExistence(timeout: 2))
+        thirdShop.tap()
+        XCTAssertEqual(currentShop.value as? String, "카카오 AI 캠퍼스 카페")
+
+        attachScreenshot(of: app, name: "한 손 카페 매장 스위처")
+        try app.performAccessibilityAudit(
+            // AXXXL에서 시스템 List 섹션의 명암 오탐을 제외하고 스위처의 실제 프레임과 상호작용을 검증한다.
+            for: [.elementDetection, .hitRegion, .sufficientElementDescription, .trait]
+        )
+    }
+
+    @MainActor
     func testDiningDetailUsesSimplifiedGeneratedStructure() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-dining-detail")

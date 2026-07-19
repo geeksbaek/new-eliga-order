@@ -25,6 +25,7 @@ struct CafeView: View {
     @State private var allShopMenuLoadGeneration = 0
     @State private var loadedShopIDs: Set<Int> = []
     @State private var menuScrollPosition = ScrollPosition(idType: Int.self)
+    @State private var menuScrollPositionsByShop: [Int: ScrollPosition] = [:]
 
     init(initialShopID: Int?, transitionNamespace: Namespace.ID) {
         self.transitionNamespace = transitionNamespace
@@ -111,9 +112,17 @@ struct CafeView: View {
         }
         .navigationTitle("카페")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                shopMenu
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !isSearchActive, store.cafeShops.count > 1 {
+                CafeShopThumbSwitcher(
+                    shops: store.cafeShops,
+                    selectedShopID: activeShopID,
+                    selectShop: selectShop
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .overlay(alignment: .bottom) {
@@ -123,6 +132,7 @@ struct CafeView: View {
                     .padding()
                     .appGlassSurface(cornerRadius: 22, tint: .red)
                     .padding()
+                    .padding(.bottom, !isSearchActive && store.cafeShops.count > 1 ? 72 : 0)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .accessibilityAddTraits(.updatesFrequently)
             }
@@ -154,14 +164,7 @@ struct CafeView: View {
             recordCurrentSearch()
         }
         .sensoryFeedback(.selection, trigger: selectedCategoryID)
-    }
-
-    private var shopMenu: some View {
-        CafeShopPickerMenu(
-            shops: store.cafeShops,
-            selectedShopID: activeShopID,
-            selectShop: selectShop
-        )
+        .animation(.snappy, value: isSearchActive)
     }
 
     private var categoryPicker: some View {
@@ -425,6 +428,7 @@ struct CafeView: View {
 
     private func selectShop(_ id: Int) {
         guard id != activeShopID else { return }
+        menuScrollPositionsByShop[activeShopID] = menuScrollPosition
         selectedCategoryID = nil
         categories = categoriesByShop[id] ?? []
         menus = menusByShop[id] ?? []
@@ -432,7 +436,7 @@ struct CafeView: View {
         searchText = ""
         errorMessage = nil
         shopID = id
-        menuScrollPosition = ScrollPosition(idType: Int.self)
+        menuScrollPosition = menuScrollPositionsByShop[id] ?? ScrollPosition(idType: Int.self)
         store.selectShop(id)
     }
 

@@ -283,7 +283,236 @@ struct CafeShopPickerMenu: View {
     }
 }
 
+enum CafeShopSwitcherPolicy {
+    static func adjacentShopID(
+        in shops: [Shop],
+        selectedShopID: Int,
+        offset: Int
+    ) -> Int? {
+        guard shops.count > 1,
+              let currentIndex = shops.firstIndex(where: { $0.id == selectedShopID })
+        else { return nil }
+        let nextIndex = (currentIndex + offset % shops.count + shops.count) % shops.count
+        return shops[nextIndex].id
+    }
+}
+
+struct CafeShopThumbSwitcher: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let shops: [Shop]
+    let selectedShopID: Int
+    let selectShop: (Int) -> Void
+
+    @State private var isShopListPresented = false
+
+    private var selectedShopName: String {
+        shops.first(where: { $0.id == selectedShopID })?.name ?? "매장 선택"
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            switchButton(
+                title: "이전 매장",
+                systemImage: "chevron.left",
+                offset: -1
+            )
+
+            Button {
+                isShopListPresented = true
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "cup.and.saucer.fill")
+                        .foregroundStyle(AppPalette.brand)
+                    Text(selectedShopName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("카페 매장 선택")
+            .accessibilityValue(selectedShopName)
+            .accessibilityHint("전체 매장 목록을 엽니다")
+            .accessibilityIdentifier("cafe.shop-thumb-switcher.current")
+
+            switchButton(
+                title: "다음 매장",
+                systemImage: "chevron.right",
+                offset: 1
+            )
+        }
+        .padding(6)
+        .frame(maxWidth: 430)
+        .appGlassSurface(cornerRadius: 28, isInteractive: true)
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height),
+                          abs(value.translation.width) >= 44
+                    else { return }
+                    selectAdjacentShop(offset: value.translation.width < 0 ? 1 : -1)
+                }
+        )
+        .sheet(isPresented: $isShopListPresented) {
+            CafeShopSelectionSheet(
+                shops: shops,
+                selectedShopID: selectedShopID,
+                selectShop: selectShop
+            )
+            .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sensoryFeedback(.selection, trigger: selectedShopID)
+    }
+
+    private func switchButton(title: String, systemImage: String, offset: Int) -> some View {
+        Button {
+            selectAdjacentShop(offset: offset)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(shops.count < 2)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("cafe.shop-thumb-switcher.\(offset < 0 ? "previous" : "next")")
+    }
+
+    private func selectAdjacentShop(offset: Int) {
+        guard let id = CafeShopSwitcherPolicy.adjacentShopID(
+            in: shops,
+            selectedShopID: selectedShopID,
+            offset: offset
+        ) else { return }
+        selectShop(id)
+    }
+}
+
+private struct CafeShopSelectionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let shops: [Shop]
+    let selectedShopID: Int
+    let selectShop: (Int) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List(shops) { shop in
+                Button {
+                    selectShop(shop.id)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "cup.and.saucer.fill")
+                            .frame(width: 32, height: 32)
+                            .foregroundStyle(shop.id == selectedShopID ? AppPalette.brand : .secondary)
+                            .background(.quaternary, in: Circle())
+
+                        Text(shop.name)
+                            .font(.body.weight(shop.id == selectedShopID ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+
+                        Spacer(minLength: 12)
+
+                        if shop.id == selectedShopID {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(AppPalette.brand)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(minHeight: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(shop.name)
+                .accessibilityValue(shop.id == selectedShopID ? "선택됨" : "")
+            }
+            .navigationTitle("카페 매장")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("완료") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 #if DEBUG
+struct CafeShopThumbSwitcherFixtureView: View {
+    @State private var selectedTab = 2
+    @State private var selectedShopID = 5
+
+    private let shops = [
+        Shop(id: 5, name: "카카오 판교 아지트 카페", kind: .cafe, isOpen: true),
+        Shop(id: 6, name: "카카오 제주 스페이스 카페", kind: .cafe, isOpen: true),
+        Shop(id: 8, name: "카카오 AI 캠퍼스 카페", kind: .cafe, isOpen: true),
+    ]
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            Tab("홈", systemImage: "house", value: 0) { Color.clear }
+            Tab("식단", systemImage: "fork.knife", value: 1) { Color.clear }
+            Tab("카페", systemImage: "cup.and.saucer", value: 2) {
+                NavigationStack {
+                    List {
+                        Section("최근·인기 메뉴") {
+                            fixtureRow("아이스 아메리카노", detail: "BEST · 3,500원")
+                            fixtureRow("카페 라떼", detail: "즐겨찾기 · 4,500원")
+                        }
+                        Section("전체 메뉴") {
+                            fixtureRow("바닐라 라떼", detail: "4,800원")
+                            fixtureRow("콜드브루", detail: "4,300원")
+                            fixtureRow("말차 크림 라떼", detail: "NEW · 5,200원")
+                        }
+                    }
+                    .navigationTitle("카페")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        CafeShopThumbSwitcher(
+                            shops: shops,
+                            selectedShopID: selectedShopID,
+                            selectShop: { selectedShopID = $0 }
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                    }
+                }
+            }
+            Tab("장바구니", systemImage: "bag", value: 3) { Color.clear }
+            Tab("내역", systemImage: "receipt", value: 4) { Color.clear }
+        }
+        .tint(AppPalette.brand)
+    }
+
+    private func fixtureRow(_ title: String, detail: String) -> some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(AppPalette.brand.opacity(0.16))
+                .frame(width: 56, height: 56)
+                .overlay {
+                    Image(systemName: "cup.and.saucer.fill")
+                        .foregroundStyle(AppPalette.brand)
+                        .accessibilityHidden(true)
+                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.body.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
 struct CafeShopPickerFixtureView: View {
     @State private var selectedShopID = 5
 
