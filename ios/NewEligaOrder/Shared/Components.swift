@@ -475,8 +475,18 @@ struct CafeBottomControlsRow: View {
     /// `nil` hides the search button entirely (e.g. CartView, which has
     /// nothing to search across shops for) — the switcher then expands to
     /// fill the whole row by itself, so the row's total width still matches
-    /// the GNB's width edge-to-edge, just without a trailing button.
+    /// the GNB's visual width, just without a trailing button.
     var searchAction: (() -> Void)? = nil
+
+    /// The iOS 26 Liquid Glass tab bar renders as a floating capsule inset
+    /// from the screen edges — but that capsule's accessibility frame
+    /// (`XCUIElement.tabBars.firstMatch.frame`) reports the full-width hit
+    /// area, not the visual glass shape, so this can't be read at runtime.
+    /// Measured directly from a device screenshot (1206px-wide capsule
+    /// inset ~62.5px on each side at 3x → ~20.8pt); callers apply this as
+    /// horizontal padding so the row's rendered edges line up with the
+    /// GNB's actual visible bounds instead of its (wider) hit-testable one.
+    static let gnbHorizontalInset: CGFloat = 21
 
     private let controlHeight: CGFloat = 44
 
@@ -569,6 +579,7 @@ struct CafeShopModeSwitcherFixtureView: View {
                                 selectShop: { selectedShopID = $0 },
                                 searchAction: { isSearchPresented = true }
                             )
+                            .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
                             .padding(.top, 6)
                             .padding(.bottom, 8)
                         }
@@ -638,6 +649,7 @@ struct CartShopSwitcherFixtureView: View {
                             selectedShopID: selectedShopID,
                             selectShop: { selectedShopID = $0 }
                         )
+                        .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
                         .padding(.top, 6)
                         .padding(.bottom, 8)
                     }

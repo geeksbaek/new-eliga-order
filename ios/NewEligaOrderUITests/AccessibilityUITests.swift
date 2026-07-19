@@ -191,21 +191,26 @@ final class AccessibilityUITests: XCTestCase {
         )
 
         // 검색 버튼이 없으므로 스위처 혼자 GNB와 동일한 폭을 채워야 한다.
-        // accuracy 6은 스위처 트랙 내부의 의도된 3pt 여백(.padding(3))이
-        // `.accessibilityElement(children: .contain)`의 프레임 계산에
-        // 자식 버튼들의 바운딩 박스로 반영되는 것을 흡수하기 위함이다.
+        // `tabBars.firstMatch.frame`은 GNB의 실제 렌더링된 캡슐 모양이 아니라
+        // 화면 전체 폭의 히트 테스트 영역을 보고하므로(직접 스크린샷 픽셀
+        // 측정으로 확인함 — 실제 캡슐은 화면 가장자리에서 21pt 안쪽), 창
+        // 프레임에서 CafeBottomControlsRow.gnbHorizontalInset(21pt)만큼
+        // 안쪽으로 들어간 위치와 비교한다.
         let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.exists)
+        let gnbHorizontalInset: CGFloat = 21
         XCTAssertEqual(
             modeSwitcher.frame.minX,
-            tabBar.frame.minX,
-            accuracy: 6,
+            window.frame.minX + gnbHorizontalInset,
+            accuracy: 4,
             "장바구니의 매장 스위처는 검색 버튼 없이 그 자체로 GNB와 같은 폭이어야 합니다."
         )
         XCTAssertEqual(
             modeSwitcher.frame.maxX,
-            tabBar.frame.maxX,
-            accuracy: 6,
+            window.frame.maxX - gnbHorizontalInset,
+            accuracy: 4,
             "장바구니의 매장 스위처는 검색 버튼 없이 그 자체로 GNB와 같은 폭이어야 합니다."
         )
 
@@ -299,21 +304,25 @@ final class AccessibilityUITests: XCTestCase {
             "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
         )
 
-        // 스위처+검색 버튼을 합친 폭은 항상 GNB(탭바)와 같아야 한다. accuracy 6은
-        // 스위처 트랙 내부의 의도된 3pt 여백(.padding(3))이 접근성 프레임 계산에
-        // 자식 버튼 바운딩 박스로 반영되는 것을 흡수하기 위함이다.
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.exists)
+        // 스위처+검색 버튼을 합친 폭은 항상 GNB(탭바)와 같아야 한다.
+        // `tabBars.firstMatch.frame`은 GNB의 실제 렌더링된 캡슐 모양이 아니라
+        // 화면 전체 폭의 히트 테스트 영역을 보고하므로(직접 스크린샷 픽셀
+        // 측정으로 확인함 — 실제 캡슐은 화면 가장자리에서 21pt 안쪽), 창
+        // 프레임에서 CafeBottomControlsRow.gnbHorizontalInset(21pt)만큼
+        // 안쪽으로 들어간 위치와 비교한다.
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.exists)
+        let gnbHorizontalInset: CGFloat = 21
         XCTAssertEqual(
             modeSwitcher.frame.minX,
-            tabBar.frame.minX,
-            accuracy: 6,
+            window.frame.minX + gnbHorizontalInset,
+            accuracy: 4,
             "스위처+검색 버튼을 합친 행의 왼쪽 끝은 GNB의 왼쪽 끝과 같아야 합니다."
         )
         XCTAssertEqual(
             searchButton.frame.maxX,
-            tabBar.frame.maxX,
-            accuracy: 6,
+            window.frame.maxX - gnbHorizontalInset,
+            accuracy: 4,
             "스위처+검색 버튼을 합친 행의 오른쪽 끝은 GNB의 오른쪽 끝과 같아야 합니다."
         )
         let restingFrame = searchButton.frame

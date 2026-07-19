@@ -59,14 +59,13 @@ struct CartView: View {
             VStack(spacing: 0) {
                 // Same bottom-row shop switcher as CafeView, minus the search
                 // button (the cart has nothing to search across shops for).
-                // No horizontal padding: the switcher alone must match the
-                // GNB's own edge-to-edge width exactly.
                 if store.cafeShops.count > 1 {
                     CafeBottomControlsRow(
                         shops: store.cafeShops,
                         selectedShopID: shopID,
                         selectShop: selectShop
                     )
+                    .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
                     .padding(.top, 6)
                     .padding(.bottom, 8)
                 }

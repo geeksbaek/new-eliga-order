@@ -121,8 +121,7 @@ struct CafeView: View {
                     selectShop: selectShop,
                     searchAction: { isSearchPresented = true }
                 )
-                // No horizontal padding: the combined switcher+search width
-                // must match the GNB's own edge-to-edge width exactly.
+                .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
                 .padding(.top, 6)
                 .padding(.bottom, 8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
