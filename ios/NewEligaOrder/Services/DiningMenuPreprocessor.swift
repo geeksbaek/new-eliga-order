@@ -543,8 +543,25 @@ actor DiningMenuPreprocessor {
         return PreparedDiningDay(periods: periods, preparations: preparations)
     }
 
+    /// 준비 결과(dynamicSurface, personalization)에 영향을 주는 필드만으로 키를 만든다.
+    /// `congestion`/`isSoldOut`/`price`처럼 실시간으로 바뀌는 필드까지 포함하면, 캐시된
+    /// 결과가 여전히 유효한데도 새로고침마다 캐시가 무효화되어 전체 준비 과정(모델 호출 포함)이
+    /// 매번 다시 도는 것처럼 보인다.
     private func dayKey(periods: [DiningPeriod], preference: String, allergies: String) -> String {
-        let digest = SHA256.hash(data: Data("\(preference)|\(allergies)|\(periods)".utf8))
+        let menuFingerprint = periods
+            .map { period in
+                let courses = period.courses.map { course in
+                    let menus = course.menus
+                        .map { meal in
+                            "\(meal.name)|\(meal.calorie.map(String.init) ?? "")|\(meal.nutrition)|\(meal.information)"
+                        }
+                        .joined(separator: "\n")
+                    return "\(course.name)|\(course.origin)|\(menus)"
+                }.joined(separator: "\n")
+                return "\(period.time)|\(courses)"
+            }
+            .joined(separator: "\n")
+        let digest = SHA256.hash(data: Data("\(preference)|\(allergies)|\(menuFingerprint)".utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 }

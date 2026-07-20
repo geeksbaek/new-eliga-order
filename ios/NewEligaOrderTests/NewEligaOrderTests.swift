@@ -307,6 +307,72 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[1]), DateComponents(year: 2026, month: 7, day: 20))
     }
 
+    func testDiningMenuPreprocessorCacheIgnoresLiveCongestionSoldOutAndPriceFields() async {
+        func meal(name: String) -> DiningMenuItem {
+            DiningMenuItem(
+                name: name,
+                calorie: 650,
+                nutrition: "탄수화물 88g / 단백질 27g",
+                information: "쌀밥, 된장국, 배추김치",
+                imageURL: nil,
+                isSoldOut: false
+            )
+        }
+        func periods(mealName: String, congestion: String?, isSoldOut: Bool, price: Int) -> [DiningPeriod] {
+            [
+                DiningPeriod(
+                    time: "중식",
+                    startTime: "11:30:00",
+                    endTime: "13:30:00",
+                    courses: [
+                        DiningCourse(
+                            name: "한식",
+                            price: price,
+                            menus: [meal(name: mealName)],
+                            isSoldOut: isSoldOut,
+                            congestion: congestion,
+                            origin: "돼지고기 국내산"
+                        ),
+                    ]
+                ),
+            ]
+        }
+
+        let preference = "테스트 선호도 \(UUID().uuidString)"
+        let allergies = ""
+
+        let initial = periods(mealName: "제육볶음", congestion: "NORMAL", isSoldOut: false, price: 7_000)
+        let prepared = await DiningMenuPreprocessor.shared.prepare(
+            periods: initial,
+            preference: preference,
+            allergies: allergies
+        )
+
+        // 혼잡도/품절/가격은 실시간으로 바뀌지만 dynamicSurface·personalization과는 무관하므로,
+        // 이 값들만 바뀐 새로고침 결과는 여전히 캐시를 재사용해야 한다.
+        let refreshedWithLiveFieldChanges = periods(
+            mealName: "제육볶음",
+            congestion: "BUSY",
+            isSoldOut: true,
+            price: 7_500
+        )
+        let cachedAfterLiveFieldChange = await DiningMenuPreprocessor.shared.cached(
+            periods: refreshedWithLiveFieldChanges,
+            preference: preference,
+            allergies: allergies
+        )
+        XCTAssertEqual(cachedAfterLiveFieldChange, prepared)
+
+        // 실제 메뉴 구성이 바뀌면 캐시는 정상적으로 무효화되어야 한다.
+        let changedMenu = periods(mealName: "돈까스", congestion: "NORMAL", isSoldOut: false, price: 7_000)
+        let cachedAfterMenuChange = await DiningMenuPreprocessor.shared.cached(
+            periods: changedMenu,
+            preference: preference,
+            allergies: allergies
+        )
+        XCTAssertNil(cachedAfterMenuChange)
+    }
+
     func testDiningPersonalizationPolicySkipsRecommendationWithoutPreference() {
         XCTAssertFalse(DiningPersonalizationPolicy.hasPreference("  \n"))
         XCTAssertFalse(
