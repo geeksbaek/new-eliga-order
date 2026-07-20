@@ -10,7 +10,6 @@ struct OrderConfirmationView: View {
     @State private var selectedReasonID: Int?
     @State private var isLoading = true
     @State private var isPlacingOrder = false
-    @State private var showsConfirmation = false
     @State private var errorMessage: String?
     @State private var orderSucceeded = false
     @State private var reviewedCart: Cart?
@@ -71,7 +70,7 @@ struct OrderConfirmationView: View {
                             systemImage: "checkmark.seal.fill",
                             isWorking: isPlacingOrder
                         ) {
-                            showsConfirmation = true
+                            placeOrder()
                         }
                         .disabled(selectedReasonID == nil || isPlacingOrder)
                     }
@@ -80,12 +79,6 @@ struct OrderConfirmationView: View {
         }
         .navigationTitle(isQuickOrder ? "바로 주문 확인" : "주문 확인")
         .navigationBarBackButtonHidden(isPlacingOrder)
-        .confirmationDialog("주문을 확정할까요?", isPresented: $showsConfirmation, titleVisibility: .visible) {
-            Button("주문하기") { placeOrder() }
-            Button("취소", role: .cancel) {}
-        } message: {
-            Text("\(cart.itemCount)개 메뉴를 \(AppFormat.won(cart.total))에 주문합니다.")
-        }
         .task { await load() }
         .onDisappear {
             if isQuickOrder && !orderSucceeded && !isPlacingOrder {
