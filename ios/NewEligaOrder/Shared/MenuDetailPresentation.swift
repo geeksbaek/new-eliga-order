@@ -70,7 +70,8 @@ struct AppMenuDetailHeader<Summary: View>: View {
             url: imageURL,
             size: size,
             placeholderSystemImage: placeholderSystemImage,
-            cornerRadius: 18
+            cornerRadius: 18,
+            contentMode: .fit
         )
         .accessibilityHidden(false)
         .saturation(isUnavailable ? 0.15 : 1)
@@ -117,7 +118,8 @@ struct AppMenuDetailHeroHeader<BadgeContent: View>: View {
                 url: imageURL,
                 size: max(proxy.size.width, 1),
                 placeholderSystemImage: placeholderSystemImage,
-                cornerRadius: 0
+                cornerRadius: 0,
+                contentMode: .fit
             )
             .accessibilityHidden(false)
             .saturation(isUnavailable ? 0.15 : 1)

@@ -6,6 +6,7 @@ struct RemoteThumbnail: View {
     var size: CGFloat = 64
     var placeholderSystemImage = "photo"
     var cornerRadius: CGFloat = 12
+    var contentMode: ContentMode = .fill
     @State private var loadedImage: UIImage?
     @State private var didFinishLoading = false
 
@@ -14,7 +15,7 @@ struct RemoteThumbnail: View {
             if let loadedImage {
                 Image(uiImage: loadedImage)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 placeholder
             }
