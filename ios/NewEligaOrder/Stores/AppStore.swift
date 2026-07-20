@@ -271,47 +271,80 @@ final class AppStore {
         }
     }
 
-    func setQuantity(shopID: Int, item: CartItem, quantity: Int) async throws {
-        try await withCartMutation(shopID: shopID) {
-            try await setQuantityWithoutLock(shopID: shopID, itemID: item.id, quantity: quantity)
-        }
-    }
-
     func adjustQuantity(shopID: Int, itemID: Int, delta: Int) async throws {
-        try await withCartMutation(shopID: shopID) {
-            let current = try await api.fetchCart(shopID: shopID)
-            guard let item = current.items.first(where: { $0.id == itemID }) else { return }
-            cartsByShop[shopID] = current
-            try await setQuantityWithoutLock(
-                shopID: shopID,
-                itemID: itemID,
-                quantity: item.quantity + delta
-            )
-        }
+        guard let item = cartsByShop[shopID]?.items.first(where: { $0.id == itemID }) else { return }
+        try await adjustQuantity(shopID: shopID, item: item, delta: delta)
     }
 
     func adjustGoodsQuantity(shopID: Int, goodsID: Int, delta: Int) async throws {
-        try await withCartMutation(shopID: shopID) {
-            let current = try await api.fetchCart(shopID: shopID)
-            cartsByShop[shopID] = current
-            if let item = current.items.first(where: { $0.goodsID == goodsID }) {
-                try await setQuantityWithoutLock(
-                    shopID: shopID,
-                    itemID: item.id,
-                    quantity: item.quantity + delta
-                )
-            } else if delta > 0 {
+        if let item = cartsByShop[shopID]?.items.first(where: { $0.goodsID == goodsID }) {
+            try await adjustQuantity(shopID: shopID, item: item, delta: delta)
+        } else if delta > 0 {
+            try await withCartMutation(shopID: shopID) {
                 try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: delta)
                 try await refreshCartWithoutLock(shopID: shopID)
             }
         }
     }
 
-    func deleteCartItem(shopID: Int, itemID: Int) async throws {
+    /// Updates the on-screen quantity immediately from cached cart state (no
+    /// network round trip) so steppers respond the instant they're tapped,
+    /// then writes the target quantity to the server in the background. Only
+    /// the write is serialized through the mutation gate; on failure the cart
+    /// is re-synced from the server and the optimistic guess is discarded.
+    private func adjustQuantity(shopID: Int, item: CartItem, delta: Int) async throws {
+        let targetQuantity = max(0, min(20, item.quantity + delta))
+        applyOptimisticQuantity(shopID: shopID, itemID: item.id, quantity: targetQuantity)
         try await withCartMutation(shopID: shopID) {
-            guard let cartID = try await api.fetchCart(shopID: shopID).id else { return }
-            try await api.deleteCartItems(cartID: cartID, itemIDs: [itemID])
-            try await refreshCartWithoutLock(shopID: shopID)
+            do {
+                guard let cartID = try await resolvedCartID(shopID: shopID) else { return }
+                if targetQuantity <= 0 {
+                    try await api.deleteCartItems(cartID: cartID, itemIDs: [item.id])
+                } else {
+                    try await api.updateCartQuantity(cartID: cartID, itemID: item.id, quantity: targetQuantity)
+                }
+            } catch {
+                try? await refreshCartWithoutLock(shopID: shopID)
+                throw error
+            }
+        }
+    }
+
+    private func applyOptimisticQuantity(shopID: Int, itemID: Int, quantity: Int) {
+        guard let cart = cartsByShop[shopID] else { return }
+        var items = cart.items
+        if quantity <= 0 {
+            items.removeAll { $0.id == itemID }
+        } else if let index = items.firstIndex(where: { $0.id == itemID }) {
+            let existing = items[index]
+            items[index] = CartItem(
+                id: existing.id,
+                goodsID: existing.goodsID,
+                name: existing.name,
+                quantity: quantity,
+                price: existing.price,
+                options: existing.options,
+                thumbnailURL: existing.thumbnailURL
+            )
+        }
+        cartsByShop[shopID] = Cart(id: cart.id, shopID: cart.shopID, items: items)
+    }
+
+    private func resolvedCartID(shopID: Int) async throws -> Int? {
+        if let cartID = cartsByShop[shopID]?.id { return cartID }
+        return try await refreshCartWithoutLock(shopID: shopID).id
+    }
+
+    func deleteCartItem(shopID: Int, itemID: Int) async throws {
+        applyOptimisticQuantity(shopID: shopID, itemID: itemID, quantity: 0)
+        try await withCartMutation(shopID: shopID) {
+            do {
+                guard let cartID = try await resolvedCartID(shopID: shopID) else { return }
+                try await api.deleteCartItems(cartID: cartID, itemIDs: [itemID])
+            } catch {
+                try? await refreshCartWithoutLock(shopID: shopID)
+                throw error
+            }
         }
     }
 
@@ -532,17 +565,6 @@ final class AppStore {
         }
         cartsByShop[session.shopID] = restored.cart
         try persistQuickOrderSession(nil)
-    }
-
-    private func setQuantityWithoutLock(shopID: Int, itemID: Int, quantity: Int) async throws {
-        let current = try await api.fetchCart(shopID: shopID)
-        guard let cartID = current.id else { throw OrderValidationError.emptyCart }
-        if quantity <= 0 {
-            try await api.deleteCartItems(cartID: cartID, itemIDs: [itemID])
-        } else {
-            try await api.updateCartQuantity(cartID: cartID, itemID: itemID, quantity: min(20, quantity))
-        }
-        try await refreshCartWithoutLock(shopID: shopID)
     }
 
     private func withCartMutation<Value>(
