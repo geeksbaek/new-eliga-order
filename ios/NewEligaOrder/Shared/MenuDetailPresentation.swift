@@ -70,8 +70,7 @@ struct AppMenuDetailHeader<Summary: View>: View {
             url: imageURL,
             size: size,
             placeholderSystemImage: placeholderSystemImage,
-            cornerRadius: 18,
-            contentMode: .fit
+            cornerRadius: 18
         )
         .accessibilityHidden(false)
         .saturation(isUnavailable ? 0.15 : 1)
