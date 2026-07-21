@@ -348,6 +348,21 @@ final class AppStore {
         }
     }
 
+    func clearCart(shopID: Int) async throws {
+        guard let cart = cartsByShop[shopID], !cart.items.isEmpty else { return }
+        let clearedItemIDs = cart.items.map(\.id)
+        cartsByShop[shopID] = Cart(id: cart.id, shopID: cart.shopID, items: [])
+        try await withCartMutation(shopID: shopID) {
+            do {
+                guard let cartID = try await resolvedCartID(shopID: shopID) else { return }
+                try await api.deleteCartItems(cartID: cartID, itemIDs: clearedItemIDs)
+            } catch {
+                try? await refreshCartWithoutLock(shopID: shopID)
+                throw error
+            }
+        }
+    }
+
     /// Takes just `displayID`/`name` (not a whole `CafeMenuItem`) so it works
     /// equally for the full menu list and for lighter-weight item types like
     /// `CafeQuickItem` (recent/popular rail) that don't carry a full item.

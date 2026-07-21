@@ -119,7 +119,12 @@ struct CafeView: View {
                     shops: store.cafeShops,
                     selectedShopID: activeShopID,
                     selectShop: selectShop,
-                    searchAction: { isSearchPresented = true }
+                    trailingAccessory: CafeBottomControlsRow.TrailingAccessory(
+                        systemImage: "magnifyingglass",
+                        accessibilityLabel: "메뉴 검색",
+                        accessibilityIdentifier: "cafe.search.accessory",
+                        action: { isSearchPresented = true }
+                    )
                 )
                 .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
                 .padding(.top, 6)

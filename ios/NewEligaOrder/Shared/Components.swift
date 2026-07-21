@@ -324,6 +324,10 @@ struct CafeShopModeSwitcher: View {
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
+    /// Shop ID → item count, shown as a small badge on each chip so shops
+    /// with something already in the cart are easy to spot without having
+    /// to switch to each one. Empty by default (no badges).
+    var itemCounts: [Int: Int] = [:]
 
     @Namespace private var selectionNamespace
     private let trackHeight: CGFloat = 44
@@ -390,6 +394,7 @@ struct CafeShopModeSwitcher: View {
 
     private func modeButton(for shop: Shop) -> some View {
         let isSelected = shop.id == selectedShopID
+        let itemCount = itemCounts[shop.id] ?? 0
 
         return Button {
             guard shop.id != selectedShopID else { return }
@@ -413,14 +418,33 @@ struct CafeShopModeSwitcher: View {
                 selectionSurface
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if itemCount > 0 {
+                itemCountBadge(itemCount)
+            }
+        }
         .accessibilityLabel(shop.name)
-        .accessibilityValue(isSelected ? "선택됨" : "")
+        .accessibilityValue([isSelected ? "선택됨" : "", itemCount > 0 ? "장바구니 \(itemCount)개" : ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", "))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint(isSelected ? "현재 매장" : "이 매장으로 변경")
         .accessibilityIdentifier("cafe.shop-mode.\(shop.id)")
         .accessibilityShowsLargeContentViewer {
             Label(shop.name, systemImage: "cup.and.saucer.fill")
         }
+    }
+
+    private func itemCountBadge(_ count: Int) -> some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .padding(.horizontal, count > 9 ? 4 : 0)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Color.red, in: Capsule())
+            .offset(x: 6, y: -6)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -470,14 +494,25 @@ struct CafeShopModeSwitcher: View {
 /// behavior. Each control keeps its own Liquid Glass surface, so they read
 /// as two distinct floating shapes rather than one shared system bar.
 struct CafeBottomControlsRow: View {
+    /// A small circular accessory button that sits to the right of the shop
+    /// switcher — search on CafeView, clear-cart on CartView, etc.
+    struct TrailingAccessory {
+        let systemImage: String
+        let accessibilityLabel: String
+        let accessibilityIdentifier: String
+        var isDestructive = false
+        let action: () -> Void
+    }
+
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
-    /// `nil` hides the search button entirely (e.g. CartView, which has
-    /// nothing to search across shops for) — the switcher then expands to
-    /// fill the whole row by itself, so the row's total width still matches
-    /// the GNB's visual width, just without a trailing button.
-    var searchAction: (() -> Void)? = nil
+    /// `nil` hides the trailing button entirely — the switcher then expands
+    /// to fill the whole row by itself, so the row's total width still
+    /// matches the GNB's visual width, just without a trailing button.
+    var trailingAccessory: TrailingAccessory? = nil
+    /// Shop ID → item count, forwarded to CafeShopModeSwitcher's badges.
+    var itemCounts: [Int: Int] = [:]
 
     /// The iOS 26 Liquid Glass tab bar renders as a floating capsule inset
     /// from the screen edges — but that capsule's accessibility frame
@@ -498,31 +533,33 @@ struct CafeBottomControlsRow: View {
                     CafeShopModeSwitcher(
                         shops: shops,
                         selectedShopID: selectedShopID,
-                        selectShop: selectShop
+                        selectShop: selectShop,
+                        itemCounts: itemCounts
                     )
                     .frame(maxWidth: .infinity)
                 } else {
                     Spacer(minLength: 0)
                 }
-                if let searchAction {
-                    searchButton(action: searchAction)
+                if let trailingAccessory {
+                    accessoryButton(trailingAccessory)
                 }
             }
         }
         .frame(height: controlHeight)
     }
 
-    private func searchButton(action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "magnifyingglass")
+    private func accessoryButton(_ accessory: TrailingAccessory) -> some View {
+        Button(action: accessory.action) {
+            Image(systemName: accessory.systemImage)
                 .font(.body.weight(.semibold))
                 .frame(width: controlHeight, height: controlHeight)
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .appGlassSurface(cornerRadius: controlHeight / 2, isInteractive: true)
-        .accessibilityLabel("메뉴 검색")
-        .accessibilityIdentifier("cafe.search.accessory")
+        .foregroundStyle(accessory.isDestructive ? AnyShapeStyle(Color.red) : AnyShapeStyle(.primary))
+        .accessibilityLabel(accessory.accessibilityLabel)
+        .accessibilityIdentifier(accessory.accessibilityIdentifier)
     }
 }
 
@@ -578,7 +615,12 @@ struct CafeShopModeSwitcherFixtureView: View {
                                 shops: shops,
                                 selectedShopID: selectedShopID,
                                 selectShop: { selectedShopID = $0 },
-                                searchAction: { isSearchPresented = true }
+                                trailingAccessory: CafeBottomControlsRow.TrailingAccessory(
+                                    systemImage: "magnifyingglass",
+                                    accessibilityLabel: "메뉴 검색",
+                                    accessibilityIdentifier: "cafe.search.accessory",
+                                    action: { isSearchPresented = true }
+                                )
                             )
                             .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
                             .padding(.top, 6)

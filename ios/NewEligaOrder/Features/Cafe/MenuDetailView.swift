@@ -75,18 +75,16 @@ struct MenuDetailView: View {
                     AppMenuDetailSection(title: "주문 수량", systemImage: "number") {
                         MenuQuantitySelector(quantity: $quantity, total: total)
                     }
-                }
-                .safeAreaInset(edge: .bottom) {
-                    AppBottomActionBar {
-                        VStack(spacing: 10) {
-                            actionStatus(variant: variant)
-                            actionButtons(variant: variant)
-                        }
-                        .frame(maxWidth: AppDesign.contentMaxWidth)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("cafe.menu-detail.actions")
+
+                    // Lives at the end of the scrollable content instead of
+                    // floating in a bottom bar, so it reads as part of what
+                    // it's acting on rather than a bar stuck to the screen edge.
+                    VStack(spacing: 10) {
+                        actionStatus(variant: variant)
+                        actionButtons(variant: variant)
                     }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("cafe.menu-detail.actions")
                 }
             } else {
                 ContentUnavailableView("메뉴 정보가 없습니다", systemImage: "cup.and.saucer")
@@ -611,20 +609,15 @@ struct CafeMenuDetailHolidayFixtureView: View {
                     Text("휴무일에는 주문 수량을 변경할 수 없습니다.")
                         .foregroundStyle(.secondary)
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                AppBottomActionBar {
-                    HStack(spacing: 12) {
-                        AppSecondaryActionButton(title: "담기", systemImage: "bag.badge.plus") {}
-                            .disabled(true)
-                        AppPrimaryActionButton(title: "바로 주문", systemImage: "bolt.fill") {}
-                            .disabled(true)
-                    }
-                    .frame(maxWidth: AppDesign.contentMaxWidth)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("cafe.menu-detail.actions")
+
+                HStack(spacing: 12) {
+                    AppSecondaryActionButton(title: "담기", systemImage: "bag.badge.plus") {}
+                        .disabled(true)
+                    AppPrimaryActionButton(title: "바로 주문", systemImage: "bolt.fill") {}
+                        .disabled(true)
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("cafe.menu-detail.actions")
             }
             .navigationTitle("시그니처 라떼")
             .navigationBarTitleDisplayMode(.inline)
