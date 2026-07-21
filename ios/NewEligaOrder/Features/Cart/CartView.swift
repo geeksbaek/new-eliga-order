@@ -6,10 +6,16 @@ struct CartView: View {
     @State private var loadingShopID: Int?
     @State private var errorMessage: String?
     @State private var feedbackToken = 0
+    @State private var showsClearConfirmation = false
 
     private var shopID: Int { store.selectedShopID ?? store.cafeShops.first?.id ?? 5 }
     private var cart: Cart { store.cart(for: shopID) }
     private var isLoading: Bool { loadingShopID == shopID }
+    /// Lets the shop switcher badge shops that already have items, since
+    /// otherwise the only way to find them is switching to each one.
+    private var itemCountsByShop: [Int: Int] {
+        Dictionary(uniqueKeysWithValues: store.cafeShops.map { ($0.id, store.cart(for: $0.id).itemCount) })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +46,16 @@ struct CartView: View {
                         LabeledContent("총 수량", value: "\(cart.itemCount)개")
                         LabeledContent("결제 금액") { PriceText(amount: cart.total) }
                     }
+                    Section {
+                        AppPrimaryActionButton(
+                            title: "주문 확인 · \(AppFormat.won(cart.total))",
+                            systemImage: "checkmark.circle.fill"
+                        ) {
+                            router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
                 }
                 .listStyle(.insetGrouped)
                 .refreshable { await refresh(shopID: shopID) }
@@ -56,36 +72,39 @@ struct CartView: View {
         .navigationTitle("장바구니")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                // The primary action sits directly under the cart content;
-                // the shop switcher — secondary navigation — sits closest to
-                // the tab bar, same as everywhere else it appears.
-                if !cart.items.isEmpty {
-                    AppBottomActionBar {
-                        AppPrimaryActionButton(
-                            title: "주문 확인 · \(AppFormat.won(cart.total))",
-                            systemImage: "checkmark.circle.fill"
-                        ) {
-                            router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
-                        }
-                    }
-                }
-
-                // Same bottom-row shop switcher as CafeView, minus the search
-                // button (the cart has nothing to search across shops for).
-                if store.cafeShops.count > 1 {
-                    CafeBottomControlsRow(
-                        shops: store.cafeShops,
-                        selectedShopID: shopID,
-                        selectShop: selectShop
-                    )
-                    .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
-                    // Only needs its own top breathing room when it's not
-                    // already sitting right under the action bar's padding.
-                    .padding(.top, cart.items.isEmpty ? 6 : 0)
-                    .padding(.bottom, 8)
-                }
+            // Same bottom-row shop switcher as CafeView, with a clear-cart
+            // button in the same trailing spot CafeView uses for search. The
+            // order-confirm action lives inline at the end of the cart list
+            // instead of floating here, so it reads as part of the content
+            // it's confirming rather than a bar stuck to the screen edge.
+            if store.cafeShops.count > 1 || !cart.items.isEmpty {
+                CafeBottomControlsRow(
+                    shops: store.cafeShops,
+                    selectedShopID: shopID,
+                    selectShop: selectShop,
+                    trailingAccessory: cart.items.isEmpty ? nil : CafeBottomControlsRow.TrailingAccessory(
+                        systemImage: "trash",
+                        accessibilityLabel: "장바구니 비우기",
+                        accessibilityIdentifier: "cart.clear.accessory",
+                        isDestructive: true,
+                        action: { showsClearConfirmation = true }
+                    ),
+                    itemCounts: itemCountsByShop
+                )
+                .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
             }
+        }
+        .confirmationDialog(
+            "장바구니를 비울까요?",
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("비우기", role: .destructive) { clearCart() }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("\(cart.itemCount)개 메뉴가 모두 삭제됩니다.")
         }
         .task(id: shopID) { await refresh(shopID: shopID) }
         .sensoryFeedback(.success, trigger: feedbackToken)
@@ -128,6 +147,16 @@ struct CartView: View {
         Task {
             do {
                 try await store.deleteCartItem(shopID: shopID, itemID: item.id)
+                feedbackToken += 1
+            }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func clearCart() {
+        Task {
+            do {
+                try await store.clearCart(shopID: shopID)
                 feedbackToken += 1
             }
             catch { errorMessage = error.localizedDescription }
