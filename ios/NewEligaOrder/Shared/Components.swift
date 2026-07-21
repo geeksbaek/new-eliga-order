@@ -318,9 +318,6 @@ enum CafeShopSwitcherPolicy {
 /// more deliberate, modern read — the pill-morph and swipe-to-step gesture
 /// are the parts of the old camera-strip design worth keeping.
 struct CafeShopModeSwitcher: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorScheme) private var colorScheme
-
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
@@ -329,70 +326,30 @@ struct CafeShopModeSwitcher: View {
     /// to switch to each one. Empty by default (no badges).
     var itemCounts: [Int: Int] = [:]
 
-    @Namespace private var selectionNamespace
-    private let trackHeight: CGFloat = 44
+    private let chipHeight: CGFloat = 40
 
-    /// Ascending-floor order, regardless of the raw API order — used for
-    /// both the displayed chip order and swipe-to-step navigation, so the
-    /// two never disagree about "next"/"previous".
+    /// Ascending-floor order, regardless of the raw API order.
     private var sortedShops: [Shop] { CafeShopSwitcherPolicy.sortedByFloor(shops) }
 
     var body: some View {
-        modeStrip
-            .frame(height: trackHeight)
-            .frame(maxWidth: .infinity)
-            .sensoryFeedback(.selection, trigger: selectedShopID)
-    }
-
-    @ViewBuilder
-    private var modeStrip: some View {
-        if #available(iOS 26, *), !reduceTransparency {
-            GlassEffectContainer(spacing: 12) {
-                modeRow
-                    .glassEffect(.regular.interactive(), in: .capsule)
-            }
-        } else {
-            modeRow
-                .background(
-                    reduceTransparency ? AnyShapeStyle(Color(.secondarySystemBackground)) : AnyShapeStyle(.regularMaterial),
-                    in: Capsule()
-                )
-                .overlay {
-                    Capsule().stroke(.primary.opacity(0.1), lineWidth: 0.5)
+        AppGlassGroup(spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(sortedShops) { shop in
+                    chip(for: shop)
                 }
-        }
-    }
-
-    private var modeRow: some View {
-        HStack(spacing: 2) {
-            ForEach(sortedShops) { shop in
-                modeButton(for: shop)
             }
         }
-        .padding(3)
-        .simultaneousGesture(
-            // Keeps the camera strip's swipe-to-step feel even without a
-            // scroll view backing it: a drag anywhere on the track steps
-            // selection to the neighboring shop.
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    let translation = value.translation
-                    guard abs(translation.width) > abs(translation.height),
-                          abs(translation.width) >= 44
-                    else { return }
-                    selectAdjacentShop(offset: translation.width < 0 ? 1 : -1)
-                }
-        )
-        // `.contain` (not the default) makes this HStack its own AX element
+        // `.contain` (not the default) makes this its own AX element
         // carrying this identifier, while still exposing each shop button as
         // its own separate element — a plain container here would otherwise
         // leak this identifier onto every child button, clobbering their
         // individual "cafe.shop-mode.<id>" identifiers.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cafe.shop-mode-switcher")
+        .sensoryFeedback(.selection, trigger: selectedShopID)
     }
 
-    private func modeButton(for shop: Shop) -> some View {
+    private func chip(for shop: Shop) -> some View {
         let isSelected = shop.id == selectedShopID
         let itemCount = itemCounts[shop.id] ?? 0
 
@@ -404,20 +361,16 @@ struct CafeShopModeSwitcher: View {
         } label: {
             Text(CafeShopSwitcherPolicy.modeTitle(for: shop.name))
                 .font(.subheadline.weight(isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .allowsTightening(true)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, minHeight: trackHeight - 6)
-                .contentShape(Rectangle())
+                .padding(.horizontal, 14)
+                .frame(height: chipHeight)
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .background {
-            if isSelected {
-                selectionSurface
-            }
-        }
+        .modifier(ShopChipGlassBackground(isSelected: isSelected))
         .overlay(alignment: .topTrailing) {
             if itemCount > 0 {
                 itemCountBadge(itemCount)
@@ -446,56 +399,109 @@ struct CafeShopModeSwitcher: View {
             .offset(x: 6, y: -6)
             .accessibilityHidden(true)
     }
+}
+
+/// Each shop chip is its own independent glass shape (not one shared capsule
+/// with a sliding highlight) — the selected chip is tinted with the brand
+/// color so it reads like a filled pill next to its plain-glass neighbors.
+/// Falls back to a solid brand-color capsule (not just a faint tint) when
+/// reduced transparency or pre-iOS 26 glass isn't available, so the selected
+/// chip still has enough contrast for its white label.
+private struct ShopChipGlassBackground: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    let isSelected: Bool
 
     @ViewBuilder
-    private var selectionSurface: some View {
+    func body(content: Content) -> some View {
         if #available(iOS 26, *), !reduceTransparency {
-            // Morphing selection pill — slides/resizes between chips of
-            // different widths as the selected shop changes.
-            Color.clear
-                .glassEffect(
-                    .regular
-                        .tint(selectionTint)
-                        .interactive(),
-                    in: .capsule
-                )
-                .glassEffectID("cafe-selected-shop", in: selectionNamespace)
+            content.glassEffect(
+                isSelected ? .regular.tint(AppPalette.brand).interactive() : .regular.interactive(),
+                in: .capsule
+            )
+        } else if isSelected {
+            content.background(AppPalette.brand, in: Capsule())
+        } else if reduceTransparency {
+            content
+                .background(Color(.secondarySystemBackground), in: Capsule())
+                .overlay { Capsule().stroke(.primary.opacity(0.14), lineWidth: 1) }
         } else {
-            Capsule()
-                .fill(Color.primary.opacity(reduceTransparency ? 0.12 : 0.08))
-                .overlay {
-                    Capsule().stroke(.primary.opacity(0.1), lineWidth: 0.5)
-                }
-        }
-    }
-
-    private var selectionTint: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.22)
-            : Color.white.opacity(0.55)
-    }
-
-    private func selectAdjacentShop(offset: Int) {
-        guard let shopID = CafeShopSwitcherPolicy.adjacentShopID(
-            in: sortedShops,
-            selectedShopID: selectedShopID,
-            offset: offset
-        ) else { return }
-        withAnimation(.snappy(duration: 0.28)) {
-            selectShop(shopID)
+            content
+                .background(.regularMaterial, in: Capsule())
+                .overlay { Capsule().stroke(.primary.opacity(0.08), lineWidth: 0.5) }
         }
     }
 }
 
-/// CafeView's own bottom row: shop switcher (when there's more than one shop
-/// to pick between) plus a small circular search-trigger button. Lives
-/// entirely in CafeView's view tree via `.safeAreaInset` — no
-/// `tabViewBottomAccessory`, no syncing with the GNB's own collapse
-/// behavior. Each control keeps its own Liquid Glass surface, so they read
-/// as two distinct floating shapes rather than one shared system bar.
-struct CafeBottomControlsRow: View {
+extension View {
+    /// Swiping anywhere on this view — including over the menu/cart `List`
+    /// underneath — steps to the adjacent shop (in ascending-floor order).
+    /// Replaces the switcher's own local swipe-to-step gesture so the whole
+    /// screen is swipeable, not just the small chip strip.
+    ///
+    /// A plain SwiftUI `DragGesture` (even `highPriorityGesture`, even
+    /// backed by a sibling `UIViewRepresentable`) doesn't reliably see
+    /// horizontal drags that start over a `List`: its backing
+    /// `UICollectionView` has its own pan gesture recognizer that wins the
+    /// touch before a sibling view's recognizer is even offered it — touch
+    /// delivery only reaches a hit-tested view's own gesture recognizers and
+    /// those of its *ancestors*, not siblings. `UIGestureRecognizerRepresentable`
+    /// (iOS 18+) attaches the recognizer directly to this view's own backing
+    /// UIKit layer instead of a separate sibling, so it sits in the same
+    /// touch-delivery chain as the List and, with simultaneous recognition
+    /// opted in, reliably fires alongside its scrolling.
+    func shopSwipeNavigation(
+        shops: [Shop],
+        selectedShopID: Int,
+        selectShop: @escaping (Int) -> Void
+    ) -> some View {
+        gesture(
+            ShopSwipeGesture { isLeftward in
+                guard let nextShopID = CafeShopSwitcherPolicy.adjacentShopID(
+                    in: CafeShopSwitcherPolicy.sortedByFloor(shops),
+                    selectedShopID: selectedShopID,
+                    offset: isLeftward ? 1 : -1
+                ) else { return }
+                withAnimation(.snappy(duration: 0.28)) {
+                    selectShop(nextShopID)
+                }
+            }
+        )
+    }
+}
+
+/// See `shopSwipeNavigation(shops:selectedShopID:selectShop:)`.
+private struct ShopSwipeGesture: UIGestureRecognizerRepresentable {
+    let onSwipe: (_ isLeftward: Bool) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        UIPanGestureRecognizer()
+    }
+
+    func handleUIGestureRecognizerAction(
+        _ recognizer: UIPanGestureRecognizer,
+        context: Context
+    ) {
+        guard recognizer.state == .ended else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        guard abs(translation.x) > abs(translation.y), abs(translation.x) >= 60 else { return }
+        onSwipe(translation.x < 0)
+    }
+
+    func gestureRecognizer(
+        _ recognizer: UIPanGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer,
+        context: Context
+    ) -> Bool {
+        true
+    }
+}
+
+/// Top-of-screen shop switcher + an optional trailing accessory button
+/// (search on CafeView, clear-cart on CartView) — placed via
+/// `.safeAreaInset(edge: .top)` right under the navigation bar.
+struct CafeShopHeaderBar: View {
     /// A small circular accessory button that sits to the right of the shop
-    /// switcher — search on CafeView, clear-cart on CartView, etc.
+    /// switcher.
     struct TrailingAccessory {
         let systemImage: String
         let accessibilityLabel: String
@@ -507,42 +513,26 @@ struct CafeBottomControlsRow: View {
     let shops: [Shop]
     let selectedShopID: Int
     let selectShop: (Int) -> Void
-    /// `nil` hides the trailing button entirely — the switcher then expands
-    /// to fill the whole row by itself, so the row's total width still
-    /// matches the GNB's visual width, just without a trailing button.
+    /// `nil` hides the trailing button entirely.
     var trailingAccessory: TrailingAccessory? = nil
     /// Shop ID → item count, forwarded to CafeShopModeSwitcher's badges.
     var itemCounts: [Int: Int] = [:]
 
-    /// The iOS 26 Liquid Glass tab bar renders as a floating capsule inset
-    /// from the screen edges — but that capsule's accessibility frame
-    /// (`XCUIElement.tabBars.firstMatch.frame`) reports the full-width hit
-    /// area, not the visual glass shape, so this can't be read at runtime.
-    /// Measured directly from a device screenshot (1206px-wide capsule
-    /// inset ~62.5px on each side at 3x → ~20.8pt); callers apply this as
-    /// horizontal padding so the row's rendered edges line up with the
-    /// GNB's actual visible bounds instead of its (wider) hit-testable one.
-    static let gnbHorizontalInset: CGFloat = 21
-
-    private let controlHeight: CGFloat = 44
+    private let controlHeight: CGFloat = 40
 
     var body: some View {
-        AppGlassGroup(spacing: 12) {
-            HStack(spacing: 12) {
-                if shops.count > 1 {
-                    CafeShopModeSwitcher(
-                        shops: shops,
-                        selectedShopID: selectedShopID,
-                        selectShop: selectShop,
-                        itemCounts: itemCounts
-                    )
-                    .frame(maxWidth: .infinity)
-                } else {
-                    Spacer(minLength: 0)
-                }
-                if let trailingAccessory {
-                    accessoryButton(trailingAccessory)
-                }
+        HStack(spacing: 10) {
+            if shops.count > 1 {
+                CafeShopModeSwitcher(
+                    shops: shops,
+                    selectedShopID: selectedShopID,
+                    selectShop: selectShop,
+                    itemCounts: itemCounts
+                )
+            }
+            Spacer(minLength: 0)
+            if let trailingAccessory {
+                accessoryButton(trailingAccessory)
             }
         }
         .frame(height: controlHeight)
@@ -609,24 +599,29 @@ struct CafeShopModeSwitcherFixtureView: View {
                             isPresented: $isSearchPresented
                         )
                     )
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                    .safeAreaInset(edge: .top, spacing: 0) {
                         if !isSearchPresented {
-                            CafeBottomControlsRow(
+                            CafeShopHeaderBar(
                                 shops: shops,
                                 selectedShopID: selectedShopID,
                                 selectShop: { selectedShopID = $0 },
-                                trailingAccessory: CafeBottomControlsRow.TrailingAccessory(
+                                trailingAccessory: CafeShopHeaderBar.TrailingAccessory(
                                     systemImage: "magnifyingglass",
                                     accessibilityLabel: "메뉴 검색",
                                     accessibilityIdentifier: "cafe.search.accessory",
                                     action: { isSearchPresented = true }
                                 )
                             )
-                            .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
-                            .padding(.top, 6)
-                            .padding(.bottom, 8)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 6)
                         }
                     }
+                    .shopSwipeNavigation(
+                        shops: shops,
+                        selectedShopID: selectedShopID,
+                        selectShop: { selectedShopID = $0 }
+                    )
                 }
             }
             Tab("장바구니", systemImage: "bag", value: 3) { Color.clear }
@@ -656,10 +651,11 @@ struct CafeShopModeSwitcherFixtureView: View {
     }
 }
 
-/// Exercises the cart screen's own shop switcher (same bottom-row segmented
-/// control as CafeView, minus the search button) without needing a real
-/// cart/API session. Wrapped in a TabView, like CafeShopModeSwitcherFixtureView,
-/// so the switcher sits above a real GNB — matching production layout.
+/// Exercises the cart screen's own shop switcher (same top-header chips as
+/// CafeView, minus the search button) without needing a real cart/API
+/// session. Wrapped in a TabView, like CafeShopModeSwitcherFixtureView, so
+/// the switcher sits under a real nav bar above a real GNB — matching
+/// production layout.
 struct CartShopSwitcherFixtureView: View {
     @State private var selectedTab = 3
     @State private var selectedShopID = 5
@@ -686,15 +682,15 @@ struct CartShopSwitcherFixtureView: View {
                     )
                     .navigationTitle("장바구니")
                     .navigationBarTitleDisplayMode(.inline)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        CafeBottomControlsRow(
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        CafeShopHeaderBar(
                             shops: shops,
                             selectedShopID: selectedShopID,
                             selectShop: { selectedShopID = $0 }
                         )
-                        .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
-                        .padding(.top, 6)
-                        .padding(.bottom, 8)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 6)
                     }
                 }
             }
@@ -788,12 +784,6 @@ struct CafeMenuRow: View {
             }
         }
         .frame(minHeight: 64)
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button(action: toggleFavorite) {
-                Label(isFavorite ? "즐겨찾기 해제" : "즐겨찾기", systemImage: isFavorite ? "star.slash" : "star")
-            }
-            .tint(isFavorite ? .gray : .yellow)
-        }
         .contextMenu {
             Button("상세 보기", systemImage: "info.circle", action: openDetail)
             Button(

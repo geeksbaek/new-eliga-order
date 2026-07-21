@@ -38,8 +38,8 @@ struct CartView: View {
                         CartItemRow(item: item) { delta in
                             update(item, delta: delta)
                         }
-                        .swipeActions {
-                            Button("삭제", role: .destructive) { delete(item) }
+                        .contextMenu {
+                            Button("삭제", systemImage: "trash", role: .destructive) { delete(item) }
                         }
                     }
                     Section {
@@ -60,6 +60,11 @@ struct CartView: View {
                 .listStyle(.insetGrouped)
                 .refreshable { await refresh(shopID: shopID) }
                 .appScrollEdgeStyle()
+                .shopSwipeNavigation(
+                    shops: store.cafeShops,
+                    selectedShopID: shopID,
+                    selectShop: selectShop
+                )
             }
 
             if let errorMessage {
@@ -71,18 +76,18 @@ struct CartView: View {
         }
         .navigationTitle("장바구니")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Same bottom-row shop switcher as CafeView, with a clear-cart
-            // button in the same trailing spot CafeView uses for search. The
-            // order-confirm action lives inline at the end of the cart list
-            // instead of floating here, so it reads as part of the content
-            // it's confirming rather than a bar stuck to the screen edge.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Same header row as CafeView, with a clear-cart button in the
+            // same trailing spot CafeView uses for search. The order-confirm
+            // action lives inline at the end of the cart list instead of
+            // floating here, so it reads as part of the content it's
+            // confirming rather than a bar stuck to the screen edge.
             if store.cafeShops.count > 1 || !cart.items.isEmpty {
-                CafeBottomControlsRow(
+                CafeShopHeaderBar(
                     shops: store.cafeShops,
                     selectedShopID: shopID,
                     selectShop: selectShop,
-                    trailingAccessory: cart.items.isEmpty ? nil : CafeBottomControlsRow.TrailingAccessory(
+                    trailingAccessory: cart.items.isEmpty ? nil : CafeShopHeaderBar.TrailingAccessory(
                         systemImage: "trash",
                         accessibilityLabel: "장바구니 비우기",
                         accessibilityIdentifier: "cart.clear.accessory",
@@ -91,9 +96,9 @@ struct CartView: View {
                     ),
                     itemCounts: itemCountsByShop
                 )
-                .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
-                .padding(.top, 6)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
             }
         }
         .confirmationDialog(

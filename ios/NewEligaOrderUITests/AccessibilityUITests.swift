@@ -176,13 +176,13 @@ final class AccessibilityUITests: XCTestCase {
             "매장은 원본 순서와 무관하게 층수 오름차순(3F 다음 5F b)으로 표시되어야 합니다."
         )
 
-        // Same bottom row as CafeView, not a nav-bar toolbar item.
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.exists)
+        // Header row, right under the nav bar — not the bottom GNB.
+        let navigationBar = app.navigationBars["장바구니"]
+        XCTAssertTrue(navigationBar.exists)
         XCTAssertGreaterThanOrEqual(
-            tabBar.frame.minY - floor5b.frame.maxY,
-            8,
-            "매장 스위처는 카페 화면과 동일하게 하단 GNB 바로 위에 있어야 합니다."
+            floor5b.frame.minY,
+            navigationBar.frame.maxY,
+            "매장 스위처는 내비게이션 바 바로 아래 헤더에 있어야 합니다."
         )
 
         XCTAssertFalse(
@@ -190,29 +190,8 @@ final class AccessibilityUITests: XCTestCase {
             "장바구니에는 검색 버튼이 없어야 합니다."
         )
 
-        // 검색 버튼이 없으므로 스위처 혼자 GNB와 동일한 폭을 채워야 한다.
-        // `tabBars.firstMatch.frame`은 GNB의 실제 렌더링된 캡슐 모양이 아니라
-        // 화면 전체 폭의 히트 테스트 영역을 보고하므로(직접 스크린샷 픽셀
-        // 측정으로 확인함 — 실제 캡슐은 화면 가장자리에서 21pt 안쪽), 창
-        // 프레임에서 CafeBottomControlsRow.gnbHorizontalInset(21pt)만큼
-        // 안쪽으로 들어간 위치와 비교한다.
         let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
-        let window = app.windows.firstMatch
-        XCTAssertTrue(window.exists)
-        let gnbHorizontalInset: CGFloat = 21
-        XCTAssertEqual(
-            modeSwitcher.frame.minX,
-            window.frame.minX + gnbHorizontalInset,
-            accuracy: 4,
-            "장바구니의 매장 스위처는 검색 버튼 없이 그 자체로 GNB와 같은 폭이어야 합니다."
-        )
-        XCTAssertEqual(
-            modeSwitcher.frame.maxX,
-            window.frame.maxX - gnbHorizontalInset,
-            accuracy: 4,
-            "장바구니의 매장 스위처는 검색 버튼 없이 그 자체로 GNB와 같은 폭이어야 합니다."
-        )
 
         floor3.tap()
         XCTAssertEqual(floor3.value as? String, "선택됨")
@@ -243,20 +222,24 @@ final class AccessibilityUITests: XCTestCase {
         XCTAssertEqual(firstShop.value as? String, "선택됨")
         assertFullyVisible(firstShop, in: app)
 
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.exists)
+        let cafeTitle = app.navigationBars["카페"]
+        XCTAssertTrue(cafeTitle.exists)
         XCTAssertGreaterThanOrEqual(
-            tabBar.frame.minY - firstShop.frame.maxY,
-            8,
-            "매장 스위처와 하단 GNB 사이에는 표준 8pt 간격이 필요합니다."
+            firstShop.frame.minY,
+            cafeTitle.frame.maxY,
+            "매장 스위처는 내비게이션 바 바로 아래 헤더에 있어야 합니다."
         )
 
         let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
-        // Chips are shown/stepped in ascending-floor order (3F id6, 4F id5,
-        // 5F b id8), not raw fixture order — starting from 4F (id5), the
-        // next chip is 5F b (id8), not the raw-order-adjacent id6.
-        modeSwitcher.swipeLeft()
+        // The swipe-to-step gesture now lives on the whole screen (content
+        // list), not the small chip strip itself, so it works from anywhere
+        // on the page. Chips are shown/stepped in ascending-floor order (3F
+        // id6, 4F id5, 5F b id8), not raw fixture order — starting from 4F
+        // (id5), the next chip is 5F b (id8), not the raw-order-adjacent id6.
+        let menuList = app.collectionViews.firstMatch
+        XCTAssertTrue(menuList.exists)
+        menuList.swipeLeft()
         let swipeSelection = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "선택됨"),
             object: thirdShop
@@ -274,7 +257,7 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
-    func testCafeSearchStaysFixedRegardlessOfGNBCollapse() throws {
+    func testCafeHeaderRowStaysPinnedWhileScrolling() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-cafe-mode-switcher")
         app.launch()
@@ -285,13 +268,13 @@ final class AccessibilityUITests: XCTestCase {
         let searchButton = app.buttons["cafe.search.accessory"]
         XCTAssertTrue(
             searchButton.waitForExistence(timeout: 3),
-            "카페 탭에서는 하단 검색 버튼이 보여야 합니다."
+            "카페 탭에서는 헤더 검색 버튼이 보여야 합니다."
         )
 
         let modeSwitcher = app.descendants(matching: .any)["cafe.shop-mode-switcher"]
         XCTAssertTrue(modeSwitcher.exists)
-        // CafeView가 직접 소유하는 행이므로 GNB 상태와 무관하게 매장
-        // 스위처와 검색 버튼은 같은 줄에서 겹치지 않고 나란히 있어야 한다.
+        // CafeView가 직접 소유하는 헤더 행이므로 매장 스위처와 검색 버튼은
+        // 같은 줄에서 겹치지 않고 나란히 있어야 한다.
         XCTAssertLessThanOrEqual(
             modeSwitcher.frame.maxX + 8,
             searchButton.frame.minX,
@@ -303,47 +286,29 @@ final class AccessibilityUITests: XCTestCase {
             accuracy: 4,
             "매장 스위처와 검색 버튼은 같은 줄에 있어야 합니다."
         )
+        XCTAssertGreaterThanOrEqual(
+            modeSwitcher.frame.minY,
+            cafeTitle.frame.maxY,
+            "헤더 행은 내비게이션 바 바로 아래에 있어야 합니다."
+        )
+        let restingFrame = searchButton.frame
 
-        // 스위처+검색 버튼을 합친 폭은 항상 GNB(탭바)와 같아야 한다.
-        // `tabBars.firstMatch.frame`은 GNB의 실제 렌더링된 캡슐 모양이 아니라
-        // 화면 전체 폭의 히트 테스트 영역을 보고하므로(직접 스크린샷 픽셀
-        // 측정으로 확인함 — 실제 캡슐은 화면 가장자리에서 21pt 안쪽), 창
-        // 프레임에서 CafeBottomControlsRow.gnbHorizontalInset(21pt)만큼
-        // 안쪽으로 들어간 위치와 비교한다.
-        let window = app.windows.firstMatch
-        XCTAssertTrue(window.exists)
-        let gnbHorizontalInset: CGFloat = 21
-        XCTAssertEqual(
-            modeSwitcher.frame.minX,
-            window.frame.minX + gnbHorizontalInset,
-            accuracy: 4,
-            "스위처+검색 버튼을 합친 행의 왼쪽 끝은 GNB의 왼쪽 끝과 같아야 합니다."
-        )
-        XCTAssertEqual(
-            searchButton.frame.maxX,
-            window.frame.maxX - gnbHorizontalInset,
-            accuracy: 4,
-            "스위처+검색 버튼을 합친 행의 오른쪽 끝은 GNB의 오른쪽 끝과 같아야 합니다."
-        )
         let menuList = app.collectionViews.firstMatch
         XCTAssertTrue(menuList.exists)
         menuList.swipeUp()
 
-        let collapsedCafeTab = app.buttons["카페"]
-        XCTAssertEqual(collapsedCafeTab.value as? String, "축소됨")
+        // 헤더는 safeAreaInset(edge: .top)으로 고정되어 있으므로 콘텐츠를
+        // 스크롤해도 위치가 그대로다.
         XCTAssertTrue(
             searchButton.waitForExistence(timeout: 3),
-            "GNB가 축소된 뒤에도 검색 버튼이 계속 보여야 합니다."
+            "스크롤 후에도 검색 버튼이 계속 보여야 합니다."
         )
-        // 의도적으로 GNB와 동기화하지 않는다: 검색 버튼(과 매장 스위처)은
-        // 축소된 GNB 알약과 나란한 줄로 옮겨가지 않고, 그 위에 계속 떠
-        // 있어야 한다.
-        XCTAssertLessThanOrEqual(
-            searchButton.frame.maxY,
-            collapsedCafeTab.frame.minY + 4,
-            "검색 버튼은 축소된 GNB 알약과 합쳐지지 않고 그 위에 떠 있어야 합니다."
+        XCTAssertEqual(
+            searchButton.frame,
+            restingFrame,
+            "헤더는 스크롤 전후로 위치가 그대로여야 합니다."
         )
-        attachScreenshot(of: app, name: "GNB 축소와 무관하게 고정된 검색 행")
+        attachScreenshot(of: app, name: "스크롤 후에도 고정된 헤더 행")
 
         searchButton.tap()
         let searchField = app.searchFields["모든 매장의 메뉴 검색"]
@@ -351,7 +316,7 @@ final class AccessibilityUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         searchField.typeText("라떼")
         XCTAssertEqual(searchField.value as? String, "라떼")
-        attachScreenshot(of: app, name: "GNB 검색 활성화")
+        attachScreenshot(of: app, name: "헤더 검색 활성화")
     }
 
     @MainActor
