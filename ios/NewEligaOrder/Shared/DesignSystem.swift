@@ -4,6 +4,17 @@ enum AppDesign {
     static let cardCornerRadius: CGFloat = 24
     static let controlCornerRadius: CGFloat = 18
     static let contentMaxWidth: CGFloat = 720
+
+    /// The iOS 26 Liquid Glass tab bar renders as a floating capsule inset
+    /// from the screen edges — but that capsule's accessibility frame
+    /// (`XCUIElement.tabBars.firstMatch.frame`) reports the full-width hit
+    /// area, not the visual glass shape, so this can't be read at runtime.
+    /// Measured directly from a device screenshot (1206px-wide capsule
+    /// inset ~62.5px on each side at 3x → ~20.8pt); callers apply this as
+    /// horizontal padding so bottom-pinned content's rendered edges line up
+    /// with the GNB's actual visible bounds instead of its (wider)
+    /// hit-testable one.
+    static let gnbHorizontalInset: CGFloat = 21
 }
 
 enum AppPalette {
@@ -92,7 +103,7 @@ extension View {
     @ViewBuilder
     func appTabBarBehavior() -> some View {
         if #available(iOS 26, *) {
-            tabBarMinimizeBehavior(.onScrollDown)
+            tabBarMinimizeBehavior(.never)
         } else {
             self
         }
@@ -204,10 +215,9 @@ struct AppBottomActionBar<Content: View>: View {
         AppGlassGroup(spacing: 8) {
             content
         }
-        // Matches the GNB's own visual inset (see
-        // CafeBottomControlsRow.gnbHorizontalInset) so every bottom action
-        // bar's width lines up with the tab bar beneath it.
-        .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
+        // Matches the GNB's own visual inset (see AppDesign.gnbHorizontalInset)
+        // so every bottom action bar's width lines up with the tab bar beneath it.
+        .padding(.horizontal, AppDesign.gnbHorizontalInset)
         .padding(.top, 10)
         .padding(.bottom, 8)
         .background(.bar.opacity(0.001))

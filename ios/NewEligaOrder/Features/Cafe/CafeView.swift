@@ -109,27 +109,27 @@ struct CafeView: View {
         }
         .navigationTitle("카페")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Owned entirely by CafeView — no `tabViewBottomAccessory`, no
-            // syncing with the GNB's own collapse behavior. It just floats
-            // in the safe area above whatever the (untouched) tab bar is
-            // doing, which the system keeps in sync for free.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Owned entirely by CafeView — a header row right under the nav
+            // bar instead of floating above the tab bar. Swiping the shop
+            // switcher itself still selects a shop by tapping a chip; the
+            // whole screen now handles the swipe-to-step gesture instead.
             if !isSearchMode {
-                CafeBottomControlsRow(
+                CafeShopHeaderBar(
                     shops: store.cafeShops,
                     selectedShopID: activeShopID,
                     selectShop: selectShop,
-                    trailingAccessory: CafeBottomControlsRow.TrailingAccessory(
+                    trailingAccessory: CafeShopHeaderBar.TrailingAccessory(
                         systemImage: "magnifyingglass",
                         accessibilityLabel: "메뉴 검색",
                         accessibilityIdentifier: "cafe.search.accessory",
                         action: { isSearchPresented = true }
                     )
                 )
-                .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
-                .padding(.top, 6)
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .overlay(alignment: .bottom) {
@@ -295,6 +295,11 @@ struct CafeView: View {
             }
         }
         .appScrollEdgeStyle()
+        .shopSwipeNavigation(
+            shops: store.cafeShops,
+            selectedShopID: activeShopID,
+            selectShop: selectShop
+        )
     }
 
     @ViewBuilder
