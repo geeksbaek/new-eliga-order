@@ -297,6 +297,16 @@ final class AccessibilityUITests: XCTestCase {
         XCTAssertTrue(menuList.exists)
         menuList.swipeUp()
 
+        // GNB는 `tabBarMinimizeBehavior(.never)`로 스크롤해도 축소되지
+        // 않아야 한다 — 이 값이 조용히 되돌아가는 걸 잡아내는 유일한 자동
+        // 테스트이므로 절대 지우지 말 것.
+        let cafeTab = app.buttons["카페"]
+        XCTAssertNotEqual(
+            cafeTab.value as? String,
+            "축소됨",
+            "GNB는 .never로 설정되어 스크롤해도 축소되면 안 됩니다."
+        )
+
         // 헤더는 safeAreaInset(edge: .top)으로 고정되어 있으므로 콘텐츠를
         // 스크롤해도 위치가 그대로다.
         XCTAssertTrue(
