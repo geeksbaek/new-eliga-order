@@ -460,7 +460,9 @@ final class AppStore {
                     try await api.deleteCartItems(cartID: cartID, itemIDs: snapshot.cart.items.map(\.id))
                 }
                 try await api.addToCart(shopID: shopID, goodsID: goodsID, quantity: quantity, options: options)
-                let isolated = try await api.fetchCartSnapshot(shopID: shopID)
+                let isolated = try await fetchCartSnapshotUntilConsistent(shopID: shopID) {
+                    Self.matchesIsolatedCart($0, session: session)
+                }
                 guard Self.matchesIsolatedCart(isolated, session: session) else {
                     throw QuickOrderError.isolationFailed
                 }
@@ -559,12 +561,32 @@ final class AppStore {
                 options: line.options
             )
         }
-        let restored = try await api.fetchCartSnapshot(shopID: session.shopID)
+        let restored = try await fetchCartSnapshotUntilConsistent(shopID: session.shopID) {
+            Self.normalized($0.restoreLines) == Self.normalized(session.stashedLines)
+        }
         guard Self.normalized(restored.restoreLines) == Self.normalized(session.stashedLines) else {
             throw QuickOrderError.restoreFailed
         }
         cartsByShop[session.shopID] = restored.cart
         try persistQuickOrderSession(nil)
+    }
+
+    /// A cart read immediately after a delete+add can briefly lag behind on
+    /// the backend, which showed up as spurious quick-order isolation/restore
+    /// failures right after the write actually succeeded. Give the read a
+    /// couple of short retries before the caller gives up on it.
+    private func fetchCartSnapshotUntilConsistent(
+        shopID: Int,
+        matches: (CartSnapshot) -> Bool
+    ) async throws -> CartSnapshot {
+        var snapshot = try await api.fetchCartSnapshot(shopID: shopID)
+        var attempt = 0
+        while !matches(snapshot), attempt < 2 {
+            attempt += 1
+            try await Task.sleep(nanoseconds: 300_000_000)
+            snapshot = try await api.fetchCartSnapshot(shopID: shopID)
+        }
+        return snapshot
     }
 
     private func withCartMutation<Value>(
