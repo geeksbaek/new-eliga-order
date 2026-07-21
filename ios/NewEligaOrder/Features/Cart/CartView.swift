@@ -57,19 +57,9 @@ struct CartView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
-                // Same bottom-row shop switcher as CafeView, minus the search
-                // button (the cart has nothing to search across shops for).
-                if store.cafeShops.count > 1 {
-                    CafeBottomControlsRow(
-                        shops: store.cafeShops,
-                        selectedShopID: shopID,
-                        selectShop: selectShop
-                    )
-                    .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-                }
-
+                // The primary action sits directly under the cart content;
+                // the shop switcher — secondary navigation — sits closest to
+                // the tab bar, same as everywhere else it appears.
                 if !cart.items.isEmpty {
                     AppBottomActionBar {
                         AppPrimaryActionButton(
@@ -79,6 +69,21 @@ struct CartView: View {
                             router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
                         }
                     }
+                }
+
+                // Same bottom-row shop switcher as CafeView, minus the search
+                // button (the cart has nothing to search across shops for).
+                if store.cafeShops.count > 1 {
+                    CafeBottomControlsRow(
+                        shops: store.cafeShops,
+                        selectedShopID: shopID,
+                        selectShop: selectShop
+                    )
+                    .padding(.horizontal, CafeBottomControlsRow.gnbHorizontalInset)
+                    // Only needs its own top breathing room when it's not
+                    // already sitting right under the action bar's padding.
+                    .padding(.top, cart.items.isEmpty ? 6 : 0)
+                    .padding(.bottom, 8)
                 }
             }
         }
