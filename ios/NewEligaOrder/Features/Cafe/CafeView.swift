@@ -449,6 +449,8 @@ private struct CafeShopPageView: View {
     /// pull-to-refresh spinner is visible, so the two don't show up doubled.
     @State private var isPullRefreshing = false
     @State private var hasLoadedOnce = false
+    /// See the deferred sync in `load(replacingContent:forceRefresh:)`.
+    @State private var wideSyncTask: Task<Void, Never>?
 
     private var orderState: CafeOrderState { CafeRules.state(for: store.cafePlansByShop[shopID] ?? nil) }
     private var favoriteDisplayIDs: Set<Int> {
@@ -675,13 +677,11 @@ private struct CafeShopPageView: View {
                     quickItems = newQuickItems
                 }
             }
-            onQuickItemsLoaded(newQuickItems)
             ImagePipeline.shared.preload(
                 newMenus.compactMap(\.thumbnailURL) + newQuickItems.compactMap(\.thumbnailURL),
                 targetSize: 96
             )
-            await store.refreshCafePlan(shopID: shopID, force: forceRefresh)
-            _ = try? await store.refreshCart(shopID: shopID)
+            scheduleWideSync(newQuickItems: newQuickItems, forceRefresh: forceRefresh)
         } catch is CancellationError {
             return
         } catch {
@@ -692,6 +692,31 @@ private struct CafeShopPageView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+        }
+    }
+
+    /// `store.refreshCafePlan`/`store.refreshCart` write into `AppStore`'s
+    /// `@Observable` `cafePlansByShop`/`cartsByShop` dictionaries — a write
+    /// to either re-renders every currently-mounted `CafeShopPageView` in
+    /// this `TabView`, not just this one, since Swift's Observation tracks
+    /// dictionary properties at the whole-property level (see
+    /// `CartView.scheduleStoreSync` for the same issue with `cartsByShop`).
+    /// They only refine the order banner and per-item quantity steppers, not
+    /// the menu list itself, so they're safe to land slightly late. Firing
+    /// them straight off the network response (as before) meant an
+    /// un-prefetched page's slower fetch made this wide re-render more
+    /// likely to land while the user's finger was still dragging, which
+    /// could destabilize `TabView(.page)`'s native paging gesture. A short
+    /// debounce — mirroring `CafeView.scheduleStoreSync`'s 200ms — gives the
+    /// gesture time to settle first.
+    private func scheduleWideSync(newQuickItems: [CafeQuickItem], forceRefresh: Bool) {
+        wideSyncTask?.cancel()
+        wideSyncTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            onQuickItemsLoaded(newQuickItems)
+            await store.refreshCafePlan(shopID: shopID, force: forceRefresh)
+            _ = try? await store.refreshCart(shopID: shopID)
         }
     }
 
