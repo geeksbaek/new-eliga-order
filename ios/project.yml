@@ -26,8 +26,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.leeari95.NewEligaOrder
         PRODUCT_NAME: NewEligaOrder
-        CURRENT_PROJECT_VERSION: 49
-        MARKETING_VERSION: 1.5.24
+        CURRENT_PROJECT_VERSION: 50
+        MARKETING_VERSION: 1.5.25
         CODE_SIGN_ENTITLEMENTS: NewEligaOrder/Resources/NewEligaOrder.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
@@ -63,8 +63,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.leeari95.NewEligaOrder.Widgets
         PRODUCT_NAME: NewEligaOrderWidgets
-        CURRENT_PROJECT_VERSION: 49
-        MARKETING_VERSION: 1.5.24
+        CURRENT_PROJECT_VERSION: 50
+        MARKETING_VERSION: 1.5.25
         CODE_SIGN_ENTITLEMENTS: NewEligaOrderWidgets/NewEligaOrderWidgets.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
