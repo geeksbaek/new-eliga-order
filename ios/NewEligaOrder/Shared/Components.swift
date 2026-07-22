@@ -452,10 +452,12 @@ extension View {
     func shopSwipeNavigation(
         shops: [Shop],
         selectedShopID: Int,
+        isEnabled: Bool = true,
         selectShop: @escaping (Int) -> Void
     ) -> some View {
         gesture(
             ShopSwipeGesture { isLeftward in
+                guard isEnabled else { return }
                 guard let nextShopID = CafeShopSwitcherPolicy.adjacentShopID(
                     in: CafeShopSwitcherPolicy.sortedByFloor(shops),
                     selectedShopID: selectedShopID,

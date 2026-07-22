@@ -27,6 +27,9 @@ struct CafeView: View {
     @State private var loadedShopIDs: Set<Int> = []
     @State private var menuScrollPosition = ScrollPosition(idType: Int.self)
     @State private var menuScrollPositionsByShop: [Int: ScrollPosition] = [:]
+    /// Which edge the next shop's content should slide in from, matching
+    /// the swiped/chip-tapped direction (ascending-floor order).
+    @State private var shopSwitchDirection: Edge = .trailing
     /// Suppresses the custom loading indicators while `.refreshable`'s own
     /// pull-to-refresh spinner is visible, so the two don't show up doubled.
     @State private var isPullRefreshing = false
@@ -87,8 +90,23 @@ struct CafeView: View {
             }
             ZStack {
                 content
+                    .id(activeShopID)
+                    .transition(shopContentTransition)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            // Covers every content state (loading/error/empty/list), not
+            // just the menu list, so swiping still steps to the adjacent
+            // shop even when the current shop has no menu to show. Disabled
+            // during search, matching the hidden header — search results
+            // already span every shop, so there's no single "current shop"
+            // to swipe away from.
+            .shopSwipeNavigation(
+                shops: store.cafeShops,
+                selectedShopID: activeShopID,
+                isEnabled: !isSearchMode,
+                selectShop: selectShop
+            )
         }
         .modifier(
             CafeSearchInterfaceModifier(
@@ -295,11 +313,6 @@ struct CafeView: View {
             }
         }
         .appScrollEdgeStyle()
-        .shopSwipeNavigation(
-            shops: store.cafeShops,
-            selectedShopID: activeShopID,
-            selectShop: selectShop
-        )
     }
 
     @ViewBuilder
@@ -432,6 +445,7 @@ struct CafeView: View {
 
     private func selectShop(_ id: Int) {
         guard id != activeShopID else { return }
+        updateShopSwitchDirection(to: id)
         menuScrollPositionsByShop[activeShopID] = menuScrollPosition
         selectedCategoryID = nil
         categories = categoriesByShop[id] ?? []
@@ -442,6 +456,25 @@ struct CafeView: View {
         shopID = id
         menuScrollPosition = menuScrollPositionsByShop[id] ?? ScrollPosition(idType: Int.self)
         store.selectShop(id)
+    }
+
+    /// Matches the content's slide direction to ascending-floor order, so a
+    /// forward swipe/tap slides the new shop in from the trailing edge and a
+    /// backward one from the leading edge — regardless of the shops' raw API
+    /// order.
+    private func updateShopSwitchDirection(to id: Int) {
+        let sorted = CafeShopSwitcherPolicy.sortedByFloor(store.cafeShops)
+        guard let currentIndex = sorted.firstIndex(where: { $0.id == activeShopID }),
+              let nextIndex = sorted.firstIndex(where: { $0.id == id })
+        else { return }
+        shopSwitchDirection = nextIndex > currentIndex ? .trailing : .leading
+    }
+
+    private var shopContentTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: shopSwitchDirection).combined(with: .opacity),
+            removal: .move(edge: shopSwitchDirection == .trailing ? .leading : .trailing).combined(with: .opacity)
+        )
     }
 
     private func loadAllShopMenus(force: Bool = false) async {
