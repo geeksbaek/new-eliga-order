@@ -78,6 +78,12 @@ struct CartView: View {
                 selectedShopID: shopID,
                 selectShop: selectShop
             )
+            // Nothing to pop back to at this tab's root — freeing the left
+            // edge from the system back-swipe lets our own swipe gesture
+            // recognize rightward swipes that start near it. Re-enabled
+            // whenever a detail screen is pushed, so back-swipe still works
+            // there.
+            .disablesInteractivePopGesture(while: router.cartPath.isEmpty)
 
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.circle")
@@ -147,6 +153,15 @@ struct CartView: View {
     private func selectShop(_ id: Int) {
         guard id != shopID else { return }
         updateShopSwitchDirection(to: id)
+        // Set synchronously here rather than left for `refresh()`'s first
+        // line — `refresh()` only actually runs once `.task(id: shopID)`
+        // below picks up the new shop, which happens a render pass later.
+        // Without this, that one frame has `isLoading == false` and an
+        // empty cached cart for the new shop, which briefly (and
+        // incorrectly) shows "장바구니가 비어 있습니다" before the loading
+        // skeleton replaces it — a flicker through the wrong message on
+        // every swipe to a shop whose cart hasn't been fetched yet.
+        loadingShopID = id
         store.selectShop(id)
         errorMessage = nil
     }
