@@ -7,6 +7,8 @@ struct CartView: View {
     @State private var showsClearConfirmation = false
     @State private var actionError: String?
     @State private var clearFeedbackToken = 0
+    /// See `scheduleStoreSync(to:)`.
+    @State private var storeSyncTask: Task<Void, Never>?
 
     private var activeShopID: Int { shopID ?? store.selectedShopID ?? store.cafeShops.first?.id ?? 5 }
     private var cart: Cart { store.cart(for: activeShopID) }
@@ -97,7 +99,25 @@ struct CartView: View {
     private func selectShop(_ id: Int) {
         guard id != activeShopID else { return }
         shopID = id
-        store.selectShop(id)
+        scheduleStoreSync(to: id)
+    }
+
+    /// Debounces the shared-store sync — and the side effects that ride
+    /// along with it (a cross-tab `onChange(of: store.selectedShopID)`
+    /// cascade in `CafeView`, a synchronous `UserDefaults` write, a
+    /// selection haptic) — so it only fires once a swipe has actually
+    /// settled. `TabView(.page)` updates its `selection` binding live on
+    /// every page crossing during the drag itself, not just once at the
+    /// end, so calling `store.selectShop` directly from that binding's
+    /// setter ran all of that side-effect work mid-gesture, once per shop
+    /// the user's finger passed over.
+    private func scheduleStoreSync(to id: Int) {
+        storeSyncTask?.cancel()
+        storeSyncTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            store.selectShop(id)
+        }
     }
 
     private func clearCart() {
@@ -185,6 +205,15 @@ private struct CartShopPageView: View {
         }
         .task {
             guard !hasLoadedOnce else { return }
+            // A brief, cancellable pause before starting the load — see
+            // `CafeShopPageView`'s identical comment for why: `TabView(.page)`
+            // starts this task while the user's finger may still be
+            // dragging across this page, and letting the load finish (and
+            // this page's `List` relayout) mid-gesture can stall the native
+            // paging animation. A page just scrolled past cancels here
+            // before ever loading.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, !hasLoadedOnce else { return }
             hasLoadedOnce = true
             await refresh()
         }

@@ -248,6 +248,15 @@ private struct DiningDayPageView: View {
             // stuttering and the page refreshing.
             let signature = store.diningPersonalizationSignature
             guard signature != loadedPersonalizationSignature else { return }
+            // A brief, cancellable pause before starting the load — see
+            // `CafeShopPageView`'s identical comment for why: `TabView(.page)`
+            // starts this task while the user's finger may still be
+            // dragging across this page, and letting the load finish (and
+            // this page's `List` relayout) mid-gesture can stall the native
+            // paging animation. A day just scrolled past cancels here
+            // before ever loading.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, signature != loadedPersonalizationSignature else { return }
             loadedPersonalizationSignature = signature
             await load(replacingContent: true)
         }
