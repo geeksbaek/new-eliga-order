@@ -257,6 +257,53 @@ final class AccessibilityUITests: XCTestCase {
     }
 
     @MainActor
+    func testCafeEmptyMenuSwipeWorksInBothDirections() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-ui-testing-cafe-mode-switcher"]
+        app.launch()
+
+        let emptyShop = app.buttons["cafe.shop-mode.9"]
+        let leftNeighbor = app.buttons["cafe.shop-mode.10"]
+        let rightNeighbor = app.buttons["cafe.shop-mode.6"]
+        XCTAssertTrue(emptyShop.waitForExistence(timeout: 5))
+        emptyShop.tap()
+        XCTAssertEqual(emptyShop.value as? String, "선택됨")
+        XCTAssertTrue(app.staticTexts["등록된 메뉴가 없습니다"].waitForExistence(timeout: 5))
+
+        // A mid-screen drag (20%→80% width), not `app.swipeRight()`'s
+        // default near-edge-to-near-edge stroke — real swipes rarely start
+        // at the literal bezel, and starting there risks landing in the
+        // OS-reserved edge strip that no app recognizer can ever claim
+        // (a different concern than the app-level back-swipe recognizer
+        // `disablesInteractivePopGesture` addresses).
+        drag(in: app, fromNormalizedX: 0.2, toNormalizedX: 0.8)
+        let movedToLeftNeighbor = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "선택됨"),
+            object: leftNeighbor
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [movedToLeftNeighbor], timeout: 2),
+            .completed,
+            "빈 메뉴 화면에서 오른쪽 스와이프해도 이전 매장(1F)으로 전환되어야 합니다."
+        )
+
+        emptyShop.tap()
+        XCTAssertEqual(emptyShop.value as? String, "선택됨")
+        XCTAssertTrue(app.staticTexts["등록된 메뉴가 없습니다"].waitForExistence(timeout: 5))
+
+        drag(in: app, fromNormalizedX: 0.8, toNormalizedX: 0.2)
+        let movedToRightNeighbor = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "선택됨"),
+            object: rightNeighbor
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [movedToRightNeighbor], timeout: 2),
+            .completed,
+            "빈 메뉴 화면에서 왼쪽 스와이프해도 다음 매장(3F)으로 전환되어야 합니다."
+        )
+    }
+
+    @MainActor
     func testCafeHeaderRowStaysPinnedWhileScrolling() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-cafe-mode-switcher")
@@ -436,5 +483,16 @@ final class AccessibilityUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// A horizontal drag between two normalized x-offsets at mid-height,
+    /// unlike `XCUIElement.swipeLeft()/swipeRight()` which stroke almost
+    /// edge-to-edge. Used to simulate a realistic user swipe that starts
+    /// well inside the content area rather than at the literal bezel.
+    @MainActor
+    private func drag(in app: XCUIApplication, fromNormalizedX startX: CGFloat, toNormalizedX endX: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: startX, dy: 0.5))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: endX, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 }

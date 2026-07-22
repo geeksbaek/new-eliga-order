@@ -107,6 +107,12 @@ struct CafeView: View {
                 isEnabled: !isSearchMode,
                 selectShop: selectShop
             )
+            // Nothing to pop back to at this tab's root — freeing the left
+            // edge from the system back-swipe lets our own swipe gesture
+            // recognize rightward swipes that start near it. Re-enabled
+            // whenever a detail screen is pushed, so back-swipe still works
+            // there.
+            .disablesInteractivePopGesture(while: !isSearchMode && router.cafePath.isEmpty)
         }
         .modifier(
             CafeSearchInterfaceModifier(
@@ -422,11 +428,17 @@ struct CafeView: View {
             }
             let newQuickItems = Array(uniqueItems.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }.prefix(12))
             guard !Task.isCancelled, id == activeShopID else { return }
-            categories = newCategories
-            menus = newMenus
+            // Cross-fades the loading skeleton (or a stale previous list)
+            // into the freshly loaded menu instead of an instant pop, so a
+            // shop switch reads as one continuous motion rather than a
+            // slide followed by an abrupt content swap.
+            withAnimation(.easeOut(duration: 0.22)) {
+                categories = newCategories
+                menus = newMenus
+                quickItems = newQuickItems
+            }
             categoriesByShop[id] = newCategories
             menusByShop[id] = newMenus
-            quickItems = newQuickItems
             loadedShopIDs.insert(id)
             quickItemsByShop[id] = newQuickItems
             ImagePipeline.shared.preload(
@@ -439,7 +451,9 @@ struct CafeView: View {
             return
         } catch {
             guard id == activeShopID else { return }
-            errorMessage = error.localizedDescription
+            withAnimation(.easeOut(duration: 0.22)) {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -453,6 +467,17 @@ struct CafeView: View {
         quickItems = quickItemsByShop[id] ?? []
         searchText = ""
         errorMessage = nil
+        // Set synchronously here rather than left for `load()`'s first
+        // line — `load()` only actually runs once the `.task(id:)` below
+        // picks up the new `activeShopID`, which happens a render pass
+        // later. Without this, that one frame has `isLoading == false` and
+        // an empty `menus`, which briefly (and incorrectly) shows the
+        // "등록된 메뉴가 없습니다" empty state before the loading skeleton
+        // replaces it — a flicker through the wrong message on every swipe
+        // to a not-yet-visited shop.
+        if !loadedShopIDs.contains(id) {
+            loadingShopID = id
+        }
         shopID = id
         menuScrollPosition = menuScrollPositionsByShop[id] ?? ScrollPosition(idType: Int.self)
         store.selectShop(id)
