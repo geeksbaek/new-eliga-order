@@ -241,19 +241,6 @@ struct SelectionChip: View {
 }
 
 enum CafeShopSwitcherPolicy {
-    static func adjacentShopID(
-        in shops: [Shop],
-        selectedShopID: Int,
-        offset: Int
-    ) -> Int? {
-        guard shops.count > 1,
-              let currentIndex = shops.firstIndex(where: { $0.id == selectedShopID })
-        else { return nil }
-        let nextIndex = currentIndex + offset
-        guard shops.indices.contains(nextIndex) else { return nil }
-        return shops[nextIndex].id
-    }
-
     /// Normalizes a shop's raw name down to just its floor label for the
     /// compact mode-switcher chip — e.g. `"춘식도락 with in the box(4F)"` →
     /// `"4F"`, `"kafé 5F"` → `"5F"`, `"kafé 5F b"` → `"5F b"` (the 5th floor
@@ -433,70 +420,16 @@ private struct ShopChipGlassBackground: ViewModifier {
 }
 
 extension View {
-    /// Swiping anywhere on this view — including over the menu/cart `List`
-    /// underneath — steps to the adjacent shop (in ascending-floor order).
-    /// Replaces the switcher's own local swipe-to-step gesture so the whole
-    /// screen is swipeable, not just the small chip strip.
-    ///
-    /// A plain SwiftUI `DragGesture` (even `highPriorityGesture`, even
-    /// backed by a sibling `UIViewRepresentable`) doesn't reliably see
-    /// horizontal drags that start over a `List`: its backing
-    /// `UICollectionView` has its own pan gesture recognizer that wins the
-    /// touch before a sibling view's recognizer is even offered it — touch
-    /// delivery only reaches a hit-tested view's own gesture recognizers and
-    /// those of its *ancestors*, not siblings. `UIGestureRecognizerRepresentable`
-    /// (iOS 18+) attaches the recognizer directly to this view's own backing
-    /// UIKit layer instead of a separate sibling, so it sits in the same
-    /// touch-delivery chain as the List and, with simultaneous recognition
-    /// opted in, reliably fires alongside its scrolling.
-    func shopSwipeNavigation(
-        shops: [Shop],
-        selectedShopID: Int,
-        isEnabled: Bool = true,
-        selectShop: @escaping (Int) -> Void
-    ) -> some View {
-        // Sparse content — an empty-state `ContentUnavailableView`, a
-        // centered loading spinner, a failure card — only has its actual
-        // glyphs (icon, text) hit-testable by default; the surrounding
-        // whitespace that makes up most of the screen passes touches
-        // through untouched, so a swipe starting there never reaches this
-        // gesture at all. `List`'s backing `UICollectionView` fills its
-        // whole frame and doesn't have this gap, which is why the same
-        // swipe already worked reliably once a shop had a populated menu.
-        // `.contentShape` makes the full frame hit-testable regardless of
-        // what's actually drawn in it, so every content state behaves the
-        // same as the List case.
-        contentShape(Rectangle())
-            .gesture(
-                ShopSwipeGesture { isLeftward in
-                    guard isEnabled else { return }
-                    guard let nextShopID = CafeShopSwitcherPolicy.adjacentShopID(
-                        in: CafeShopSwitcherPolicy.sortedByFloor(shops),
-                        selectedShopID: selectedShopID,
-                        offset: isLeftward ? 1 : -1
-                    ) else { return }
-                    withAnimation(.snappy(duration: 0.28)) {
-                        selectShop(nextShopID)
-                    }
-                }
-            )
-    }
-
     /// Disables the system's screen-edge back-swipe while `isDisabled` is
     /// true, restoring it otherwise.
     ///
     /// `UINavigationController.interactivePopGestureRecognizer` is a
-    /// screen-edge pan bound to the *whole* nav stack. When a touch begins
-    /// near the left edge it wins that touch outright — before our own
-    /// `shopSwipeNavigation` pan gesture is even offered it — even when
-    /// there's nothing to pop back to at a tab's root. That silently
-    /// swallows every rightward swipe (finger moving left→right) that
-    /// happens to start close to the edge, while leftward swipes (starting
-    /// from the right side) never come near it — the exact one-sided
-    /// "swipe left works, swipe right doesn't" symptom this fixes. Only
-    /// disable while there's truly nothing to pop (`isDisabled` should be
-    /// tied to the tab's path being empty) so back-swipe still works
-    /// normally on pushed detail screens.
+    /// screen-edge pan bound to the *whole* nav stack, and it wins any touch
+    /// that begins near the left edge outright — including one meant to
+    /// page the shop `TabView` backward — even when there's nothing to pop
+    /// back to at a tab's root. Only disable while there's truly nothing to
+    /// pop (`isDisabled` should be tied to the tab's path being empty) so
+    /// back-swipe still works normally on pushed detail screens.
     func disablesInteractivePopGesture(while isDisabled: Bool) -> some View {
         background(InteractivePopGestureDisabler(isDisabled: isDisabled))
     }
@@ -541,33 +474,6 @@ private final class InteractivePopGestureAccessController: UIViewController {
 
     private func applyState() {
         navigationController?.interactivePopGestureRecognizer?.isEnabled = !isDisabled
-    }
-}
-
-/// See `shopSwipeNavigation(shops:selectedShopID:selectShop:)`.
-private struct ShopSwipeGesture: UIGestureRecognizerRepresentable {
-    let onSwipe: (_ isLeftward: Bool) -> Void
-
-    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-        UIPanGestureRecognizer()
-    }
-
-    func handleUIGestureRecognizerAction(
-        _ recognizer: UIPanGestureRecognizer,
-        context: Context
-    ) {
-        guard recognizer.state == .ended else { return }
-        let translation = recognizer.translation(in: recognizer.view)
-        guard abs(translation.x) > abs(translation.y), abs(translation.x) >= 60 else { return }
-        onSwipe(translation.x < 0)
-    }
-
-    func gestureRecognizer(
-        _ recognizer: UIPanGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer,
-        context: Context
-    ) -> Bool {
-        true
     }
 }
 
@@ -652,43 +558,54 @@ struct CafeShopModeSwitcherFixtureView: View {
         Shop(id: 9, name: "kafé 2F", kind: .cafe, isOpen: true),
     ]
 
+    private var sortedShops: [Shop] { CafeShopSwitcherPolicy.sortedByFloor(shops) }
+    private var selectedShopIDBinding: Binding<Int> {
+        Binding(get: { selectedShopID }, set: { selectedShopID = $0 })
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("홈", systemImage: "house", value: 0) { Color.clear }
             Tab("식단", systemImage: "fork.knife", value: 1) { Color.clear }
             Tab("카페", systemImage: "cup.and.saucer", value: 2) {
                 NavigationStack {
-                    ZStack {
-                        Group {
-                            if selectedShopID == 6 || selectedShopID == 9 {
-                                ContentUnavailableView(
-                                    "등록된 메뉴가 없습니다",
-                                    systemImage: "cup.and.saucer",
-                                    description: Text("잠시 후 다시 확인해 주세요.")
-                                )
-                            } else {
-                                List {
-                                    Section("최근·인기 메뉴") {
-                                        fixtureRow("아이스 아메리카노", detail: "BEST · 3,500원")
-                                        fixtureRow("카페 라떼", detail: "즐겨찾기 · 4,500원")
-                                    }
-                                    Section("전체 메뉴") {
-                                        fixtureRow("바닐라 라떼", detail: "4,800원")
-                                        fixtureRow("콜드브루", detail: "4,300원")
-                                        fixtureRow("말차 크림 라떼", detail: "NEW · 5,200원")
-                                        fixtureRow("에스프레소", detail: "3,000원")
-                                        fixtureRow("카푸치노", detail: "4,200원")
-                                        fixtureRow("카라멜 마키아토", detail: "5,000원")
-                                        fixtureRow("자몽 에이드", detail: "4,800원")
-                                        fixtureRow("레몬 티", detail: "4,300원")
+                    // Mirrors CafeView's real structure — a paged
+                    // `TabView(.page)` per shop — so the swipe UI tests
+                    // exercise the same live, finger-tracked mechanism
+                    // production uses instead of a hand-rolled stand-in.
+                    TabView(selection: selectedShopIDBinding) {
+                        ForEach(sortedShops) { shop in
+                            Group {
+                                if shop.id == 6 || shop.id == 9 {
+                                    ContentUnavailableView(
+                                        "등록된 메뉴가 없습니다",
+                                        systemImage: "cup.and.saucer",
+                                        description: Text("잠시 후 다시 확인해 주세요.")
+                                    )
+                                } else {
+                                    List {
+                                        Section("최근·인기 메뉴") {
+                                            fixtureRow("아이스 아메리카노", detail: "BEST · 3,500원")
+                                            fixtureRow("카페 라떼", detail: "즐겨찾기 · 4,500원")
+                                        }
+                                        Section("전체 메뉴") {
+                                            fixtureRow("바닐라 라떼", detail: "4,800원")
+                                            fixtureRow("콜드브루", detail: "4,300원")
+                                            fixtureRow("말차 크림 라떼", detail: "NEW · 5,200원")
+                                            fixtureRow("에스프레소", detail: "3,000원")
+                                            fixtureRow("카푸치노", detail: "4,200원")
+                                            fixtureRow("카라멜 마키아토", detail: "5,000원")
+                                            fixtureRow("자몽 에이드", detail: "4,800원")
+                                            fixtureRow("레몬 티", detail: "4,300원")
+                                        }
                                     }
                                 }
                             }
+                            .tag(shop.id)
                         }
-                        .id(selectedShopID)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .disablesInteractivePopGesture(while: true)
                     .navigationTitle("카페")
                     .navigationBarTitleDisplayMode(.inline)
                     .modifier(
@@ -715,12 +632,6 @@ struct CafeShopModeSwitcherFixtureView: View {
                             .padding(.bottom, 6)
                         }
                     }
-                    .shopSwipeNavigation(
-                        shops: shops,
-                        selectedShopID: selectedShopID,
-                        selectShop: { selectedShopID = $0 }
-                    )
-                    .disablesInteractivePopGesture(while: true)
                 }
             }
             Tab("장바구니", systemImage: "bag", value: 3) { Color.clear }

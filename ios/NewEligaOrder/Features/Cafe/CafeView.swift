@@ -8,31 +8,21 @@ struct CafeView: View {
     @Binding private var isSearchPresented: Bool
 
     @State private var shopID: Int?
-    @State private var categories: [CafeCategory] = []
-    @State private var selectedCategoryID: Int?
-    @State private var menus: [CafeMenuItem] = []
-    @State private var quickItems: [CafeQuickItem] = []
-    @State private var loadingShopID: Int?
-    @State private var errorMessage: String?
     @State private var actionError: String?
     @State private var searchText = ""
     @State private var searchHistory: [String] = []
-    @State private var menusByShop: [Int: [CafeMenuItem]] = [:]
-    @State private var categoriesByShop: [Int: [CafeCategory]] = [:]
+    /// Cross-shop menu cache used only by search, which spans every shop at
+    /// once — unlike a single shop's page (each owns its own menu state
+    /// locally), search has no single "current shop" to scope to.
+    @State private var searchMenusByShop: [Int: [CafeMenuItem]] = [:]
+    /// The active page's own quick-item list, reported up via
+    /// `CafeShopPageView.onQuickItemsLoaded` so the search field's
+    /// suggestions can show it without CafeView owning per-shop menu state.
     @State private var quickItemsByShop: [Int: [CafeQuickItem]] = [:]
     @State private var isLoadingAllShopMenus = false
     @State private var searchErrorMessage: String?
     @State private var hasAttemptedAllShopMenus = false
     @State private var allShopMenuLoadGeneration = 0
-    @State private var loadedShopIDs: Set<Int> = []
-    @State private var menuScrollPosition = ScrollPosition(idType: Int.self)
-    @State private var menuScrollPositionsByShop: [Int: ScrollPosition] = [:]
-    /// Which edge the next shop's content should slide in from, matching
-    /// the swiped/chip-tapped direction (ascending-floor order).
-    @State private var shopSwitchDirection: Edge = .trailing
-    /// Suppresses the custom loading indicators while `.refreshable`'s own
-    /// pull-to-refresh spinner is visible, so the two don't show up doubled.
-    @State private var isPullRefreshing = false
     @State private var isSearchPullRefreshing = false
 
     init(
@@ -46,26 +36,19 @@ struct CafeView: View {
     }
 
     private var activeShopID: Int { shopID ?? store.cafeShops.first?.id ?? 5 }
-    private var isLoading: Bool { loadingShopID != nil }
     private var isSearchActive: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var isSearchMode: Bool { isSearchPresented || isSearchActive }
     private var actionErrorBottomPadding: CGFloat {
         guard !isSearchMode else { return 0 }
         return 56
     }
-    private var orderState: CafeOrderState { CafeRules.state(for: store.cafePlansByShop[activeShopID] ?? nil) }
-    private var visibleMenus: [CafeMenuItem] {
-        CafeMenuFilter.items(
-            in: menus,
-            selectedCategoryID: selectedCategoryID,
-            searchText: searchText,
-            favoriteDisplayIDs: favoriteDisplayIDs(for: activeShopID)
-        )
-    }
+    /// Ascending-floor order, regardless of the raw API order — also the
+    /// order the shop `TabView` pages through.
+    private var sortedShops: [Shop] { CafeShopSwitcherPolicy.sortedByFloor(store.cafeShops) }
     private var searchSections: [CafeMenuSearchSection] {
         CafeMenuFilter.sections(
             shops: store.cafeShops,
-            menusByShop: menusByShop,
+            menusByShop: searchMenusByShop,
             searchText: searchText,
             favoriteDisplayIDsByShop: favoriteDisplayIDsByShop
         )
@@ -75,51 +58,53 @@ struct CafeView: View {
             result[favorite.shopID, default: []].insert(favorite.displayID)
         }
     }
-    private var prioritySections: [CafeMenuPrioritySection] {
-        CafeMenuFilter.prioritySections(
-            from: visibleMenus,
-            favoriteDisplayIDs: favoriteDisplayIDs(for: activeShopID)
-        )
+    private var activeShopIDBinding: Binding<Int> {
+        Binding(get: { activeShopID }, set: { selectShop($0) })
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !isSearchMode {
-                categoryPicker
-                orderBanner
+        Group {
+            if isSearchActive {
+                searchContent
+            } else {
+                // A native paged `TabView` tracks the finger 1:1 during the
+                // drag — the adjacent shop's page slides in right alongside
+                // it, and the direction always matches the gesture because
+                // it's driven by the same `ForEach` order the pages are
+                // laid out in. The previous approach (a custom pan gesture
+                // that only fired once on release, then jumped to a
+                // pre-computed slide direction) couldn't show that live
+                // motion and could occasionally guess the wrong direction.
+                TabView(selection: activeShopIDBinding) {
+                    ForEach(sortedShops) { shop in
+                        CafeShopPageView(
+                            shopID: shop.id,
+                            isSearchPresented: isSearchPresented,
+                            onNavigateAway: {
+                                recordCurrentSearch()
+                                isSearchPresented = false
+                            },
+                            onMutationError: { actionError = $0 },
+                            onQuickItemsLoaded: { quickItemsByShop[shop.id] = $0 }
+                        )
+                        .tag(shop.id)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                // Nothing to pop back to at this tab's root — freeing the
+                // left edge from the system back-swipe lets a leftward drag
+                // that starts near it still page backward. Re-enabled
+                // whenever a detail screen is pushed, so back-swipe still
+                // works there.
+                .disablesInteractivePopGesture(while: !isSearchMode && router.cafePath.isEmpty)
             }
-            ZStack {
-                content
-                    .id(activeShopID)
-                    .transition(shopContentTransition)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-            // Covers every content state (loading/error/empty/list), not
-            // just the menu list, so swiping still steps to the adjacent
-            // shop even when the current shop has no menu to show. Disabled
-            // during search, matching the hidden header — search results
-            // already span every shop, so there's no single "current shop"
-            // to swipe away from.
-            .shopSwipeNavigation(
-                shops: store.cafeShops,
-                selectedShopID: activeShopID,
-                isEnabled: !isSearchMode,
-                selectShop: selectShop
-            )
-            // Nothing to pop back to at this tab's root — freeing the left
-            // edge from the system back-swipe lets our own swipe gesture
-            // recognize rightward swipes that start near it. Re-enabled
-            // whenever a detail screen is pushed, so back-swipe still works
-            // there.
-            .disablesInteractivePopGesture(while: !isSearchMode && router.cafePath.isEmpty)
         }
         .modifier(
             CafeSearchInterfaceModifier(
                 text: $searchText,
                 isPresented: $isSearchPresented,
                 history: searchHistory,
-                quickItems: quickItems
+                quickItems: quickItemsByShop[activeShopID] ?? []
             )
         )
         .onSubmit(of: .search) {
@@ -168,10 +153,6 @@ struct CafeView: View {
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }
-        .task(id: activeShopID) {
-            guard !loadedShopIDs.contains(activeShopID) else { return }
-            await load(shopID: activeShopID, replacingContent: true)
-        }
         .task(id: store.userIDHint) {
             searchHistory = searchHistoryStore.history(accountID: store.userIDHint)
         }
@@ -200,125 +181,7 @@ struct CafeView: View {
         .onDisappear {
             recordCurrentSearch()
         }
-        .sensoryFeedback(.selection, trigger: selectedCategoryID)
         .animation(.snappy, value: isSearchMode)
-    }
-
-    private var categoryPicker: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 22) {
-                CafeCategoryTab(title: "전체", count: menus.count, isSelected: selectedCategoryID == nil) {
-                    selectedCategoryID = nil
-                }
-                ForEach(categories.filter(\.isVisibleOnMobile)) { category in
-                    CafeCategoryTab(
-                        title: category.name,
-                        count: category.goodsCount,
-                        isSelected: selectedCategoryID == category.id
-                    ) {
-                        selectedCategoryID = category.id
-                    }
-                }
-            }
-            .padding(.horizontal)
-            .scrollTargetLayout()
-        }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned)
-        .frame(minHeight: 48)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    @ViewBuilder
-    private var orderBanner: some View {
-        switch orderState {
-        case .checking:
-            CafeOrderCheckingCard()
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-        case .closed(let closure):
-            CafeOrderAvailabilityCard(closure: closure, shopName: activeShopName)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-        case .open:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if isSearchActive {
-            searchContent
-        } else if isLoading && menus.isEmpty {
-            CafeMenuListPlaceholder()
-        } else if let errorMessage, menus.isEmpty {
-            FailureContentView(message: errorMessage) {
-                Task { await load(shopID: activeShopID, replacingContent: menus.isEmpty) }
-            }
-        } else if visibleMenus.isEmpty, !searchText.isEmpty {
-            ContentUnavailableView.search(text: searchText)
-        } else if visibleMenus.isEmpty, selectedCategoryID != nil {
-            ContentUnavailableView(
-                "이 카테고리에 메뉴가 없습니다",
-                systemImage: "cup.and.saucer",
-                description: Text("다른 카테고리를 선택해 보세요.")
-            )
-        } else if menus.isEmpty {
-            ContentUnavailableView(
-                "등록된 메뉴가 없습니다",
-                systemImage: "cup.and.saucer",
-                description: Text("잠시 후 다시 확인해 주세요.")
-            )
-        } else {
-            menuList
-        }
-    }
-
-    private var menuList: some View {
-        List {
-            if !quickItems.isEmpty {
-                Section("최근·인기 메뉴") {
-                    quickMenuRail
-                        .listRowSeparator(.hidden)
-                }
-                .listSectionSeparator(.hidden)
-            }
-
-            ForEach(prioritySections) { section in
-                Section {
-                    CafePrioritySectionHeader(
-                        group: section.group,
-                        count: section.items.count
-                    )
-                    .listRowInsets(.init(top: 0, leading: 16, bottom: 2, trailing: 16))
-                    .listRowSeparator(.hidden)
-
-                    ForEach(section.items) { item in
-                        menuRow(item, shopID: activeShopID)
-                    }
-                }
-                .listSectionSeparator(.hidden)
-            }
-        }
-        .listStyle(.plain)
-        .environment(\.defaultMinListRowHeight, 1)
-        .scrollPosition($menuScrollPosition)
-        .refreshable {
-            isPullRefreshing = true
-            await load(shopID: activeShopID, replacingContent: false, forceRefresh: true)
-            isPullRefreshing = false
-        }
-        .overlay(alignment: .top) {
-            if isLoading && !isPullRefreshing {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: Circle())
-                    .accessibilityLabel("메뉴 새로고침 중")
-            }
-        }
-        .appScrollEdgeStyle()
     }
 
     @ViewBuilder
@@ -389,119 +252,6 @@ struct CafeView: View {
         .appScrollEdgeStyle()
     }
 
-    private var quickMenuRail: some View {
-        ScrollView(.horizontal) {
-            LazyHStack {
-                ForEach(quickItems) { item in
-                    CafeQuickItemButton(item: item, shopID: activeShopID)
-                }
-            }
-            .scrollTargetLayout()
-        }
-        .scrollIndicators(.hidden)
-        .scrollTargetBehavior(.viewAligned)
-    }
-
-    private func load(shopID id: Int, replacingContent: Bool, forceRefresh: Bool = false) async {
-        loadingShopID = id
-        defer {
-            if loadingShopID == id { loadingShopID = nil }
-        }
-        errorMessage = nil
-        if replacingContent {
-            selectedCategoryID = nil
-            categories = categoriesByShop[id] ?? []
-            menus = menusByShop[id] ?? []
-            quickItems = quickItemsByShop[id] ?? []
-        }
-        store.selectShop(id)
-        do {
-            async let loadedMenus = store.api.fetchCafeMenu(shopID: id, forceRefresh: forceRefresh)
-            async let recent = store.api.fetchRecentOrders(shopID: id, forceRefresh: forceRefresh)
-            async let popular = store.api.fetchPopularOrders(shopID: id, forceRefresh: forceRefresh)
-            let newMenus = try await loadedMenus
-            let newCategories = try await store.api.fetchCafeCategories(shopID: id)
-            let combined = (try? await recent) ?? []
-            let popularItems = (try? await popular) ?? []
-            let uniqueItems = (combined + popularItems).reduce(into: [Int: CafeQuickItem]()) { result, item in
-                result[item.displayID] = result[item.displayID] ?? item
-            }
-            let newQuickItems = Array(uniqueItems.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }.prefix(12))
-            guard !Task.isCancelled, id == activeShopID else { return }
-            // Cross-fades the loading skeleton (or a stale previous list)
-            // into the freshly loaded menu instead of an instant pop, so a
-            // shop switch reads as one continuous motion rather than a
-            // slide followed by an abrupt content swap.
-            withAnimation(.easeOut(duration: 0.22)) {
-                categories = newCategories
-                menus = newMenus
-                quickItems = newQuickItems
-            }
-            categoriesByShop[id] = newCategories
-            menusByShop[id] = newMenus
-            loadedShopIDs.insert(id)
-            quickItemsByShop[id] = newQuickItems
-            ImagePipeline.shared.preload(
-                newMenus.compactMap(\.thumbnailURL) + newQuickItems.compactMap(\.thumbnailURL),
-                targetSize: 96
-            )
-            await store.refreshCafePlan(shopID: id, force: forceRefresh)
-            _ = try? await store.refreshCart(shopID: id)
-        } catch is CancellationError {
-            return
-        } catch {
-            guard id == activeShopID else { return }
-            withAnimation(.easeOut(duration: 0.22)) {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func selectShop(_ id: Int) {
-        guard id != activeShopID else { return }
-        updateShopSwitchDirection(to: id)
-        menuScrollPositionsByShop[activeShopID] = menuScrollPosition
-        selectedCategoryID = nil
-        categories = categoriesByShop[id] ?? []
-        menus = menusByShop[id] ?? []
-        quickItems = quickItemsByShop[id] ?? []
-        searchText = ""
-        errorMessage = nil
-        // Set synchronously here rather than left for `load()`'s first
-        // line — `load()` only actually runs once the `.task(id:)` below
-        // picks up the new `activeShopID`, which happens a render pass
-        // later. Without this, that one frame has `isLoading == false` and
-        // an empty `menus`, which briefly (and incorrectly) shows the
-        // "등록된 메뉴가 없습니다" empty state before the loading skeleton
-        // replaces it — a flicker through the wrong message on every swipe
-        // to a not-yet-visited shop.
-        if !loadedShopIDs.contains(id) {
-            loadingShopID = id
-        }
-        shopID = id
-        menuScrollPosition = menuScrollPositionsByShop[id] ?? ScrollPosition(idType: Int.self)
-        store.selectShop(id)
-    }
-
-    /// Matches the content's slide direction to ascending-floor order, so a
-    /// forward swipe/tap slides the new shop in from the trailing edge and a
-    /// backward one from the leading edge — regardless of the shops' raw API
-    /// order.
-    private func updateShopSwitchDirection(to id: Int) {
-        let sorted = CafeShopSwitcherPolicy.sortedByFloor(store.cafeShops)
-        guard let currentIndex = sorted.firstIndex(where: { $0.id == activeShopID }),
-              let nextIndex = sorted.firstIndex(where: { $0.id == id })
-        else { return }
-        shopSwitchDirection = nextIndex > currentIndex ? .trailing : .leading
-    }
-
-    private var shopContentTransition: AnyTransition {
-        .asymmetric(
-            insertion: .move(edge: shopSwitchDirection).combined(with: .opacity),
-            removal: .move(edge: shopSwitchDirection == .trailing ? .leading : .trailing).combined(with: .opacity)
-        )
-    }
-
     private func loadAllShopMenus(force: Bool = false) async {
         allShopMenuLoadGeneration &+= 1
         let generation = allShopMenuLoadGeneration
@@ -514,7 +264,7 @@ struct CafeView: View {
             }
         }
 
-        let targets = store.cafeShops.filter { force || menusByShop[$0.id] == nil }
+        let targets = store.cafeShops.filter { force || searchMenusByShop[$0.id] == nil }
         let api = store.api
         let results = await withTaskGroup(
             of: CafeShopMenuLoadResult.self,
@@ -542,7 +292,7 @@ struct CafeView: View {
         var failedShopNames: [String] = []
         for result in results {
             if let items = result.items {
-                menusByShop[result.shopID] = items
+                searchMenusByShop[result.shopID] = items
                 ImagePipeline.shared.preload(items.compactMap(\.thumbnailURL), targetSize: 96)
             } else {
                 failedShopNames.append(result.shopName)
@@ -553,9 +303,15 @@ struct CafeView: View {
         }
     }
 
-    private func quantity(for goodsID: Int?, shopID: Int? = nil) -> Int {
+    private func selectShop(_ id: Int) {
+        guard id != activeShopID else { return }
+        shopID = id
+        store.selectShop(id)
+    }
+
+    private func quantity(for goodsID: Int?, shopID: Int) -> Int {
         guard let goodsID else { return 0 }
-        return store.cart(for: shopID ?? activeShopID).items.first { $0.goodsID == goodsID }?.quantity ?? 0
+        return store.cart(for: shopID).items.first { $0.goodsID == goodsID }?.quantity ?? 0
     }
 
     private func favoriteDisplayIDs(for shopID: Int) -> Set<Int> {
@@ -577,16 +333,11 @@ struct CafeView: View {
         .listRowInsets(.init(top: 6, leading: 16, bottom: 6, trailing: 16))
     }
 
-    private var activeShopName: String {
-        store.cafeShops.first(where: { $0.id == activeShopID })?.name ?? "매장 선택"
-    }
-
-    private func openDetail(_ item: CafeMenuItem, shopID: Int? = nil) {
+    private func openDetail(_ item: CafeMenuItem, shopID: Int) {
         recordCurrentSearch()
         isSearchPresented = false
-        let destinationShopID = shopID ?? activeShopID
-        store.selectShop(destinationShopID)
-        router.push(.menu(shopID: destinationShopID, displayID: item.displayID), on: .cafe)
+        store.selectShop(shopID)
+        router.push(.menu(shopID: shopID, displayID: item.displayID), on: .cafe)
     }
 
     private func openQuickOrder(_ item: CafeMenuItem, shopID: Int) {
@@ -605,19 +356,294 @@ struct CafeView: View {
         searchHistory = searchHistoryStore.record(query, accountID: store.userIDHint)
     }
 
-    private func mutate(_ menu: CafeMenuItem, shopID: Int? = nil, delta: Int) {
+    private func mutate(_ menu: CafeMenuItem, shopID: Int, delta: Int) {
         guard let goodsID = menu.goodsID else { return }
-        let destinationShopID = shopID ?? activeShopID
         actionError = nil
         Task {
             do {
                 try await store.adjustGoodsQuantity(
-                    shopID: destinationShopID,
+                    shopID: shopID,
                     goodsID: goodsID,
                     delta: delta
                 )
             } catch {
                 withAnimation { actionError = error.localizedDescription }
+            }
+        }
+    }
+}
+
+/// One shop's full page — category picker, order-availability banner, and
+/// menu list/loading/error/empty states — owning its own state so the
+/// enclosing `TabView(.page)` can keep every shop's page alive and page
+/// between them with live, finger-tracked motion (SwiftUI can't do that
+/// across pages that share one mutable state slot the way the previous
+/// single-active-shop design worked).
+private struct CafeShopPageView: View {
+    @Environment(AppStore.self) private var store
+    @Environment(AppRouter.self) private var router
+
+    let shopID: Int
+    let isSearchPresented: Bool
+    let onNavigateAway: () -> Void
+    let onMutationError: (String) -> Void
+    let onQuickItemsLoaded: ([CafeQuickItem]) -> Void
+
+    @State private var categories: [CafeCategory] = []
+    @State private var selectedCategoryID: Int?
+    @State private var menus: [CafeMenuItem] = []
+    @State private var quickItems: [CafeQuickItem] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    /// Suppresses the custom loading indicators while `.refreshable`'s own
+    /// pull-to-refresh spinner is visible, so the two don't show up doubled.
+    @State private var isPullRefreshing = false
+    @State private var hasLoadedOnce = false
+
+    private var orderState: CafeOrderState { CafeRules.state(for: store.cafePlansByShop[shopID] ?? nil) }
+    private var favoriteDisplayIDs: Set<Int> {
+        Set(store.favorites.filter { $0.shopID == shopID }.map(\.displayID))
+    }
+    private var visibleMenus: [CafeMenuItem] {
+        CafeMenuFilter.items(
+            in: menus,
+            selectedCategoryID: selectedCategoryID,
+            searchText: "",
+            favoriteDisplayIDs: favoriteDisplayIDs
+        )
+    }
+    private var prioritySections: [CafeMenuPrioritySection] {
+        CafeMenuFilter.prioritySections(from: visibleMenus, favoriteDisplayIDs: favoriteDisplayIDs)
+    }
+    private var shopName: String {
+        store.cafeShops.first(where: { $0.id == shopID })?.name ?? "매장 선택"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !isSearchPresented {
+                categoryPicker
+                orderBanner
+            }
+            content
+        }
+        .task {
+            guard !hasLoadedOnce else { return }
+            hasLoadedOnce = true
+            await load(replacingContent: true)
+        }
+        .sensoryFeedback(.selection, trigger: selectedCategoryID)
+    }
+
+    private var categoryPicker: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 22) {
+                CafeCategoryTab(title: "전체", count: menus.count, isSelected: selectedCategoryID == nil) {
+                    selectedCategoryID = nil
+                }
+                ForEach(categories.filter(\.isVisibleOnMobile)) { category in
+                    CafeCategoryTab(
+                        title: category.name,
+                        count: category.goodsCount,
+                        isSelected: selectedCategoryID == category.id
+                    ) {
+                        selectedCategoryID = category.id
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.viewAligned)
+        .frame(minHeight: 48)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    @ViewBuilder
+    private var orderBanner: some View {
+        switch orderState {
+        case .checking:
+            CafeOrderCheckingCard()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+        case .closed(let closure):
+            CafeOrderAvailabilityCard(closure: closure, shopName: shopName)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+        case .open:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isLoading && menus.isEmpty {
+            CafeMenuListPlaceholder()
+        } else if let errorMessage, menus.isEmpty {
+            FailureContentView(message: errorMessage) {
+                Task { await load(replacingContent: menus.isEmpty) }
+            }
+        } else if visibleMenus.isEmpty, selectedCategoryID != nil {
+            ContentUnavailableView(
+                "이 카테고리에 메뉴가 없습니다",
+                systemImage: "cup.and.saucer",
+                description: Text("다른 카테고리를 선택해 보세요.")
+            )
+        } else if menus.isEmpty {
+            ContentUnavailableView(
+                "등록된 메뉴가 없습니다",
+                systemImage: "cup.and.saucer",
+                description: Text("잠시 후 다시 확인해 주세요.")
+            )
+        } else {
+            menuList
+        }
+    }
+
+    private var menuList: some View {
+        List {
+            if !quickItems.isEmpty {
+                Section("최근·인기 메뉴") {
+                    quickMenuRail
+                        .listRowSeparator(.hidden)
+                }
+                .listSectionSeparator(.hidden)
+            }
+
+            ForEach(prioritySections) { section in
+                Section {
+                    CafePrioritySectionHeader(
+                        group: section.group,
+                        count: section.items.count
+                    )
+                    .listRowInsets(.init(top: 0, leading: 16, bottom: 2, trailing: 16))
+                    .listRowSeparator(.hidden)
+
+                    ForEach(section.items) { item in
+                        menuRow(item)
+                    }
+                }
+                .listSectionSeparator(.hidden)
+            }
+        }
+        .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 1)
+        .refreshable {
+            isPullRefreshing = true
+            await load(replacingContent: false, forceRefresh: true)
+            isPullRefreshing = false
+        }
+        .overlay(alignment: .top) {
+            if isLoading && !isPullRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(.regularMaterial, in: Circle())
+                    .accessibilityLabel("메뉴 새로고침 중")
+            }
+        }
+        .appScrollEdgeStyle()
+    }
+
+    private var quickMenuRail: some View {
+        ScrollView(.horizontal) {
+            LazyHStack {
+                ForEach(quickItems) { item in
+                    CafeQuickItemButton(item: item, shopID: shopID)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.viewAligned)
+    }
+
+    private func load(replacingContent: Bool, forceRefresh: Bool = false) async {
+        isLoading = true
+        defer { isLoading = false }
+        errorMessage = nil
+        if replacingContent {
+            selectedCategoryID = nil
+        }
+        do {
+            async let loadedMenus = store.api.fetchCafeMenu(shopID: shopID, forceRefresh: forceRefresh)
+            async let recent = store.api.fetchRecentOrders(shopID: shopID, forceRefresh: forceRefresh)
+            async let popular = store.api.fetchPopularOrders(shopID: shopID, forceRefresh: forceRefresh)
+            let newMenus = try await loadedMenus
+            let newCategories = try await store.api.fetchCafeCategories(shopID: shopID)
+            let combined = (try? await recent) ?? []
+            let popularItems = (try? await popular) ?? []
+            let uniqueItems = (combined + popularItems).reduce(into: [Int: CafeQuickItem]()) { result, item in
+                result[item.displayID] = result[item.displayID] ?? item
+            }
+            let newQuickItems = Array(uniqueItems.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }.prefix(12))
+            guard !Task.isCancelled else { return }
+            // Cross-fades the loading skeleton (or a stale previous list)
+            // into the freshly loaded menu instead of an instant pop, so a
+            // shop switch reads as one continuous motion rather than a
+            // slide followed by an abrupt content swap.
+            withAnimation(.easeOut(duration: 0.22)) {
+                categories = newCategories
+                menus = newMenus
+                quickItems = newQuickItems
+            }
+            onQuickItemsLoaded(newQuickItems)
+            ImagePipeline.shared.preload(
+                newMenus.compactMap(\.thumbnailURL) + newQuickItems.compactMap(\.thumbnailURL),
+                targetSize: 96
+            )
+            await store.refreshCafePlan(shopID: shopID, force: forceRefresh)
+            _ = try? await store.refreshCart(shopID: shopID)
+        } catch is CancellationError {
+            return
+        } catch {
+            withAnimation(.easeOut(duration: 0.22)) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func quantity(for goodsID: Int?) -> Int {
+        guard let goodsID else { return 0 }
+        return store.cart(for: shopID).items.first { $0.goodsID == goodsID }?.quantity ?? 0
+    }
+
+    private func menuRow(_ item: CafeMenuItem) -> some View {
+        CafeMenuRow(
+            item: item,
+            isFavorite: store.isFavorite(shopID: shopID, displayID: item.displayID),
+            quantity: quantity(for: item.goodsID),
+            orderState: orderState,
+            toggleFavorite: { store.toggleFavorite(shopID: shopID, displayID: item.displayID, name: item.name) },
+            decrease: { mutate(item, delta: -1) },
+            increase: { mutate(item, delta: 1) },
+            openDetail: { openDetail(item) },
+            quickOrder: { openQuickOrder(item) }
+        )
+        .listRowInsets(.init(top: 6, leading: 16, bottom: 6, trailing: 16))
+    }
+
+    private func openDetail(_ item: CafeMenuItem) {
+        onNavigateAway()
+        store.selectShop(shopID)
+        router.push(.menu(shopID: shopID, displayID: item.displayID), on: .cafe)
+    }
+
+    private func openQuickOrder(_ item: CafeMenuItem) {
+        onNavigateAway()
+        store.selectShop(shopID)
+        router.push(.quickOrder(shopID: shopID, displayID: item.displayID), on: .cafe)
+    }
+
+    private func mutate(_ menu: CafeMenuItem, delta: Int) {
+        guard let goodsID = menu.goodsID else { return }
+        Task {
+            do {
+                try await store.adjustGoodsQuantity(shopID: shopID, goodsID: goodsID, delta: delta)
+            } catch {
+                onMutationError(error.localizedDescription)
             }
         }
     }
