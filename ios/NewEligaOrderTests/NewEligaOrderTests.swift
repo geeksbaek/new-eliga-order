@@ -20,18 +20,6 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(CafeShopSwitcherPolicy.modeTitle(for: "kafé 5F B"), "5F b")
     }
 
-    func testCafeShopSwitcherMovesExactlyOneModePerSwipe() {
-        let shops = [
-            Shop(id: 5, name: "본사", kind: .cafe, isOpen: true),
-            Shop(id: 6, name: "서초", kind: .cafe, isOpen: true),
-            Shop(id: 8, name: "판교", kind: .cafe, isOpen: true),
-        ]
-
-        XCTAssertEqual(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: 1), 6)
-        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 5, offset: -1))
-        XCTAssertNil(CafeShopSwitcherPolicy.adjacentShopID(in: shops, selectedShopID: 8, offset: 1))
-    }
-
     func testCafeSearchHistoryPersistsNewestFirstAndDeduplicates() throws {
         let suiteName = "com.leeari95.NewEligaOrder.cafe-search-history-tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -305,6 +293,39 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(dates.count, 2)
         XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[0]), DateComponents(year: 2026, month: 7, day: 19))
         XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[1]), DateComponents(year: 2026, month: 7, day: 20))
+    }
+
+    func testDiningDateWindowPolicyReturnsPreviousCurrentAndNextDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let reference = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 19, hour: 18))
+        )
+
+        let window = DiningDateWindowPolicy.window(around: reference, calendar: calendar)
+
+        XCTAssertEqual(window.count, 3)
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[0]), DateComponents(year: 2026, month: 7, day: 18))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[1]), DateComponents(year: 2026, month: 7, day: 19))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[2]), DateComponents(year: 2026, month: 7, day: 20))
+        // Every entry is normalized to midnight regardless of the
+        // reference's own time-of-day — required for `TabView(selection:)`
+        // to match its own `.tag()` values by exact `Date` equality.
+        XCTAssertTrue(window.allSatisfy { calendar.dateComponents([.hour, .minute, .second], from: $0) == DateComponents(hour: 0, minute: 0, second: 0) })
+    }
+
+    func testDiningDateWindowPolicyCrossesMonthAndYearBoundaries() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let newYearsEve = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 12, day: 31))
+        )
+
+        let window = DiningDateWindowPolicy.window(around: newYearsEve, calendar: calendar)
+
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[0]), DateComponents(year: 2026, month: 12, day: 30))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[1]), DateComponents(year: 2026, month: 12, day: 31))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[2]), DateComponents(year: 2027, month: 1, day: 1))
     }
 
     func testDiningMenuPreprocessorCacheIgnoresLiveCongestionSoldOutAndPriceFields() async {

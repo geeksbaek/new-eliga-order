@@ -1,17 +1,104 @@
 import SwiftUI
 
+/// The previous/current/next day around a center date — the sliding window
+/// `DiningView`'s day `TabView(.page)` pages through. A pure, testable
+/// function so the off-by-one/month-and-year-boundary arithmetic isn't only
+/// checked by hand in the simulator.
+enum DiningDateWindowPolicy {
+    static func window(around date: Date, calendar: Calendar = .autoupdatingCurrent) -> [Date] {
+        let start = calendar.startOfDay(for: date)
+        return [
+            calendar.date(byAdding: .day, value: -1, to: start) ?? start,
+            start,
+            calendar.date(byAdding: .day, value: 1, to: start) ?? start,
+        ]
+    }
+}
+
 struct DiningView: View {
+    @Environment(AppStore.self) private var store
+    let shopID: Int
+    let transitionNamespace: Namespace.ID
+    @State private var date = DiningView.calendar.startOfDay(for: .now)
+    @State private var showsPreferences = false
+
+    private static let calendar = Calendar.autoupdatingCurrent
+
+    /// Exactly the previous/current/next day, always centered on `date` —
+    /// recomputed fresh on every change (from a swipe or the picker) rather
+    /// than tracked as separate state, so there's no window to keep synced
+    /// by hand. `ForEach`'s identity diffing (by `Date`, which is `Hashable`)
+    /// keeps the two days that carry over between an old and new window
+    /// mounted without reloading; only the day that dropped out of range is
+    /// torn down and the newly revealed one freshly created.
+    private var visibleDates: [Date] {
+        DiningDateWindowPolicy.window(around: date, calendar: Self.calendar)
+    }
+
+    /// Normalizes every write — from the `DatePicker` or from the `TabView`
+    /// settling on a swiped-to page — to the exact start-of-day `Date` used
+    /// to build `visibleDates`'s tags, so the two always agree on identity.
+    private var dateBinding: Binding<Date> {
+        Binding(
+            get: { date },
+            set: { date = Self.calendar.startOfDay(for: $0) }
+        )
+    }
+
+    var body: some View {
+        // A native paged `TabView` tracks the finger 1:1 during the drag —
+        // the adjacent day's menu slides in right alongside it, matching
+        // the same live-motion paging CafeView uses for shops.
+        TabView(selection: dateBinding) {
+            ForEach(visibleDates, id: \.self) { pageDate in
+                DiningDayPageView(shopID: shopID, date: pageDate)
+                    .tag(pageDate)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .navigationTitle("식단")
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                DatePicker("날짜", selection: dateBinding, displayedComponents: .date)
+                    .labelsHidden()
+                    .accessibilityLabel("식단 날짜")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("식단 맞춤 설정", systemImage: "person.crop.circle.badge.checkmark") {
+                    showsPreferences = true
+                }
+                .labelStyle(.iconOnly)
+                .accessibilityLabel("음식 취향과 알러지 설정")
+            }
+        }
+        .sensoryFeedback(.selection, trigger: date)
+        .sheet(isPresented: $showsPreferences) {
+            DiningPreferencesSheet(
+                currentPreference: store.diningPreferenceText,
+                currentAllergies: store.diningAllergies
+            ) { preference, allergies in
+                store.setDiningPersonalization(preference: preference, allergies: allergies)
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+/// One day's full dining page — loading/error/empty states and the meal
+/// list — owning its own state so the enclosing `TabView(.page)` can keep
+/// each day's page alive and page between them with live, finger-tracked
+/// motion.
+private struct DiningDayPageView: View {
     @Environment(AppStore.self) private var store
     @Environment(AppRouter.self) private var router
     let shopID: Int
-    let transitionNamespace: Namespace.ID
-    @State private var date = Date.now
+    let date: Date
+
     @State private var periods: [DiningPeriod] = []
     @State private var preparations: [String: DiningMenuPreparation] = [:]
     @State private var isLoading = false
     @State private var isPreparing = false
     @State private var errorMessage: String?
-    @State private var showsPreferences = false
     @State private var menuScrollPosition = ScrollPosition(idType: String.self)
     @State private var preferenceFeedbackToken = 0
 
@@ -108,64 +195,25 @@ struct DiningView: View {
                 .appScrollEdgeStyle()
             }
         }
-        .navigationTitle("식단")
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                DatePicker("날짜", selection: $date, displayedComponents: .date)
-                    .labelsHidden()
-                    .accessibilityLabel("식단 날짜")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("식단 맞춤 설정", systemImage: "person.crop.circle.badge.checkmark") {
-                    showsPreferences = true
-                }
-                .labelStyle(.iconOnly)
-                .accessibilityLabel("음식 취향과 알러지 설정")
-            }
-        }
-        .task(id: requestKey) {
-            // Always reloads on date/personalization change — `diningDay`
-            // and `prepareDiningDay` are already cheap on repeat visits via
+        .task(id: store.diningPersonalizationSignature) {
+            // Fires on first appearance (like an unkeyed `.task`) and again
+            // whenever personalization changes — `diningDay` and
+            // `prepareDiningDay` are already cheap on repeat visits via
             // their own date-keyed and content-keyed caches, so there's no
-            // need for a "already loaded this key" skip here. Skipping used
-            // to leave `periods`/`preparations` (single, non-date-keyed
-            // state) showing whatever a different date last wrote into
-            // them, since revisiting a previously-loaded date would bail
-            // out before ever refreshing that state.
+            // need for an extra "already loaded" guard here.
             await load(replacingContent: true)
         }
-        .onChange(of: AppFormat.apiDate(date)) { _, _ in
-            menuScrollPosition = ScrollPosition(idType: String.self)
-        }
-        .sensoryFeedback(.selection, trigger: date)
         .sensoryFeedback(.selection, trigger: preferenceFeedbackToken)
-        .sheet(isPresented: $showsPreferences) {
-            DiningPreferencesSheet(
-                currentPreference: store.diningPreferenceText,
-                currentAllergies: store.diningAllergies
-            ) { preference, allergies in
-                store.setDiningPersonalization(preference: preference, allergies: allergies)
-            }
-            .presentationDetents([.medium, .large])
-        }
-    }
-
-    private var requestKey: String {
-        "\(AppFormat.apiDate(date))|\(store.diningPersonalizationSignature)"
     }
 
     private func load(replacingContent: Bool, forceRefresh: Bool = false) async {
-        let requestedDate = AppFormat.apiDate(date)
-        let requestedKey = requestKey
         isLoading = true
         isPreparing = false
         if replacingContent {
             periods = []
             preparations = [:]
         }
-        defer {
-            if requestedDate == AppFormat.apiDate(date) { isLoading = false }
-        }
+        defer { isLoading = false }
         errorMessage = nil
         do {
             let rawPeriods = try await store.diningDay(
@@ -173,7 +221,7 @@ struct DiningView: View {
                 date: date,
                 forceRefresh: forceRefresh
             )
-            guard !Task.isCancelled, requestedKey == requestKey else { return }
+            guard !Task.isCancelled else { return }
             periods = rawPeriods
             isLoading = false
             ImagePipeline.shared.preload(
@@ -182,20 +230,19 @@ struct DiningView: View {
             )
 
             if let cached = await store.cachedPreparedDiningDay(periods: rawPeriods) {
-                guard !Task.isCancelled, requestedKey == requestKey else { return }
+                guard !Task.isCancelled else { return }
                 preparations = cached.preparations
                 return
             }
 
             isPreparing = !rawPeriods.isEmpty
             let loaded = await store.prepareDiningDay(periods: rawPeriods)
-            guard !Task.isCancelled, requestedKey == requestKey else { return }
+            guard !Task.isCancelled else { return }
             preparations = loaded.preparations
             isPreparing = false
         } catch is CancellationError {
             return
         } catch {
-            guard requestedKey == requestKey else { return }
             errorMessage = error.localizedDescription
         }
     }
