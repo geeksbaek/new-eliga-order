@@ -1,17 +1,23 @@
 import SwiftUI
 
-/// The previous/current/next day around a center date — the sliding window
-/// `DiningView`'s day `TabView(.page)` pages through. A pure, testable
-/// function so the off-by-one/month-and-year-boundary arithmetic isn't only
-/// checked by hand in the simulator.
+/// The range of days `DiningView`'s day `TabView(.page)` pages through,
+/// centered on a given date. A pure, testable function so the off-by-one/
+/// month-and-year-boundary arithmetic isn't only checked by hand in the
+/// simulator.
 enum DiningDateWindowPolicy {
-    static func window(around date: Date, calendar: Calendar = .autoupdatingCurrent) -> [Date] {
+    /// Generous enough that an ordinary swiping session never reaches
+    /// either edge. `TabView(.page)` only actually runs a page's `.task`
+    /// once that page is the current selection or the one being swiped
+    /// toward (confirmed empirically — pages elsewhere in the `ForEach`
+    /// stay completely dormant), so a wide static range costs nothing at
+    /// rest; it's just cheap `Date` values sitting in an array.
+    static let radiusInDays = 60
+
+    static func range(around date: Date, calendar: Calendar = .autoupdatingCurrent) -> [Date] {
         let start = calendar.startOfDay(for: date)
-        return [
-            calendar.date(byAdding: .day, value: -1, to: start) ?? start,
-            start,
-            calendar.date(byAdding: .day, value: 1, to: start) ?? start,
-        ]
+        return (-radiusInDays...radiusInDays).compactMap {
+            calendar.date(byAdding: .day, value: $0, to: start)
+        }
     }
 }
 
@@ -21,10 +27,15 @@ struct DiningView: View {
     let transitionNamespace: Namespace.ID
     @State private var date = DiningView.calendar.startOfDay(for: .now)
     @State private var showsPreferences = false
-    /// The days actually rendered as `TabView` pages. Deliberately its own
-    /// `@State` instead of a property computed straight from `date` — see
-    /// `recenterVisibleDatesAfterSettling()`.
-    @State private var visibleDates: [Date]
+    /// The days actually rendered as `TabView` pages — a wide, static range
+    /// generated once, exactly like `CafeView`'s shop list, so nothing ever
+    /// rewrites the `ForEach`'s content out from under an in-progress swipe.
+    /// An earlier version recomputed a tight 3-day window on every `date`
+    /// change; even deferred by a runloop tick, mutating the page array
+    /// while `TabView`'s own paging scroll view was still mid-gesture made
+    /// it settle prematurely (or, before that fix, get stuck outright)
+    /// instead of tracking the finger naturally the way `CafeView` does.
+    @State private var dateRange: [Date]
 
     private static let calendar = Calendar.autoupdatingCurrent
 
@@ -33,12 +44,12 @@ struct DiningView: View {
         self.transitionNamespace = transitionNamespace
         let initialDate = Self.calendar.startOfDay(for: .now)
         _date = State(initialValue: initialDate)
-        _visibleDates = State(initialValue: DiningDateWindowPolicy.window(around: initialDate, calendar: Self.calendar))
+        _dateRange = State(initialValue: DiningDateWindowPolicy.range(around: initialDate, calendar: Self.calendar))
     }
 
     /// Normalizes every write — from the `DatePicker` or from the `TabView`
     /// settling on a swiped-to page — to the exact start-of-day `Date` used
-    /// to build `visibleDates`'s tags, so the two always agree on identity.
+    /// to build `dateRange`'s tags, so the two always agree on identity.
     private var dateBinding: Binding<Date> {
         Binding(
             get: { date },
@@ -51,14 +62,14 @@ struct DiningView: View {
         // the adjacent day's menu slides in right alongside it, matching
         // the same live-motion paging CafeView uses for shops.
         TabView(selection: dateBinding) {
-            ForEach(visibleDates, id: \.self) { pageDate in
+            ForEach(dateRange, id: \.self) { pageDate in
                 DiningDayPageView(shopID: shopID, date: pageDate)
                     .tag(pageDate)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .onChange(of: date) { _, _ in
-            recenterVisibleDatesAfterSettling()
+        .onChange(of: date) { _, newDate in
+            regenerateRangeIfOutOfBounds(around: newDate)
         }
         .navigationTitle("식단")
         .toolbar {
@@ -87,23 +98,15 @@ struct DiningView: View {
         }
     }
 
-    /// Rebuilds `visibleDates` around the new `date` one runloop tick after
-    /// this fires, instead of on the same pass that changed `date`.
-    ///
-    /// `date` changes the instant `TabView`'s own `UIScrollView` decides
-    /// which page it's settling on — which is *before* its native paging
-    /// deceleration animation has actually finished moving the page fully
-    /// into place. Recomputing `visibleDates` (and so replacing the
-    /// `ForEach`'s three pages) synchronously in that same SwiftUI update
-    /// pass swaps the scroll view's own content out from under it while it
-    /// is still physically animating, which stops it dead between two
-    /// pages instead of letting it finish snapping. Deferring the rebuild
-    /// lets the native settle animation complete first.
-    private func recenterVisibleDatesAfterSettling() {
-        let target = date
-        DispatchQueue.main.async {
-            visibleDates = DiningDateWindowPolicy.window(around: target, calendar: Self.calendar)
-        }
+    /// Only regenerates `dateRange` when `newDate` has actually drifted
+    /// outside it — i.e. only reachable via the `DatePicker` jumping
+    /// somewhere far away, never from ordinary swiping within the ±60-day
+    /// range. A `DatePicker` jump is a discrete, non-gesture action with no
+    /// in-flight paging animation to disturb, so replacing the page array
+    /// here is safe in a way it wasn't when it happened on every swipe.
+    private func regenerateRangeIfOutOfBounds(around newDate: Date) {
+        guard !dateRange.contains(newDate) else { return }
+        dateRange = DiningDateWindowPolicy.range(around: newDate, calendar: Self.calendar)
     }
 }
 
