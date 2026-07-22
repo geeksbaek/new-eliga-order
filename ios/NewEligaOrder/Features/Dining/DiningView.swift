@@ -318,14 +318,14 @@ private struct DiningMealRow: View {
                         Text("·")
                         Text(congestionLabel)
                     }
+                    ForEach(Array(title.badges.enumerated()), id: \.offset) { _, badge in
+                        MenuLabelBadge(text: badge)
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
                 HStack(spacing: 6) {
-                    ForEach(Array(title.badges.enumerated()), id: \.offset) { _, badge in
-                        MenuLabelBadge(text: badge)
-                    }
                     Text(title.displayName)
                         .font(.body.weight(.medium))
                         .lineLimit(2)

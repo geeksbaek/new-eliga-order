@@ -7,6 +7,9 @@ struct CartView: View {
     @State private var errorMessage: String?
     @State private var feedbackToken = 0
     @State private var showsClearConfirmation = false
+    /// Which edge the next shop's cart should slide in from, matching the
+    /// swiped/chip-tapped direction (ascending-floor order).
+    @State private var shopSwitchDirection: Edge = .trailing
 
     private var shopID: Int { store.selectedShopID ?? store.cafeShops.first?.id ?? 5 }
     private var cart: Cart { store.cart(for: shopID) }
@@ -19,53 +22,62 @@ struct CartView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isLoading && cart.items.isEmpty {
-                LoadingContentView(title: "장바구니를 불러오는 중…")
-            } else if let errorMessage, cart.items.isEmpty {
-                FailureContentView(message: errorMessage) {
-                    Task { await refresh(shopID: shopID) }
+            Group {
+                if isLoading && cart.items.isEmpty {
+                    LoadingContentView(title: "장바구니를 불러오는 중…")
+                } else if let errorMessage, cart.items.isEmpty {
+                    FailureContentView(message: errorMessage) {
+                        Task { await refresh(shopID: shopID) }
+                    }
+                } else if cart.items.isEmpty {
+                    ContentUnavailableView(
+                        "장바구니가 비어 있습니다",
+                        systemImage: "bag",
+                        description: Text("카페 메뉴에서 음료를 담아 보세요.")
+                            .foregroundStyle(.primary)
+                    )
+                } else {
+                    List {
+                        ForEach(cart.items) { item in
+                            CartItemRow(item: item) { delta in
+                                update(item, delta: delta)
+                            }
+                            .contextMenu {
+                                Button("삭제", systemImage: "trash", role: .destructive) { delete(item) }
+                            }
+                        }
+                        Section {
+                            LabeledContent("총 수량", value: "\(cart.itemCount)개")
+                            LabeledContent("결제 금액") { PriceText(amount: cart.total) }
+                        }
+                        Section {
+                            AppPrimaryActionButton(
+                                title: "주문 확인 · \(AppFormat.won(cart.total))",
+                                systemImage: "checkmark.circle.fill"
+                            ) {
+                                router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                    .refreshable { await refresh(shopID: shopID) }
+                    .appScrollEdgeStyle()
                 }
-            } else if cart.items.isEmpty {
-                ContentUnavailableView(
-                    "장바구니가 비어 있습니다",
-                    systemImage: "bag",
-                    description: Text("카페 메뉴에서 음료를 담아 보세요.")
-                        .foregroundStyle(.primary)
-                )
-            } else {
-                List {
-                    ForEach(cart.items) { item in
-                        CartItemRow(item: item) { delta in
-                            update(item, delta: delta)
-                        }
-                        .contextMenu {
-                            Button("삭제", systemImage: "trash", role: .destructive) { delete(item) }
-                        }
-                    }
-                    Section {
-                        LabeledContent("총 수량", value: "\(cart.itemCount)개")
-                        LabeledContent("결제 금액") { PriceText(amount: cart.total) }
-                    }
-                    Section {
-                        AppPrimaryActionButton(
-                            title: "주문 확인 · \(AppFormat.won(cart.total))",
-                            systemImage: "checkmark.circle.fill"
-                        ) {
-                            router.push(.orderConfirmation(shopID: shopID, isQuickOrder: false), on: .cart)
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    }
-                }
-                .listStyle(.insetGrouped)
-                .refreshable { await refresh(shopID: shopID) }
-                .appScrollEdgeStyle()
-                .shopSwipeNavigation(
-                    shops: store.cafeShops,
-                    selectedShopID: shopID,
-                    selectShop: selectShop
-                )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(shopID)
+            .transition(shopContentTransition)
+            .clipped()
+            // Covers every content state (loading/error/empty/list), not
+            // just the populated cart, so swiping still steps to the
+            // adjacent shop even when the current shop's cart is empty.
+            .shopSwipeNavigation(
+                shops: store.cafeShops,
+                selectedShopID: shopID,
+                selectShop: selectShop
+            )
 
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.circle")
@@ -134,8 +146,27 @@ struct CartView: View {
 
     private func selectShop(_ id: Int) {
         guard id != shopID else { return }
+        updateShopSwitchDirection(to: id)
         store.selectShop(id)
         errorMessage = nil
+    }
+
+    /// Matches the content's slide direction to ascending-floor order, so a
+    /// forward swipe/tap slides the new shop's cart in from the trailing
+    /// edge and a backward one from the leading edge.
+    private func updateShopSwitchDirection(to id: Int) {
+        let sorted = CafeShopSwitcherPolicy.sortedByFloor(store.cafeShops)
+        guard let currentIndex = sorted.firstIndex(where: { $0.id == shopID }),
+              let nextIndex = sorted.firstIndex(where: { $0.id == id })
+        else { return }
+        shopSwitchDirection = nextIndex > currentIndex ? .trailing : .leading
+    }
+
+    private var shopContentTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: shopSwitchDirection).combined(with: .opacity),
+            removal: .move(edge: shopSwitchDirection == .trailing ? .leading : .trailing).combined(with: .opacity)
+        )
     }
 
     private func update(_ item: CartItem, delta: Int) {
