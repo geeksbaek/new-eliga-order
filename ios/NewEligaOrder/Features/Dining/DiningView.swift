@@ -27,6 +27,9 @@ struct DiningView: View {
     let transitionNamespace: Namespace.ID
     @State private var date = DiningView.calendar.startOfDay(for: .now)
     @State private var showsPreferences = false
+    /// Mirrors `date` for the toolbar `DatePicker` — see `schedulePickerSync`.
+    @State private var pickerDate: Date
+    @State private var pickerSyncTask: Task<Void, Never>?
     /// The days actually rendered as `TabView` pages — a wide, static range
     /// generated once, exactly like `CafeView`'s shop list, so nothing ever
     /// rewrites the `ForEach`'s content out from under an in-progress swipe.
@@ -44,16 +47,31 @@ struct DiningView: View {
         self.transitionNamespace = transitionNamespace
         let initialDate = Self.calendar.startOfDay(for: .now)
         _date = State(initialValue: initialDate)
+        _pickerDate = State(initialValue: initialDate)
         _dateRange = State(initialValue: DiningDateWindowPolicy.range(around: initialDate, calendar: Self.calendar))
     }
 
-    /// Normalizes every write — from the `DatePicker` or from the `TabView`
-    /// settling on a swiped-to page — to the exact start-of-day `Date` used
-    /// to build `dateRange`'s tags, so the two always agree on identity.
+    /// Normalizes every write — from the `TabView` settling on a swiped-to
+    /// page — to the exact start-of-day `Date` used to build `dateRange`'s
+    /// tags, so the two always agree on identity.
     private var dateBinding: Binding<Date> {
         Binding(
             get: { date },
             set: { date = Self.calendar.startOfDay(for: $0) }
+        )
+    }
+
+    /// The toolbar `DatePicker`'s own binding, deliberately decoupled from
+    /// `dateBinding` — see `schedulePickerSync`.
+    private var pickerDateBinding: Binding<Date> {
+        Binding(
+            get: { pickerDate },
+            set: { newValue in
+                let normalized = Self.calendar.startOfDay(for: newValue)
+                pickerSyncTask?.cancel()
+                pickerDate = normalized
+                date = normalized
+            }
         )
     }
 
@@ -71,6 +89,7 @@ struct DiningView: View {
         .onChange(of: date) { _, newDate in
             regenerateRangeIfOutOfBounds(around: newDate)
             prefetchNeighbors(of: newDate)
+            schedulePickerSync(to: newDate)
         }
         .task {
             // Warms the neighboring days' menu cache as soon as this view
@@ -81,7 +100,7 @@ struct DiningView: View {
         .navigationTitle("식단")
         .toolbar {
             ToolbarItem(placement: .principal) {
-                DatePicker("날짜", selection: dateBinding, displayedComponents: .date)
+                DatePicker("날짜", selection: pickerDateBinding, displayedComponents: .date)
                     .labelsHidden()
                     .accessibilityLabel("식단 날짜")
             }
@@ -133,6 +152,26 @@ struct DiningView: View {
             Task {
                 _ = try? await store.diningDay(shopID: shopID, date: neighborDate)
             }
+        }
+    }
+
+    /// The toolbar `DatePicker` is backed by `UIDatePicker` — unlike
+    /// `CafeView`'s plain SwiftUI header chips, pushing a new value into it
+    /// is a heavier, UIKit-bridged main-thread operation. `date` (which
+    /// mirrors `TabView`'s `selection`) updates live on every page crossing
+    /// while the user's finger is still dragging, so feeding that live
+    /// stream straight into the `DatePicker` meant re-rendering
+    /// `UIDatePicker` many times a second mid-gesture — a plausible reason
+    /// `TabView(.page)`'s native paging could stall specifically on this
+    /// screen and not on `CafeView`. `pickerDate` mirrors `date` but only
+    /// catches up ~200ms after it stops changing, so the picker updates
+    /// once per swipe instead of once per page crossed during it.
+    private func schedulePickerSync(to newDate: Date) {
+        pickerSyncTask?.cancel()
+        pickerSyncTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            pickerDate = newDate
         }
     }
 }
