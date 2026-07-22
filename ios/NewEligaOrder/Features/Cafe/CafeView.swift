@@ -155,6 +155,12 @@ struct CafeView: View {
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }
+        .task {
+            // Warms the neighboring shops' menu cache as soon as this view
+            // appears, so a swipe away from the very first shop shown
+            // doesn't have to wait on a cold fetch either.
+            prefetchNeighbors(of: activeShopID)
+        }
         .task(id: store.userIDHint) {
             searchHistory = searchHistoryStore.history(accountID: store.userIDHint)
         }
@@ -309,6 +315,7 @@ struct CafeView: View {
         guard id != activeShopID else { return }
         shopID = id
         scheduleStoreSync(to: id)
+        prefetchNeighbors(of: id)
     }
 
     /// Debounces the shared-store sync — and the side effects that ride
@@ -326,6 +333,29 @@ struct CafeView: View {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
             store.selectShop(id)
+        }
+    }
+
+    /// Fire-and-forget warms `EligaAPI`'s own internal cache for the shops
+    /// on either side of `id` (in the same ascending-floor order the pages
+    /// are laid out in), so that when `CafeShopPageView.load()` for a
+    /// neighbor actually runs — after its own settle delay — it resolves
+    /// against a warm cache instead of a cold network round-trip. Safe to
+    /// call on every crossing during a live drag, unlike the store sync
+    /// above: this only ever writes into `EligaAPI`'s private, unobserved
+    /// cache dictionaries, never into anything `@Observable` that could
+    /// trigger a re-render mid-gesture.
+    private func prefetchNeighbors(of id: Int) {
+        let shops = sortedShops
+        guard let index = shops.firstIndex(where: { $0.id == id }) else { return }
+        for neighborIndex in [index - 1, index + 1] where shops.indices.contains(neighborIndex) {
+            let neighborID = shops[neighborIndex].id
+            Task {
+                async let menu: () = { _ = try? await store.api.fetchCafeMenu(shopID: neighborID) }()
+                async let recent: () = { _ = try? await store.api.fetchRecentOrders(shopID: neighborID) }()
+                async let popular: () = { _ = try? await store.api.fetchPopularOrders(shopID: neighborID) }()
+                _ = await (menu, recent, popular)
+            }
         }
     }
 

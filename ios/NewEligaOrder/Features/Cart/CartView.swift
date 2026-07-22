@@ -87,6 +87,12 @@ struct CartView: View {
             Text("\(cart.itemCount)개 메뉴가 모두 삭제됩니다.")
         }
         .sensoryFeedback(.success, trigger: clearFeedbackToken)
+        .task {
+            // Warms the neighboring shops' cart cache as soon as this view
+            // appears, so a swipe away from the very first shop shown
+            // doesn't have to wait on a cold fetch either.
+            prefetchNeighbors(of: activeShopID)
+        }
         .onChange(of: store.selectedShopID) { _, selectedShopID in
             guard
                 let selectedShopID,
@@ -117,6 +123,29 @@ struct CartView: View {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
             store.selectShop(id)
+            prefetchNeighbors(of: id)
+        }
+    }
+
+    /// Warms the neighboring shops' cart data (in the same ascending-floor
+    /// order the pages are laid out in), so that when `CartShopPageView`
+    /// for a neighbor actually loads — after its own settle delay — it
+    /// finds the cart already in `store.cartsByShop` instead of starting a
+    /// cold fetch. Unlike `CafeView`'s equivalent, this can't run
+    /// immediately on every drag crossing: `store.refreshCart` writes into
+    /// `store.cartsByShop`, an `@Observable` property every cart page
+    /// (and the header's item-count badges) reads from, so firing it on
+    /// every crossing would re-render all of that mid-gesture. Piggybacking
+    /// on the already-debounced store sync above keeps it to once per
+    /// settled swipe.
+    private func prefetchNeighbors(of id: Int) {
+        let shops = sortedShops
+        guard let index = shops.firstIndex(where: { $0.id == id }) else { return }
+        for neighborIndex in [index - 1, index + 1] where shops.indices.contains(neighborIndex) {
+            let neighborID = shops[neighborIndex].id
+            Task {
+                _ = try? await store.refreshCart(shopID: neighborID)
+            }
         }
     }
 

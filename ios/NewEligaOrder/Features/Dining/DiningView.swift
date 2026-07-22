@@ -70,6 +70,13 @@ struct DiningView: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .onChange(of: date) { _, newDate in
             regenerateRangeIfOutOfBounds(around: newDate)
+            prefetchNeighbors(of: newDate)
+        }
+        .task {
+            // Warms the neighboring days' menu cache as soon as this view
+            // appears, so a swipe away from the very first day shown
+            // doesn't have to wait on a cold fetch either.
+            prefetchNeighbors(of: date)
         }
         .navigationTitle("식단")
         .toolbar {
@@ -107,6 +114,26 @@ struct DiningView: View {
     private func regenerateRangeIfOutOfBounds(around newDate: Date) {
         guard !dateRange.contains(newDate) else { return }
         dateRange = DiningDateWindowPolicy.range(around: newDate, calendar: Self.calendar)
+    }
+
+    /// Fire-and-forget warms `EligaAPI`'s own internal cache for the days
+    /// on either side of `date`, so that when `DiningDayPageView.load()`
+    /// for a neighbor actually runs — after its own settle delay — it
+    /// resolves against a warm cache instead of a cold network round-trip.
+    /// Safe to call on every crossing during a live drag, unlike
+    /// `CartView`'s equivalent: `store.diningDay` only ever writes into
+    /// `EligaAPI`'s private, unobserved cache, never into anything
+    /// `@Observable` that could trigger a re-render mid-gesture.
+    private func prefetchNeighbors(of date: Date) {
+        guard
+            let previous = Self.calendar.date(byAdding: .day, value: -1, to: date),
+            let next = Self.calendar.date(byAdding: .day, value: 1, to: date)
+        else { return }
+        for neighborDate in [previous, next] {
+            Task {
+                _ = try? await store.diningDay(shopID: shopID, date: neighborDate)
+            }
+        }
     }
 }
 
