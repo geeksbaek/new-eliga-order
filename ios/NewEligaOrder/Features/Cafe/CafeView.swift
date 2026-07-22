@@ -24,6 +24,8 @@ struct CafeView: View {
     @State private var hasAttemptedAllShopMenus = false
     @State private var allShopMenuLoadGeneration = 0
     @State private var isSearchPullRefreshing = false
+    /// See `scheduleStoreSync(to:)`.
+    @State private var storeSyncTask: Task<Void, Never>?
 
     init(
         initialShopID: Int?,
@@ -306,7 +308,25 @@ struct CafeView: View {
     private func selectShop(_ id: Int) {
         guard id != activeShopID else { return }
         shopID = id
-        store.selectShop(id)
+        scheduleStoreSync(to: id)
+    }
+
+    /// Debounces the shared-store sync — and the side effects that ride
+    /// along with it (a cross-tab `onChange(of: store.selectedShopID)`
+    /// cascade in `CartView`, a synchronous `UserDefaults` write, a
+    /// selection haptic) — so it only fires once a swipe has actually
+    /// settled. `TabView(.page)` updates its `selection` binding live on
+    /// every page crossing during the drag itself, not just once at the
+    /// end, so calling `store.selectShop` directly from that binding's
+    /// setter ran all of that side-effect work mid-gesture, once per shop
+    /// the user's finger passed over.
+    private func scheduleStoreSync(to id: Int) {
+        storeSyncTask?.cancel()
+        storeSyncTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            store.selectShop(id)
+        }
     }
 
     private func quantity(for goodsID: Int?, shopID: Int) -> Int {
@@ -429,6 +449,20 @@ private struct CafeShopPageView: View {
         }
         .task {
             guard !hasLoadedOnce else { return }
+            // A brief, cancellable pause before starting the load.
+            // `TabView(.page)` starts this task as soon as a page becomes
+            // the current selection or the one being swiped toward — i.e.
+            // while the user's finger may still be dragging across it. If
+            // the load finishes and this page's `List` relayouts from
+            // empty/skeleton to real content during that live gesture, it
+            // can stall the native paging animation, especially when
+            // several pages are swiped past in quick succession. Since
+            // SwiftUI cancels `.task` when a page leaves the TabView's live
+            // window, a page that's only scrolled past cancels here before
+            // ever loading — only a page the user actually settles on
+            // (even briefly) proceeds.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, !hasLoadedOnce else { return }
             hasLoadedOnce = true
             await load(replacingContent: true)
         }
@@ -591,14 +625,25 @@ private struct CafeShopPageView: View {
             }
             let newQuickItems = Array(uniqueItems.values.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }.prefix(12))
             guard !Task.isCancelled else { return }
-            // Cross-fades the loading skeleton (or a stale previous list)
-            // into the freshly loaded menu instead of an instant pop, so a
-            // shop switch reads as one continuous motion rather than a
-            // slide followed by an abrupt content swap.
-            withAnimation(.easeOut(duration: 0.22)) {
+            // Cross-fades a stale previous list into the freshly loaded
+            // menu on a pull-to-refresh, so it reads as continuous motion
+            // rather than an abrupt content swap. The very first load
+            // (`replacingContent`) skips the animation — an animated
+            // transaction is an extra layout pass with no visual benefit
+            // when there's nothing on screen yet to cross-fade from, and
+            // this page may still be settling from a live swipe when that
+            // first load completes, where the extra pass can compete with
+            // `TabView`'s own native paging animation.
+            if replacingContent {
                 categories = newCategories
                 menus = newMenus
                 quickItems = newQuickItems
+            } else {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    categories = newCategories
+                    menus = newMenus
+                    quickItems = newQuickItems
+                }
             }
             onQuickItemsLoaded(newQuickItems)
             ImagePipeline.shared.preload(
@@ -610,8 +655,12 @@ private struct CafeShopPageView: View {
         } catch is CancellationError {
             return
         } catch {
-            withAnimation(.easeOut(duration: 0.22)) {
+            if replacingContent {
                 errorMessage = error.localizedDescription
+            } else {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
