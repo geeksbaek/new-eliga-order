@@ -479,24 +479,35 @@ private struct CafeShopPageView: View {
 
     @ViewBuilder
     private var content: some View {
+        // Every branch gets the same explicit full-size frame — without it,
+        // `ContentUnavailableView`/`CafeMenuListPlaceholder` size to their
+        // own content instead of filling the page like `List` does, so a
+        // page's overall height could change out from under `TabView(.page)`
+        // right as its data resolves. If that happens while the user is
+        // mid-swipe, the paging scroll view's animation can lock up between
+        // two pages instead of settling normally.
         if isLoading && menus.isEmpty {
             CafeMenuListPlaceholder()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage, menus.isEmpty {
             FailureContentView(message: errorMessage) {
                 Task { await load(replacingContent: menus.isEmpty) }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if visibleMenus.isEmpty, selectedCategoryID != nil {
             ContentUnavailableView(
                 "이 카테고리에 메뉴가 없습니다",
                 systemImage: "cup.and.saucer",
                 description: Text("다른 카테고리를 선택해 보세요.")
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if menus.isEmpty {
             ContentUnavailableView(
                 "등록된 메뉴가 없습니다",
                 systemImage: "cup.and.saucer",
                 description: Text("잠시 후 다시 확인해 주세요.")
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             menuList
         }

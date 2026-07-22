@@ -129,13 +129,22 @@ private struct CartShopPageView: View {
     private var cart: Cart { store.cart(for: shopID) }
 
     var body: some View {
+        // Every branch gets the same explicit full-size frame — without it,
+        // `ContentUnavailableView`/`LoadingContentView` size to their own
+        // content instead of filling the page like `List` does, so a
+        // page's overall height could change out from under `TabView(.page)`
+        // right as its data resolves. If that happens while the user is
+        // mid-swipe, the paging scroll view's animation can lock up between
+        // two pages instead of settling normally.
         Group {
             if isLoading && cart.items.isEmpty {
                 LoadingContentView(title: "장바구니를 불러오는 중…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, cart.items.isEmpty {
                 FailureContentView(message: errorMessage) {
                     Task { await refresh() }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if cart.items.isEmpty {
                 ContentUnavailableView(
                     "장바구니가 비어 있습니다",
@@ -143,6 +152,7 @@ private struct CartShopPageView: View {
                     description: Text("카페 메뉴에서 음료를 담아 보세요.")
                         .foregroundStyle(.primary)
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(cart.items) { item in
