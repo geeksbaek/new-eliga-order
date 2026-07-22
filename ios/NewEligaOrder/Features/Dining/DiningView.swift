@@ -122,7 +122,14 @@ private struct DiningDayPageView: View {
 
     @State private var periods: [DiningPeriod] = []
     @State private var preparations: [String: DiningMenuPreparation] = [:]
-    @State private var isLoading = false
+    // Starts true (not false) so a freshly-swiped-to day's very first
+    // render already shows the loading skeleton. `.task` doesn't actually
+    // start running — and set this itself — until a moment after the view
+    // first appears; starting `false` left that gap showing "등록된 식단이
+    // 없습니다" (periods is empty and isLoading hasn't flipped yet) before
+    // the skeleton replaced it, a flash that reads as the swipe stuttering
+    // and the page refreshing right after it settles.
+    @State private var isLoading = true
     @State private var isPreparing = false
     @State private var errorMessage: String?
     @State private var menuScrollPosition = ScrollPosition(idType: String.self)
