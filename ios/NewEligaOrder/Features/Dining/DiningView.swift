@@ -134,15 +134,21 @@ private struct DiningDayPageView: View {
     @State private var errorMessage: String?
     @State private var menuScrollPosition = ScrollPosition(idType: String.self)
     @State private var preferenceFeedbackToken = 0
+    /// The `store.diningPersonalizationSignature` this page last actually
+    /// loaded for — see the `.task(id:)` guard below.
+    @State private var loadedPersonalizationSignature: String?
 
     var body: some View {
         Group {
             if isLoading && periods.isEmpty {
                 LoadingContentView(title: "식단을 불러오는 중…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, periods.isEmpty {
                 FailureContentView(message: errorMessage) { Task { await load(replacingContent: true) } }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if periods.isEmpty {
                 ContentUnavailableView("등록된 식단이 없습니다", systemImage: "fork.knife")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     if isPreparing {
@@ -229,11 +235,20 @@ private struct DiningDayPageView: View {
             }
         }
         .task(id: store.diningPersonalizationSignature) {
-            // Fires on first appearance (like an unkeyed `.task`) and again
-            // whenever personalization changes — `diningDay` and
-            // `prepareDiningDay` are already cheap on repeat visits via
-            // their own date-keyed and content-keyed caches, so there's no
-            // need for an extra "already loaded" guard here.
+            // `.task(id:)` reruns not only when the id changes but also
+            // whenever this view *re-appears* — which happens as
+            // `TabView(.page)` unmounts pages that drift far from the
+            // current selection and remounts them if the user swipes back.
+            // Without this guard, swiping back to an already-loaded day
+            // re-triggered `load(replacingContent: true)` on every such
+            // remount even though `diningPersonalizationSignature` hadn't
+            // actually changed — wiping `periods`/`preparations` back to
+            // empty and flashing the loading skeleton over content that
+            // was already showing correctly, which read as the swipe
+            // stuttering and the page refreshing.
+            let signature = store.diningPersonalizationSignature
+            guard signature != loadedPersonalizationSignature else { return }
+            loadedPersonalizationSignature = signature
             await load(replacingContent: true)
         }
         .sensoryFeedback(.selection, trigger: preferenceFeedbackToken)
