@@ -21,18 +21,19 @@ struct DiningView: View {
     let transitionNamespace: Namespace.ID
     @State private var date = DiningView.calendar.startOfDay(for: .now)
     @State private var showsPreferences = false
+    /// The days actually rendered as `TabView` pages. Deliberately its own
+    /// `@State` instead of a property computed straight from `date` — see
+    /// `recenterVisibleDatesAfterSettling()`.
+    @State private var visibleDates: [Date]
 
     private static let calendar = Calendar.autoupdatingCurrent
 
-    /// Exactly the previous/current/next day, always centered on `date` —
-    /// recomputed fresh on every change (from a swipe or the picker) rather
-    /// than tracked as separate state, so there's no window to keep synced
-    /// by hand. `ForEach`'s identity diffing (by `Date`, which is `Hashable`)
-    /// keeps the two days that carry over between an old and new window
-    /// mounted without reloading; only the day that dropped out of range is
-    /// torn down and the newly revealed one freshly created.
-    private var visibleDates: [Date] {
-        DiningDateWindowPolicy.window(around: date, calendar: Self.calendar)
+    init(shopID: Int, transitionNamespace: Namespace.ID) {
+        self.shopID = shopID
+        self.transitionNamespace = transitionNamespace
+        let initialDate = Self.calendar.startOfDay(for: .now)
+        _date = State(initialValue: initialDate)
+        _visibleDates = State(initialValue: DiningDateWindowPolicy.window(around: initialDate, calendar: Self.calendar))
     }
 
     /// Normalizes every write — from the `DatePicker` or from the `TabView`
@@ -56,6 +57,9 @@ struct DiningView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .onChange(of: date) { _, _ in
+            recenterVisibleDatesAfterSettling()
+        }
         .navigationTitle("식단")
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -80,6 +84,25 @@ struct DiningView: View {
                 store.setDiningPersonalization(preference: preference, allergies: allergies)
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// Rebuilds `visibleDates` around the new `date` one runloop tick after
+    /// this fires, instead of on the same pass that changed `date`.
+    ///
+    /// `date` changes the instant `TabView`'s own `UIScrollView` decides
+    /// which page it's settling on — which is *before* its native paging
+    /// deceleration animation has actually finished moving the page fully
+    /// into place. Recomputing `visibleDates` (and so replacing the
+    /// `ForEach`'s three pages) synchronously in that same SwiftUI update
+    /// pass swaps the scroll view's own content out from under it while it
+    /// is still physically animating, which stops it dead between two
+    /// pages instead of letting it finish snapping. Deferring the rebuild
+    /// lets the native settle animation complete first.
+    private func recenterVisibleDatesAfterSettling() {
+        let target = date
+        DispatchQueue.main.async {
+            visibleDates = DiningDateWindowPolicy.window(around: target, calendar: Self.calendar)
         }
     }
 }
