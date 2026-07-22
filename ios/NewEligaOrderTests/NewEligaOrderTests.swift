@@ -295,37 +295,39 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: dates[1]), DateComponents(year: 2026, month: 7, day: 20))
     }
 
-    func testDiningDateWindowPolicyReturnsPreviousCurrentAndNextDay() throws {
+    func testDiningDateWindowPolicyRangeIsCenteredOnDate() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
         let reference = try XCTUnwrap(
             calendar.date(from: DateComponents(year: 2026, month: 7, day: 19, hour: 18))
         )
 
-        let window = DiningDateWindowPolicy.window(around: reference, calendar: calendar)
+        let range = DiningDateWindowPolicy.range(around: reference, calendar: calendar)
 
-        XCTAssertEqual(window.count, 3)
-        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[0]), DateComponents(year: 2026, month: 7, day: 18))
-        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[1]), DateComponents(year: 2026, month: 7, day: 19))
-        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[2]), DateComponents(year: 2026, month: 7, day: 20))
+        XCTAssertEqual(range.count, DiningDateWindowPolicy.radiusInDays * 2 + 1)
+        let centerIndex = DiningDateWindowPolicy.radiusInDays
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: range[centerIndex - 1]), DateComponents(year: 2026, month: 7, day: 18))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: range[centerIndex]), DateComponents(year: 2026, month: 7, day: 19))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: range[centerIndex + 1]), DateComponents(year: 2026, month: 7, day: 20))
         // Every entry is normalized to midnight regardless of the
         // reference's own time-of-day — required for `TabView(selection:)`
         // to match its own `.tag()` values by exact `Date` equality.
-        XCTAssertTrue(window.allSatisfy { calendar.dateComponents([.hour, .minute, .second], from: $0) == DateComponents(hour: 0, minute: 0, second: 0) })
+        XCTAssertTrue(range.allSatisfy { calendar.dateComponents([.hour, .minute, .second], from: $0) == DateComponents(hour: 0, minute: 0, second: 0) })
     }
 
-    func testDiningDateWindowPolicyCrossesMonthAndYearBoundaries() throws {
+    func testDiningDateWindowPolicyRangeCrossesMonthAndYearBoundaries() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
         let newYearsEve = try XCTUnwrap(
             calendar.date(from: DateComponents(year: 2026, month: 12, day: 31))
         )
 
-        let window = DiningDateWindowPolicy.window(around: newYearsEve, calendar: calendar)
+        let range = DiningDateWindowPolicy.range(around: newYearsEve, calendar: calendar)
 
-        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[0]), DateComponents(year: 2026, month: 12, day: 30))
-        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[1]), DateComponents(year: 2026, month: 12, day: 31))
-        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: window[2]), DateComponents(year: 2027, month: 1, day: 1))
+        let centerIndex = DiningDateWindowPolicy.radiusInDays
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: range[centerIndex - 1]), DateComponents(year: 2026, month: 12, day: 30))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: range[centerIndex]), DateComponents(year: 2026, month: 12, day: 31))
+        XCTAssertEqual(calendar.dateComponents([.year, .month, .day], from: range[centerIndex + 1]), DateComponents(year: 2027, month: 1, day: 1))
     }
 
     func testDiningMenuPreprocessorCacheIgnoresLiveCongestionSoldOutAndPriceFields() async {
