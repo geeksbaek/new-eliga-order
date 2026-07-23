@@ -419,7 +419,14 @@ actor DiningMenuPreprocessor {
 
     private var cachedDays: [String: PreparedDiningDay] = [:]
     private var inFlight: [String: Task<PreparedDiningDay, Never>] = [:]
+    private var inFlightRefine: [String: Task<PreparedDiningDay?, Never>] = [:]
+    /// Day keys whose personalization has already been upgraded via the on-device model.
+    private var modelRefinedKeys: Set<String> = []
 
+    /// Fast, rule-based day preparation. Avoids per-meal on-device model calls
+    /// (dynamic UI / side-dish summarization) so list and home can finish in
+    /// milliseconds. Call `refinePersonalization` afterwards when the user has
+    /// dining prefs/allergies and a better model classification is worth the wait.
     func prepare(
         periods: [DiningPeriod],
         preference: String,
@@ -429,7 +436,7 @@ actor DiningMenuPreprocessor {
         if let cached = cachedDays[key] { return cached }
         if let task = inFlight[key] { return await task.value }
         let task = Task {
-            await Self.build(periods: periods, preference: preference, allergies: allergies)
+            await Self.buildRulesOnly(periods: periods, preference: preference, allergies: allergies)
         }
         inFlight[key] = task
         let prepared = await task.value
@@ -437,6 +444,7 @@ actor DiningMenuPreprocessor {
         cachedDays[key] = prepared
         if cachedDays.count > 12, let oldestKey = cachedDays.keys.first {
             cachedDays.removeValue(forKey: oldestKey)
+            modelRefinedKeys.remove(oldestKey)
         }
         return prepared
     }
@@ -449,76 +457,153 @@ actor DiningMenuPreprocessor {
         cachedDays[dayKey(periods: periods, preference: preference, allergies: allergies)]
     }
 
-    private static func build(
+    /// Whether a model personalization pass may still improve this day.
+    func needsPersonalizationRefine(
+        periods: [DiningPeriod],
+        preference: String,
+        allergies: String
+    ) -> Bool {
+        guard DiningPersonalizationPolicy.hasAnyConfiguration(
+            preference: preference,
+            allergies: allergies
+        ) else { return false }
+        guard FoundationModelRuntimePolicy.isEnabled else { return false }
+        let key = dayKey(periods: periods, preference: preference, allergies: allergies)
+        return !modelRefinedKeys.contains(key)
+    }
+
+    /// Optional second pass: run the on-device personalization model and merge
+    /// results into the cached day. Safe to call after `prepare`; no-ops when
+    /// prefs are empty, the model is unavailable, or this day was already refined.
+    func refinePersonalization(
+        periods: [DiningPeriod],
+        preference: String,
+        allergies: String
+    ) async -> PreparedDiningDay? {
+        guard DiningPersonalizationPolicy.hasAnyConfiguration(
+            preference: preference,
+            allergies: allergies
+        ) else { return nil }
+        guard FoundationModelRuntimePolicy.isEnabled else { return nil }
+
+        let key = dayKey(periods: periods, preference: preference, allergies: allergies)
+        if modelRefinedKeys.contains(key), let cached = cachedDays[key] {
+            return cached
+        }
+        if let task = inFlightRefine[key] { return await task.value }
+
+        // Register the in-flight task before the first suspension so concurrent
+        // callers coalesce onto one model pass.
+        let task = Task<PreparedDiningDay?, Never> {
+            let base = await DiningMenuPreprocessor.shared.prepare(
+                periods: periods,
+                preference: preference,
+                allergies: allergies
+            )
+            return await Self.performPersonalizationRefine(
+                periods: periods,
+                preference: preference,
+                allergies: allergies,
+                base: base
+            )
+        }
+        inFlightRefine[key] = task
+        let result = await task.value
+        inFlightRefine[key] = nil
+        if let result {
+            cachedDays[key] = result
+            modelRefinedKeys.insert(key)
+            return result
+        }
+        if !Task.isCancelled {
+            // Model unavailable/empty — don't keep retrying this session.
+            modelRefinedKeys.insert(key)
+        }
+        return cachedDays[key]
+    }
+
+    /// Soft ceiling so a stuck Foundation Model session cannot hold the refine
+    /// task open forever. Rule-based badges already remain on screen.
+    private static let personalizationModelTimeout: Duration = .seconds(12)
+
+    private static func performPersonalizationRefine(
+        periods: [DiningPeriod],
+        preference: String,
+        allergies: String,
+        base: PreparedDiningDay
+    ) async -> PreparedDiningDay? {
+        let sources = await collectSources(from: periods)
+        guard !Task.isCancelled else { return nil }
+        guard !sources.isEmpty else { return base }
+
+        let personalizations = await classifyWithTimeout(
+            candidates: sources.map(\.candidate),
+            preference: preference,
+            allergies: allergies
+        )
+        guard !Task.isCancelled else { return nil }
+
+        return applying(
+            personalizations: personalizations,
+            to: base,
+            sources: sources,
+            preference: preference,
+            allergies: allergies
+        )
+    }
+
+    private static func classifyWithTimeout(
+        candidates: [DiningPersonalizationCandidate],
+        preference: String,
+        allergies: String
+    ) async -> [String: DiningMenuPersonalization] {
+        let fallback = DiningPersonalizationFallback.classify(
+            candidates: candidates,
+            preference: preference,
+            allergies: allergies
+        )
+        return await withTaskGroup(
+            of: [String: DiningMenuPersonalization]?.self,
+            returning: [String: DiningMenuPersonalization].self
+        ) { group in
+            group.addTask {
+                let classified = await DiningMenuPersonalizationService.shared.classify(
+                    candidates: candidates,
+                    preference: preference,
+                    allergies: allergies
+                )
+                return classified
+            }
+            group.addTask {
+                try? await Task.sleep(for: personalizationModelTimeout)
+                return nil
+            }
+            // First finished child wins: model result or timeout → fallback.
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? fallback
+        }
+    }
+
+    private struct Source: Sendable {
+        let key: String
+        let input: DiningDynamicUIInput
+        let summary: String
+        let candidate: DiningPersonalizationCandidate
+    }
+
+    /// Rule-only build: side-dish rules + dynamic UI fallback + keyword personalization.
+    /// Intentionally does not touch Foundation Models.
+    private static func buildRulesOnly(
         periods: [DiningPeriod],
         preference: String,
         allergies: String
     ) async -> PreparedDiningDay {
-        struct Source: Sendable {
-            let key: String
-            let input: DiningDynamicUIInput
-            let summary: String
-            let candidate: DiningPersonalizationCandidate
+        let sources = await collectSources(from: periods)
+        guard !Task.isCancelled else {
+            return PreparedDiningDay(periods: periods, preparations: [:])
         }
 
-        var sources: [Source] = []
-        for period in periods {
-            for course in period.courses {
-                for meal in course.menus {
-                    guard !Task.isCancelled else { return PreparedDiningDay(periods: periods, preparations: [:]) }
-                    let summary = meal.information.isEmpty
-                        ? ""
-                        : await MenuDescriptionSummarizer.shared.summary(
-                            for: meal.information,
-                            mode: .diningSideDishes
-                        )
-                    let key = DiningPreparationKey.make(period: period, course: course, meal: meal)
-                    let input = DiningDynamicUIInput(
-                        menuName: meal.titlePresentation.displayName,
-                        information: meal.information,
-                        sideDishSummary: summary,
-                        calorie: meal.calorie,
-                        nutrition: meal.nutrition,
-                        origin: course.origin
-                    )
-                    sources.append(
-                        Source(
-                            key: key,
-                            input: input,
-                            summary: summary,
-                            candidate: DiningPersonalizationCandidate(
-                                id: key,
-                                menuName: meal.titlePresentation.displayName,
-                                components: summary,
-                                information: meal.information
-                            )
-                        )
-                    )
-                }
-            }
-        }
-
-        let personalizationTask: Task<[String: DiningMenuPersonalization], Never>?
-        if DiningPersonalizationPolicy.hasAnyConfiguration(
-            preference: preference,
-            allergies: allergies
-        ) {
-            personalizationTask = Task {
-                await DiningMenuPersonalizationService.shared.classify(
-                    candidates: sources.map(\.candidate),
-                    preference: preference,
-                    allergies: allergies
-                )
-            }
-        } else {
-            personalizationTask = nil
-        }
-        var surfaces: [String: DiningDynamicUISurface] = [:]
-        for source in sources {
-            guard !Task.isCancelled else { break }
-            surfaces[source.key] = await DiningMenuDynamicUIStructurer.shared.surface(for: source.input)
-        }
-        let personalizations = await personalizationTask?.value ?? [:]
         let fallback = DiningPersonalizationFallback.classify(
             candidates: sources.map(\.candidate),
             preference: preference,
@@ -529,9 +614,12 @@ actor DiningMenuPreprocessor {
                 source.key,
                 DiningMenuPreparation(
                     sideDishSummary: source.summary,
-                    dynamicSurface: surfaces[source.key] ?? DiningDynamicUIFallback.surface(for: source.input),
-                    personalization: personalizations[source.key]
-                        ?? fallback[source.key]
+                    // Dynamic UI is fully determined by structured fallback.
+                    // Per-meal model structuring used to dominate day-prep latency
+                    // (serialized Foundation Model requests × menu count) while
+                    // the normalizer largely restored the same fallback facts.
+                    dynamicSurface: DiningDynamicUIFallback.surface(for: source.input),
+                    personalization: fallback[source.key]
                         ?? DiningMenuPersonalization(
                             recommendation: .neutral,
                             reason: nil,
@@ -541,6 +629,97 @@ actor DiningMenuPreprocessor {
             )
         }, uniquingKeysWith: { first, _ in first })
         return PreparedDiningDay(periods: periods, preparations: preparations)
+    }
+
+    private static func collectSources(from periods: [DiningPeriod]) async -> [Source] {
+        struct WorkItem: Sendable {
+            let period: DiningPeriod
+            let course: DiningCourse
+            let meal: DiningMenuItem
+        }
+
+        let items: [WorkItem] = periods.flatMap { period in
+            period.courses.flatMap { course in
+                course.menus.map { WorkItem(period: period, course: course, meal: $0) }
+            }
+        }
+        guard !items.isEmpty else { return [] }
+
+        // Summaries are rule-based now; run them concurrently so a cold day of
+        // ~30 menus doesn't pay sequential actor-hop overhead.
+        return await withTaskGroup(of: Source?.self, returning: [Source].self) { group in
+            for item in items {
+                group.addTask {
+                    guard !Task.isCancelled else { return nil }
+                    let summary: String
+                    if item.meal.information.isEmpty {
+                        summary = ""
+                    } else {
+                        summary = await MenuDescriptionSummarizer.shared.summary(
+                            for: item.meal.information,
+                            mode: .diningSideDishes
+                        )
+                    }
+                    let key = DiningPreparationKey.make(
+                        period: item.period,
+                        course: item.course,
+                        meal: item.meal
+                    )
+                    let input = DiningDynamicUIInput(
+                        menuName: item.meal.titlePresentation.displayName,
+                        information: item.meal.information,
+                        sideDishSummary: summary,
+                        calorie: item.meal.calorie,
+                        nutrition: item.meal.nutrition,
+                        origin: item.course.origin
+                    )
+                    return Source(
+                        key: key,
+                        input: input,
+                        summary: summary,
+                        candidate: DiningPersonalizationCandidate(
+                            id: key,
+                            menuName: item.meal.titlePresentation.displayName,
+                            components: summary,
+                            information: item.meal.information
+                        )
+                    )
+                }
+            }
+            var sources: [Source] = []
+            sources.reserveCapacity(items.count)
+            for await source in group {
+                if let source { sources.append(source) }
+            }
+            return sources
+        }
+    }
+
+    private static func applying(
+        personalizations: [String: DiningMenuPersonalization],
+        to base: PreparedDiningDay,
+        sources: [Source],
+        preference: String,
+        allergies: String
+    ) -> PreparedDiningDay {
+        let fallback = DiningPersonalizationFallback.classify(
+            candidates: sources.map(\.candidate),
+            preference: preference,
+            allergies: allergies
+        )
+        var preparations = base.preparations
+        for source in sources {
+            guard var preparation = preparations[source.key] else { continue }
+            preparation = DiningMenuPreparation(
+                sideDishSummary: preparation.sideDishSummary,
+                dynamicSurface: preparation.dynamicSurface,
+                personalization: personalizations[source.key]
+                    ?? fallback[source.key]
+                    ?? preparation.personalization
+            )
+            preparations[source.key] = preparation
+        }
+        return PreparedDiningDay(periods: base.periods, preparations: preparations)
     }
 
     /// 준비 결과(dynamicSurface, personalization)에 영향을 주는 필드만으로 키를 만든다.

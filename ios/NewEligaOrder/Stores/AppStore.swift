@@ -427,6 +427,25 @@ final class AppStore {
         )
     }
 
+    /// True when an on-device personalization pass may still improve list badges.
+    func needsDiningPersonalizationRefine(periods: [DiningPeriod]) async -> Bool {
+        await DiningMenuPreprocessor.shared.needsPersonalizationRefine(
+            periods: periods,
+            preference: diningPreferenceText,
+            allergies: diningAllergies
+        )
+    }
+
+    /// Background-friendly model pass over an already prepared day. Returns nil
+    /// when prefs are empty, the model is unavailable, or nothing changed.
+    func refineDiningPersonalization(periods: [DiningPeriod]) async -> PreparedDiningDay? {
+        await DiningMenuPreprocessor.shared.refinePersonalization(
+            periods: periods,
+            preference: diningPreferenceText,
+            allergies: diningAllergies
+        )
+    }
+
     func setDiningPersonalization(preference: String, allergies: String) {
         diningPreferenceText = preference.trimmingCharacters(in: .whitespacesAndNewlines)
         diningAllergies = allergies.trimmingCharacters(in: .whitespacesAndNewlines)

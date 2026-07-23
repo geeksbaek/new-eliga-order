@@ -546,6 +546,92 @@ final class NewEligaOrderTests: XCTestCase {
         XCTAssertNil(DiningSideDishRuleParser.summary(from: "배추김치\n멸치볶음"))
     }
 
+    func testDiningSideDishSummarizerUsesRulesWithoutModelForOriginSection() async {
+        let rawValue = """
+        오늘의 식단
+        [원산지]
+        배추김치(배추 국내산)
+        멸치볶음
+        계란말이
+        """
+
+        let summary = await MenuDescriptionSummarizer.shared.summary(
+            for: rawValue,
+            mode: .diningSideDishes
+        )
+
+        XCTAssertEqual(summary, "배추김치, 멸치볶음, 계란말이")
+    }
+
+    func testDiningSideDishSummarizerFallsBackToComponentNamesWithoutOriginMarker() async {
+        // No [원산지] marker — previously fell through to the on-device model.
+        let rawValue = """
+        쌀밥
+        된장국
+        제육볶음
+        """
+
+        let summary = await MenuDescriptionSummarizer.shared.summary(
+            for: rawValue,
+            mode: .diningSideDishes
+        )
+
+        XCTAssertEqual(summary, "쌀밥, 된장국, 제육볶음")
+    }
+
+    func testDiningMenuPreprocessorPrepareIsRuleBasedAndNearInstant() async throws {
+        let periods = [
+            DiningPeriod(
+                time: "중식",
+                startTime: "11:30:00",
+                endTime: "13:30:00",
+                courses: [
+                    DiningCourse(
+                        name: "한식",
+                        price: 7_000,
+                        menus: [
+                            DiningMenuItem(
+                                name: "제육볶음",
+                                calorie: 650,
+                                nutrition: "단백질 27g / 지방 18g",
+                                information: """
+                                [원산지]
+                                쌀밥
+                                된장국
+                                배추김치
+                                """,
+                                imageURL: nil,
+                                isSoldOut: false
+                            ),
+                        ],
+                        isSoldOut: false,
+                        congestion: "NORMAL",
+                        origin: "돼지고기 국내산"
+                    ),
+                ]
+            ),
+        ]
+
+        let started = ContinuousClock.now
+        let prepared = await DiningMenuPreprocessor.shared.prepare(
+            periods: periods,
+            preference: "",
+            allergies: ""
+        )
+        let elapsed = ContinuousClock.now - started
+
+        XCTAssertEqual(prepared.preparations.count, 1)
+        let preparation = try XCTUnwrap(prepared.preparations.values.first)
+        XCTAssertEqual(preparation.sideDishSummary, "쌀밥, 된장국, 배추김치")
+        XCTAssertFalse(preparation.dynamicSurface.isModelGenerated)
+        XCTAssertEqual(
+            preparation.personalization.recommendation,
+            DiningRecommendationState.neutral
+        )
+        // Rule-only prep should finish well under a second even on a cold path.
+        XCTAssertLessThan(elapsed, .seconds(2))
+    }
+
     func testFoundationModelRuntimePolicySupportsIOS26AndIOS27() {
         XCTAssertTrue(
             FoundationModelRuntimePolicy.isSupported(

@@ -355,19 +355,30 @@ private struct DiningDayPageView: View {
             if let cached = await store.cachedPreparedDiningDay(periods: rawPeriods) {
                 guard !Task.isCancelled else { return }
                 preparations = cached.preparations
+                await refinePersonalizationIfNeeded(periods: rawPeriods)
                 return
             }
 
+            // Rule-based prep is near-instant; keep the banner only while it runs.
             isPreparing = !rawPeriods.isEmpty
             let loaded = await store.prepareDiningDay(periods: rawPeriods)
             guard !Task.isCancelled else { return }
             preparations = loaded.preparations
             isPreparing = false
+            // Optional on-device personalization upgrade — does not block the list.
+            await refinePersonalizationIfNeeded(periods: rawPeriods)
         } catch is CancellationError {
             return
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func refinePersonalizationIfNeeded(periods rawPeriods: [DiningPeriod]) async {
+        guard await store.needsDiningPersonalizationRefine(periods: rawPeriods) else { return }
+        guard let refined = await store.refineDiningPersonalization(periods: rawPeriods) else { return }
+        guard !Task.isCancelled else { return }
+        preparations = refined.preparations
     }
 
     private func detailContext(

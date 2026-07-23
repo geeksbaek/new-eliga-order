@@ -8,6 +8,10 @@ struct HomeView: View {
     @State private var recentItems: [HomeRecentItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    /// Last identity this screen actually loaded for. Prevents remounts from
+    /// re-firing a full load when the personalization signature and cafe shop
+    /// set have not changed (same pattern as `DiningDayPageView`).
+    @State private var loadedIdentity: String?
 
     /// Keeps the owning course alongside each dish — needed to build a full
     /// `DiningMenuDetailContext` for tap-to-detail navigation, which a plain
@@ -77,13 +81,40 @@ struct HomeView: View {
             }
         }
         .refreshable { await load(forceRefresh: true) }
-        .task(id: store.diningPersonalizationSignature) {
-            if periods.isEmpty, recentItems.isEmpty {
-                await load()
-            } else {
+        .task(id: homeLoadIdentity) {
+            // Include cafe shop IDs so the first load that ran before bootstrap
+            // finished (empty `cafeShops`) is retried once shops arrive.
+            // Also re-run when dining personalization prefs change.
+            let identity = homeLoadIdentity
+            guard identity != loadedIdentity else { return }
+
+            let previous = loadedIdentity
+            let shopsChanged = previous.map { old in
+                Self.cafeShopPortion(of: old) != Self.cafeShopPortion(of: identity)
+            } ?? true
+            let personalizationOnly = previous != nil
+                && !shopsChanged
+                && !periods.isEmpty
+
+            if personalizationOnly {
+                loadedIdentity = identity
                 await loadDiningPersonalization()
+            } else {
+                await load()
+                guard !Task.isCancelled else { return }
+                loadedIdentity = identity
             }
         }
+    }
+
+    /// Personalization prefs + cafe shop set — drives the home `.task(id:)`.
+    private var homeLoadIdentity: String {
+        let shopIDs = store.cafeShops.map(\.id).sorted().map(String.init).joined(separator: ",")
+        return "\(store.diningPersonalizationSignature)#\(shopIDs)"
+    }
+
+    private static func cafeShopPortion(of identity: String) -> Substring {
+        identity.split(separator: "#", maxSplits: 1).last ?? ""
     }
 
     private var dateHeader: some View {
@@ -327,17 +358,24 @@ struct HomeView: View {
         defer { isLoading = false }
         errorMessage = nil
 
-        async let diningRequest = store.preparedDiningDay(
+        // Load the raw dining menu and cafe recents in parallel. Do NOT wait
+        // for `preparedDiningDay` here — that path runs on-device model work
+        // (summaries / personalization / dynamic UI) and can take a long time
+        // or stall. Blocking the skeleton on it left both home cards stuck
+        // on "확인하는 중…" even when the network responses were already done.
+        // Mirror `DiningDayPageView`: show base content first, personalize after.
+        async let diningRequest = store.diningDay(
             shopID: store.diningShopID,
             date: .now,
             forceRefresh: forceRefresh
         )
         async let cafeRequest = loadCafeRecents(forceRefresh: forceRefresh)
 
+        var rawPeriods: [DiningPeriod] = periods
         do {
-            let prepared = try await diningRequest
-            periods = prepared.periods
-            diningPreparations = prepared.preparations
+            rawPeriods = try await diningRequest
+            guard !Task.isCancelled else { return }
+            periods = rawPeriods
         } catch is CancellationError {
             return
         } catch {
@@ -358,6 +396,10 @@ struct HomeView: View {
             errorMessage = errorMessage ?? "최근 카페 주문을 불러오지 못했습니다."
         }
         ImagePipeline.shared.preload(recentItems.compactMap(\.item.thumbnailURL), targetSize: 96)
+
+        // Drop the loading skeleton before the slower preparation pass.
+        isLoading = false
+        await applyDiningPreparation(periods: rawPeriods)
     }
 
     private func loadCafeRecents(forceRefresh: Bool) async -> [HomeRecentLoadResult] {
@@ -386,12 +428,33 @@ struct HomeView: View {
     }
 
     private func loadDiningPersonalization() async {
-        guard let prepared = try? await store.preparedDiningDay(shopID: store.diningShopID, date: .now) else {
+        guard let rawPeriods = try? await store.diningDay(shopID: store.diningShopID, date: .now) else {
             return
         }
         guard !Task.isCancelled else { return }
-        periods = prepared.periods
-        diningPreparations = prepared.preparations
+        periods = rawPeriods
+        await applyDiningPreparation(periods: rawPeriods)
+    }
+
+    /// Applies rule-based dining preparation immediately, then optionally upgrades
+    /// personalization badges via the on-device model without blocking home content.
+    private func applyDiningPreparation(periods rawPeriods: [DiningPeriod]) async {
+        guard !rawPeriods.isEmpty else {
+            diningPreparations = [:]
+            return
+        }
+        if let cached = await store.cachedPreparedDiningDay(periods: rawPeriods) {
+            guard !Task.isCancelled else { return }
+            diningPreparations = cached.preparations
+        } else {
+            let prepared = await store.prepareDiningDay(periods: rawPeriods)
+            guard !Task.isCancelled else { return }
+            diningPreparations = prepared.preparations
+        }
+        guard await store.needsDiningPersonalizationRefine(periods: rawPeriods) else { return }
+        guard let refined = await store.refineDiningPersonalization(periods: rawPeriods) else { return }
+        guard !Task.isCancelled else { return }
+        diningPreparations = refined.preparations
     }
 
     private func personalization(for dish: FeaturedDish) -> DiningMenuPersonalization {

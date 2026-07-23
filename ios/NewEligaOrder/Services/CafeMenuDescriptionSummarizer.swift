@@ -191,8 +191,12 @@ actor MenuDescriptionSummarizer {
         let key = cacheKey(for: rawValue, mode: mode)
         if let cached = cache[key] { return cached }
 
-        if mode == .diningSideDishes,
-           let parsed = DiningSideDishRuleParser.summary(from: rawValue) {
+        // Dining side-dish extraction is fully rule-based. The on-device model
+        // was only a fallback for unmarked text, but `DiningMenuDetailFallback`
+        // already covers that path — and calling the model once per meal made
+        // day prep feel stuck for tens of seconds.
+        if mode == .diningSideDishes {
+            let parsed = diningSideDishSummary(from: rawValue, fallback: fallback)
             cache[key] = parsed
             trimCacheIfNeeded()
             UserDefaults.standard.set(cache, forKey: cacheDefaultsKey)
@@ -216,6 +220,23 @@ actor MenuDescriptionSummarizer {
         trimCacheIfNeeded()
         UserDefaults.standard.set(cache, forKey: cacheDefaultsKey)
         return normalized
+    }
+
+    /// Prefer structured origin-section parsing, then generic food-line extraction.
+    private func diningSideDishSummary(from rawValue: String, fallback: String) -> String {
+        if let parsed = DiningSideDishRuleParser.summary(from: rawValue) {
+            return parsed
+        }
+        let components = DiningMenuDetailFallback.componentNames(from: rawValue)
+        guard !components.isEmpty else {
+            return fallback.isEmpty ? "반찬 정보 없음" : clampDiningSummary(fallback)
+        }
+        return clampDiningSummary(components.prefix(6).joined(separator: ", "))
+    }
+
+    private func clampDiningSummary(_ value: String) -> String {
+        guard value.count > 60 else { return value }
+        return String(value.prefix(59)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     private func cacheKey(for rawValue: String, mode: MenuDescriptionSummarizationMode) -> String {
